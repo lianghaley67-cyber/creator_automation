@@ -1,0 +1,5 @@
+# Ignore generated content in outputs/reports, keep placeholders
+outputs/*
+!outputs/.gitkeep
+reports/*
+!reports/.gitkeep
