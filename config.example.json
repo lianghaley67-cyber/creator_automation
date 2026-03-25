@@ -1,0 +1,92 @@
+{
+  "account_profile": {
+    "name": "沐禾向生",
+    "positioning": "普通人的自媒体成长之路：视频复盘 + 视频号实操 + 拍摄学习经验",
+    "audience": "18-35 岁想通过内容成长的普通人",
+    "tone": "诶谐、真诚、像朋友聊天、积极轻松、有节奏感",
+    "cta": "评论区告诉我你最卡的一步"
+  },
+  "workflow": {
+    "timezone": "Asia/Shanghai",
+    "language": "zh-CN"
+  },
+  "network": {
+    "proxy_url": "http://127.0.0.1:7897",
+    "no_proxy": "localhost,127.0.0.1"
+  },
+  "content_strategy": {
+    "default_series": "people_recap"
+  },
+  "videohao_monitor": {
+    "target_accounts": [
+      "福饱饱6",
+      "沐禾向生"
+    ],
+    "daily_series": [
+      "people_recap",
+      "people_videohao",
+      "people_shooting"
+    ],
+    "theme_keywords": {
+      "people_recap": [
+        "复盘",
+        "数据",
+        "完播",
+        "播放",
+        "点赞",
+        "评论",
+        "拆解",
+        "留存"
+      ],
+      "people_videohao": [
+        "视频号",
+        "起号",
+        "选题",
+        "标题",
+        "封面",
+        "发布时间",
+        "涨粉",
+        "运营"
+      ],
+      "people_shooting": [
+        "拍摄",
+        "镜头",
+        "口播",
+        "布光",
+        "收音",
+        "剪辑",
+        "出镜",
+        "表达"
+      ]
+    },
+    "fallback_topics": {
+      "people_recap": "普通人如何做一次有效的视频复盘并找到下一条增长点",
+      "people_videohao": "普通人做视频号的三步实操方法：选题、标题、发布",
+      "people_shooting": "普通人拍视频如何克服镜头尴尬并稳定输出"
+    }
+  },
+  "videohao_login": {
+    "login_url": "https://channels.weixin.qq.com/platform",
+    "watch_dir": "C:\\Users\\HP\\Downloads",
+    "timeout_sec": 900
+  },
+  "topic_collection": {
+    "keywords": [
+      "female creator growth",
+      "video account review",
+      "video account operations",
+      "short video shooting",
+      "camera confidence",
+      "content workflow"
+    ],
+    "rss_query_templates": [
+      "https://news.google.com/rss/search?q={keyword}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+    ],
+    "max_topics_total": 20
+  },
+  "llm": {
+    "model": "gpt-5-mini",
+    "temperature": 0.7,
+    "base_url": "https://api.openai.com"
+  }
+}
