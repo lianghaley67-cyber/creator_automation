@@ -27,6 +27,7 @@ const visualPipeline = ref(null);
 const referenceImageUrl = ref("");
 const maodouVoiceUrl = ref("");
 const peanutVoiceUrl = ref("");
+const publishDrafts = reactive({});
 
 const voicePresets = [
   { label: "轻快软萌童声（推荐）", value: "zh-CN-XiaoyiNeural" },
@@ -41,7 +42,8 @@ const busy = reactive({
   uploadReference: false,
   uploadVoice: false,
   previewScript: false,
-  generate: false
+  generate: false,
+  publish: ""
 });
 
 const kidsForm = reactive({
@@ -314,6 +316,56 @@ async function deleteHistoryJob(jobId) {
   }
 }
 
+async function copyText(text, successMessage = "已复制。") {
+  const value = String(text || "");
+  if (!value) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.setAttribute("readonly", "readonly");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+    setNotice(successMessage);
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "复制失败，请手动选择文本复制。"));
+  }
+}
+
+async function prepareDouyinPublish(job) {
+  if (!job?.id) return;
+  busy.publish = String(job.id);
+  try {
+    const result = await requestApi(
+      `/api/jobs/${job.id}/publish/douyin-assistant`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({})
+      },
+      30000
+    );
+    publishDrafts[job.id] = result;
+    setNotice("发布助手已准备好：先复制标题/话题，再打开抖音投稿页上传视频。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "发布助手准备失败。"));
+  } finally {
+    if (busy.publish === String(job.id)) busy.publish = "";
+  }
+}
+
+function openDouyinCreator(draft) {
+  const url = draft?.creator_url || "https://creator.douyin.com/";
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 async function refreshJobs() {
   busy.refresh = true;
   try {
@@ -547,6 +599,33 @@ onBeforeUnmount(() => {
             <a v-if="job.artifacts.video_url" :href="mediaUrl(job.artifacts.video_url)" target="_blank">打开视频</a>
           </div>
           <video v-if="job.artifacts?.video_url" class="video-preview" :src="mediaUrl(job.artifacts.video_url)" controls preload="metadata"></video>
+          <div class="publish-actions">
+            <button class="btn accent small" :disabled="busy.publish === String(job.id)" @click="prepareDouyinPublish(job)">
+              {{ busy.publish === String(job.id) ? "准备中..." : "发布助手" }}
+            </button>
+          </div>
+          <div v-if="publishDrafts[job.id]" class="publish-card">
+            <div class="publish-card-head">
+              <strong>抖音发布助手</strong>
+              <span>最后一步需要你手动点发布</span>
+            </div>
+            <label class="field">
+              <span>标题 + 话题</span>
+              <textarea class="caption-box" readonly :value="publishDrafts[job.id].caption"></textarea>
+            </label>
+            <label class="field">
+              <span>本地视频文件路径</span>
+              <input readonly :value="publishDrafts[job.id].video_file_path" />
+            </label>
+            <div class="publish-buttons">
+              <button class="btn secondary small" @click="copyText(publishDrafts[job.id].caption, '标题和话题已复制。')">复制标题话题</button>
+              <button class="btn secondary small" @click="copyText(publishDrafts[job.id].video_file_path, '视频路径已复制。')">复制视频路径</button>
+              <button class="btn accent small" @click="openDouyinCreator(publishDrafts[job.id])">打开抖音投稿页</button>
+            </div>
+            <ol>
+              <li v-for="step in publishDrafts[job.id].steps" :key="step">{{ step }}</li>
+            </ol>
+          </div>
           <button class="btn secondary small" :disabled="deletingJobId === String(job.id)" @click="deleteHistoryJob(job.id)">
             {{ deletingJobId === String(job.id) ? "删除中..." : "删除记录" }}
           </button>
@@ -904,6 +983,46 @@ textarea {
   margin-top: 10px;
   border-radius: 8px;
   background: #101820;
+}
+
+.publish-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.publish-card {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  border: 1px solid #ffd0a8;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff8ee;
+}
+
+.publish-card-head,
+.publish-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.publish-card-head span,
+.publish-card ol {
+  color: #6b5b4a;
+  font-size: 13px;
+}
+
+.caption-box {
+  min-height: 82px;
+}
+
+.publish-card ol {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.55;
 }
 
 .floating-generate {

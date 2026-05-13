@@ -125,6 +125,20 @@ for url in [
 
 ## 7. 常见问题
 
+### 个人号如何发布到抖音
+
+个人新号通常无法直接使用抖音开放平台 API 代发视频。当前项目提供的是发布助手：
+
+```text
+生成视频 -> 预览 -> 发布助手 -> 复制标题/话题和视频路径 -> 打开抖音投稿页 -> 手动确认发布
+```
+
+如果抖音投稿页地址后续变化，可以在 `.env` 中调整：
+
+```env
+DOUYIN_CREATOR_UPLOAD_URL=https://creator.douyin.com/creator-micro/content/post/video
+```
+
 ### 端口被旧进程占用
 
 查看端口：

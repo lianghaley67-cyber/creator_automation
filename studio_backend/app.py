@@ -36,6 +36,7 @@ from .scheduler import StudioScheduler
 from .script_ai import generate_kids_script_with_ai
 from .schemas import (
     DistillRequest,
+    DouyinPublishAssistantRequest,
     GenerateRequest,
     KidsGenerateRequest,
     KidsScriptPreviewRequest,
@@ -78,6 +79,10 @@ def _load_root_env() -> None:
 
 
 _load_root_env()
+DOUYIN_CREATOR_UPLOAD_URL = os.getenv(
+    "DOUYIN_CREATOR_UPLOAD_URL",
+    "https://creator.douyin.com/creator-micro/content/post/video",
+).strip() or "https://creator.douyin.com/"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -230,6 +235,88 @@ def _job_snapshot(job_id: str) -> dict[str, Any]:
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
     return job
+
+
+def _compact_text(value: Any, *, limit: int = 80) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text[:limit].rstrip()
+
+
+def _normalize_hashtag(value: Any) -> str:
+    text = re.sub(r"[#＃\s]+", "", str(value or "")).strip("，,。.!！?？、；;：:")
+    return text[:24]
+
+
+def _default_douyin_hashtags(job: dict[str, Any]) -> list[str]:
+    request_payload = job.get("request") if isinstance(job.get("request"), dict) else {}
+    topic = _compact_text(request_payload.get("topic"), limit=24)
+    content_mode = str(request_payload.get("content_mode", "")).strip().lower()
+    base = ["毛豆和花生", "儿童动画", "亲子早教"]
+    if content_mode == "science":
+        base += ["儿童科普", "科学启蒙"]
+    elif content_mode == "early_learning":
+        base += ["益智早教", "认知启蒙"]
+    else:
+        base += ["3到6岁", "动画短视频"]
+    if topic:
+        base.insert(0, topic)
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for tag in base:
+        clean = _normalize_hashtag(tag)
+        key = clean.lower()
+        if clean and key not in seen:
+            seen.add(key)
+            normalized.append(clean)
+    return normalized[:6]
+
+
+def _build_douyin_caption(title: str, hashtags: list[str]) -> str:
+    tag_text = " ".join(f"#{tag}" for tag in hashtags if tag)
+    caption = f"{title.strip()} {tag_text}".strip()
+    return caption[:1000]
+
+
+def _build_douyin_publish_draft(
+    job: dict[str, Any],
+    payload: DouyinPublishAssistantRequest | None = None,
+) -> dict[str, Any]:
+    if str(job.get("status", "")).strip().lower() != "completed":
+        raise HTTPException(status_code=409, detail="视频生成完成后才能使用发布助手。")
+    artifacts = job.get("artifacts") if isinstance(job.get("artifacts"), dict) else {}
+    video_url = str(artifacts.get("video_url", "")).strip()
+    if not video_url:
+        raise HTTPException(status_code=400, detail="当前任务没有可发布的视频文件。")
+    video_path = _resolve_download_target(video_url)
+    request_payload = job.get("request") if isinstance(job.get("request"), dict) else {}
+    topic = _compact_text(request_payload.get("topic") or job.get("script_text"), limit=34)
+    default_title = f"和毛豆花生一起认识：{topic}" if topic else "和毛豆花生一起学一个小知识"
+    title = _compact_text((payload.title if payload else "") or default_title, limit=80)
+    incoming_tags = payload.hashtags if payload else []
+    hashtags = [_normalize_hashtag(tag) for tag in incoming_tags]
+    hashtags = [tag for tag in hashtags if tag]
+    if not hashtags:
+        hashtags = _default_douyin_hashtags(job)
+    caption = _build_douyin_caption(title, hashtags)
+    return {
+        "prepared_at": now_iso(),
+        "platform": "douyin",
+        "mode": "manual_confirm_assistant",
+        "creator_url": DOUYIN_CREATOR_UPLOAD_URL,
+        "video_url": video_url,
+        "video_file_path": str(video_path),
+        "title": title,
+        "hashtags": hashtags,
+        "caption": caption,
+        "steps": [
+            "点击打开抖音创作者服务平台并扫码登录。",
+            "在投稿页面选择本地视频文件。",
+            "复制标题和话题到发布标题输入框。",
+            "检查封面、可见范围和内容合规性。",
+            "确认无误后，由你手动点击发布。",
+        ],
+        "manual_confirm_required": True,
+    }
 
 
 def _sync_scheduler() -> None:
@@ -1046,6 +1133,26 @@ def list_jobs() -> list[dict[str, Any]]:
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str) -> dict[str, Any]:
     return _job_snapshot(job_id)
+
+
+@app.get("/api/jobs/{job_id}/publish/douyin-assistant")
+def get_douyin_publish_assistant(job_id: str) -> dict[str, Any]:
+    job = _job_snapshot(job_id)
+    draft = job.get("douyin_publish_assistant")
+    if isinstance(draft, dict) and draft.get("video_url"):
+        return draft
+    return _build_douyin_publish_draft(job)
+
+
+@app.post("/api/jobs/{job_id}/publish/douyin-assistant")
+def prepare_douyin_publish_assistant(
+    job_id: str,
+    payload: DouyinPublishAssistantRequest = DouyinPublishAssistantRequest(),
+) -> dict[str, Any]:
+    job = _job_snapshot(job_id)
+    draft = _build_douyin_publish_draft(job, payload)
+    store.update_record("jobs", job_id, {"douyin_publish_assistant": draft, "updated_at": now_iso()})
+    return draft
 
 
 @app.delete("/api/jobs/{job_id}")

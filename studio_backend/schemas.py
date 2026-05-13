@@ -135,3 +135,8 @@ class KidsGenerateRequest(BaseModel):
     dynamic_background: bool = False
     animation_style: str = "cartoon_3d_duo_cinematic"
     video_provider: str = "zhipu_qingying"
+
+
+class DouyinPublishAssistantRequest(BaseModel):
+    title: str = ""
+    hashtags: list[str] = Field(default_factory=list)
