@@ -1,0 +1,6 @@
+# One topic per line. Copy this file to data/daily_topics.txt and edit.
+How to stop freezing on camera
+How to build a repeatable talking-head workflow
+Why short videos fail in the first 3 seconds
+How to create scripts in 10 minutes per day
+How to improve retention with one structure

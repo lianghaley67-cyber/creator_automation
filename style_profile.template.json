@@ -1,0 +1,29 @@
+{
+  "positioning": "Your account positioning in one sentence",
+  "target_audience": "Who you talk to",
+  "tone_keywords": [
+    "direct",
+    "grounded",
+    "actionable"
+  ],
+  "opening_hook_patterns": [
+    "You think X, but actually Y",
+    "If you are struggling with X, this is for you"
+  ],
+  "signature_phrases": [
+    "Use your own phrase here 1",
+    "Use your own phrase here 2"
+  ],
+  "cta_templates": [
+    "If you want the template, comment TEMPLATE",
+    "Follow for part 2"
+  ],
+  "avoid_words": [
+    "empty buzzwords",
+    "overly formal phrases"
+  ],
+  "reference_examples": [
+    "Paste one of your historical scripts here.",
+    "Paste another one here."
+  ]
+}

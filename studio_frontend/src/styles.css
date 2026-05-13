@@ -1,0 +1,595 @@
+:root {
+  --ink: #10212c;
+  --ink-soft: #45606d;
+  --paper: #f5efe4;
+  --paper-strong: #fff9f0;
+  --card: rgba(255, 249, 240, 0.78);
+  --line: rgba(16, 33, 44, 0.1);
+  --teal: #167c80;
+  --teal-soft: #d8f0ee;
+  --orange: #cf6c2b;
+  --orange-soft: #ffe0c9;
+  --shadow: 0 24px 80px rgba(16, 33, 44, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(22, 124, 128, 0.22), transparent 28%),
+    radial-gradient(circle at top right, rgba(207, 108, 43, 0.18), transparent 24%),
+    linear-gradient(180deg, #fbf6ee 0%, #f0e6d8 100%);
+  font-family: "Bahnschrift", "Segoe UI Variable", "Microsoft YaHei UI", sans-serif;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+.app-shell {
+  width: min(1320px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 24px 0 48px;
+}
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, rgba(255, 249, 240, 0.92), rgba(216, 240, 238, 0.82)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.7), rgba(255, 224, 201, 0.4));
+  box-shadow: var(--shadow);
+}
+
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: auto -60px -80px auto;
+  width: 260px;
+  height: 260px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(207, 108, 43, 0.28), transparent 65%);
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  line-height: 1;
+}
+
+.hero p {
+  max-width: 860px;
+  color: var(--ink-soft);
+  font-size: 1.02rem;
+}
+
+.hero-grid,
+.stats-grid,
+.panel-grid,
+.jobs-grid {
+  display: grid;
+  gap: 18px;
+}
+
+.hero-grid {
+  grid-template-columns: 1.5fr 1fr;
+  align-items: start;
+  margin-top: 20px;
+}
+
+.stats-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 22px;
+}
+
+.stat-card,
+.panel,
+.job-card,
+.upload-card {
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+  animation: rise 0.55s ease both;
+}
+
+.stat-card {
+  padding: 18px 20px;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+.stat-label {
+  color: var(--ink-soft);
+  margin-top: 4px;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(16, 33, 44, 0.06);
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+}
+
+.panel-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 20px;
+}
+
+.panel {
+  padding: 22px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.panel-header h2,
+.panel-header h3 {
+  margin: 0;
+  font-size: 1.18rem;
+}
+
+.panel p {
+  color: var(--ink-soft);
+}
+
+.field-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.field-grid.single {
+  grid-template-columns: 1fr;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field label {
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+}
+
+.field input,
+.field textarea,
+.field select {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(16, 33, 44, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--ink);
+  outline: none;
+}
+
+.field textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.field-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.toggle-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(16, 33, 44, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 18px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--teal), #145e61);
+  color: white;
+}
+
+.btn-secondary {
+  background: rgba(16, 33, 44, 0.08);
+  color: var(--ink);
+}
+
+.btn-accent {
+  background: linear-gradient(135deg, var(--orange), #a6531f);
+  color: white;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.chip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--teal-soft);
+  color: var(--teal);
+  font-size: 0.9rem;
+}
+
+.chip.orange {
+  background: var(--orange-soft);
+  color: var(--orange);
+}
+
+.jobs-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 20px;
+}
+
+.job-card,
+.upload-card {
+  padding: 18px;
+}
+
+.running-job-card {
+  display: grid;
+  gap: 12px;
+}
+
+.job-title,
+.upload-title {
+  font-size: 1.04rem;
+  font-weight: 700;
+}
+
+.meta {
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.links a {
+  text-decoration: none;
+  color: var(--teal);
+  font-weight: 600;
+}
+
+.link-button {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--teal);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notice {
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: rgba(22, 124, 128, 0.12);
+  color: var(--teal);
+}
+
+.danger {
+  background: rgba(207, 108, 43, 0.12);
+  color: var(--orange);
+}
+
+.stack {
+  display: grid;
+  gap: 14px;
+}
+
+.analysis-card {
+  display: grid;
+  gap: 12px;
+}
+
+.analysis-preview {
+  min-height: 44px;
+}
+
+.analysis-actions {
+  margin-top: 0;
+}
+
+.field-note {
+  margin-top: 14px;
+}
+
+.persona-insight-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.persona-insight-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(16, 33, 44, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.persona-insight-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+
+.artifact-list a {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(22, 124, 128, 0.08);
+}
+
+.job-video-preview {
+  width: 100%;
+  margin-top: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(16, 33, 44, 0.12);
+  background: rgba(16, 33, 44, 0.06);
+}
+
+.reference-assets {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.reference-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(16, 33, 44, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.portrait-preview {
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+  border-radius: 18px;
+  border: 1px solid rgba(16, 33, 44, 0.08);
+  background: rgba(16, 33, 44, 0.04);
+}
+
+.reference-audio {
+  width: 100%;
+}
+
+.progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.progress-track {
+  overflow: hidden;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(16, 33, 44, 0.08);
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--teal), var(--orange));
+  transition: width 0.3s ease;
+}
+
+.analysis-detail-panel .panel-header {
+  align-items: flex-start;
+}
+
+.analysis-inline-actions {
+  margin-top: 0;
+  justify-content: flex-end;
+}
+
+.analysis-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(16, 33, 44, 0.34);
+  backdrop-filter: blur(12px);
+}
+
+.analysis-modal {
+  width: min(1080px, 100%);
+  max-height: min(88vh, 920px);
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(255, 249, 240, 0.96), rgba(245, 239, 228, 0.94));
+  box-shadow: 0 28px 90px rgba(16, 33, 44, 0.22);
+}
+
+.detail-heading {
+  margin: 8px 0 0;
+}
+
+.detail-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.detail-block {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(16, 33, 44, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.detail-block-wide {
+  grid-column: 1 / -1;
+}
+
+.detail-block-title {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.detail-copy {
+  display: grid;
+  gap: 10px;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.detail-metrics {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.detail-metric {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(16, 33, 44, 0.05);
+}
+
+.detail-metric span {
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+}
+
+.detail-metric strong {
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.detail-transcript {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(16, 33, 44, 0.05);
+  color: var(--ink);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 980px) {
+  .hero-grid,
+  .panel-grid,
+  .jobs-grid,
+  .field-grid,
+  .persona-insight-grid,
+  .reference-assets,
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell {
+    width: min(100vw - 20px, 100%);
+  }
+
+  .analysis-modal-backdrop {
+    padding: 12px;
+  }
+
+  .analysis-modal {
+    padding: 18px;
+    max-height: 92vh;
+  }
+
+  .detail-grid,
+  .detail-metrics {
+    grid-template-columns: 1fr;
+  }
+}
