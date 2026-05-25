@@ -14,7 +14,7 @@ sudo apt install -y software-properties-common curl ca-certificates gnupg git ng
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   sudo add-apt-repository -y ppa:deadsnakes/ppa
   sudo apt update
-  sudo apt install -y "$PYTHON_BIN" "${PYTHON_BIN}-venv" "${PYTHON_BIN}-dev"
+  sudo apt install -y "$PYTHON_BIN" "${PYTHON_BIN}-venv" "${PYTHON_BIN}-dev" || true
 fi
 
 if ! command -v node >/dev/null 2>&1 || ! node --version | grep -Eq '^v(20|22|24)\.'; then
@@ -24,7 +24,17 @@ fi
 
 echo "[2/7] Creating Python virtual environment..."
 rm -rf .venv
-"$PYTHON_BIN" -m venv .venv
+if command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  "$PYTHON_BIN" -m venv .venv
+else
+  echo "System $PYTHON_BIN is unavailable. Installing standalone Python via uv..."
+  if ! command -v uv >/dev/null 2>&1; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+  fi
+  uv python install 3.11
+  uv venv --python 3.11 .venv
+fi
 . .venv/bin/activate
 python -m pip install --upgrade pip wheel setuptools
 pip install -r studio_backend/requirements.txt
