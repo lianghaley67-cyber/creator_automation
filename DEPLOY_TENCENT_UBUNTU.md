@@ -77,6 +77,27 @@ CREATOR_STUDIO_PUBLIC_BASE_URL=http://你的服务器公网IP
 sudo systemctl restart creator-studio
 ```
 
+也可以使用安全更新脚本，避免手动编辑 `.env` 时误删内容：
+
+```bash
+cd /home/ubuntu/creator_automation
+python3 deploy/update_env.py --from-stdin --restart
+```
+
+然后粘贴需要更新的配置，例如：
+
+```env
+TAVILY_API_KEY=你的TavilyKey
+GITEE_ACCESS_TOKEN=你的Gitee私人令牌
+AI_TRENDS_ENABLED=true
+AI_TRENDS_TIME=07:30
+OBSIDIAN_REPO_OWNER=lianghuanhuan
+OBSIDIAN_REPO_NAME=obsidian
+OBSIDIAN_ARCHIVE_DIR=01_Inbox/CreatorStudio
+```
+
+粘贴完成后按 `Ctrl+D`。脚本会自动备份旧 `.env`，更新键值，并重启 `creator-studio`。
+
 ## 5. 检查服务
 
 ```bash
@@ -137,4 +158,3 @@ cd /home/ubuntu/creator_automation
 git pull
 bash deploy/ubuntu_install.sh
 ```
-
