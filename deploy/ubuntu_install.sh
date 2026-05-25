@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-$HOME/creator_automation}"
 SERVICE_USER="${SERVICE_USER:-$(whoami)}"
-PYTHON_BIN="${PYTHON_BIN:-python3.10}"
+PYTHON_BIN="${PYTHON_BIN:-python3.11}"
 
 cd "$PROJECT_DIR"
 
@@ -14,7 +14,7 @@ sudo apt install -y software-properties-common curl ca-certificates gnupg git ng
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   sudo add-apt-repository -y ppa:deadsnakes/ppa
   sudo apt update
-  sudo apt install -y python3.10 python3.10-venv python3.10-dev
+  sudo apt install -y "$PYTHON_BIN" "${PYTHON_BIN}-venv" "${PYTHON_BIN}-dev"
 fi
 
 if ! command -v node >/dev/null 2>&1 || ! node --version | grep -Eq '^v(20|22|24)\.'; then
@@ -23,6 +23,7 @@ if ! command -v node >/dev/null 2>&1 || ! node --version | grep -Eq '^v(20|22|24
 fi
 
 echo "[2/7] Creating Python virtual environment..."
+rm -rf .venv
 "$PYTHON_BIN" -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip wheel setuptools
