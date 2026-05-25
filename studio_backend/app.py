@@ -1192,27 +1192,44 @@ def receive_wechat_material(payload: WeChatMaterialRequest) -> dict[str, Any]:
     store.add_record("wechat_materials", record)
     preview: dict[str, Any] | None = None
     if payload.auto_preview:
-        preview = preview_kids_script(
-            KidsScriptPreviewRequest(
-                topic=material_text,
-                seconds=payload.seconds,
-                prompt_hint=payload.prompt_hint,
-                content_mode=payload.content_mode,
-                learning_goal=payload.learning_goal,
-                script_provider=payload.script_provider,
+        try:
+            preview = preview_kids_script(
+                KidsScriptPreviewRequest(
+                    topic=material_text,
+                    seconds=payload.seconds,
+                    prompt_hint=payload.prompt_hint,
+                    content_mode=payload.content_mode,
+                    learning_goal=payload.learning_goal,
+                    script_provider=payload.script_provider,
+                )
             )
-        )
-        reply = _format_wechat_copy_reply(preview, material_text=material_text)
-        store.update_record(
-            "wechat_materials",
-            record["id"],
-            {
-                "status": "preview_generated",
-                "script_source": preview.get("script_source"),
-                "script": preview.get("script"),
-                "reply": reply,
-            },
-        )
+            reply = _format_wechat_copy_reply(preview, material_text=material_text)
+            store.update_record(
+                "wechat_materials",
+                record["id"],
+                {
+                    "status": "preview_generated",
+                    "script_source": preview.get("script_source"),
+                    "script": preview.get("script"),
+                    "storyboard": preview.get("storyboard"),
+                    "quality": preview.get("quality"),
+                    "script_ai": preview.get("script_ai"),
+                    "reply": reply,
+                    "updated_at": now_iso(),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            reply = _format_wechat_copy_reply(preview, material_text=material_text)
+            store.update_record(
+                "wechat_materials",
+                record["id"],
+                {
+                    "status": "preview_failed",
+                    "error": str(exc),
+                    "reply": reply,
+                    "updated_at": now_iso(),
+                },
+            )
     else:
         reply = _format_wechat_copy_reply(preview, material_text=material_text)
     return {
@@ -1223,6 +1240,11 @@ def receive_wechat_material(payload: WeChatMaterialRequest) -> dict[str, Any]:
         "wechat_reply": reply,
         "next_step": "后续微信机器人只需要把消息文本 POST 到本接口，即可进入现有文案生成流水线。",
     }
+
+
+@app.get("/api/integrations/wechat/materials")
+def list_wechat_materials() -> list[dict[str, Any]]:
+    return _sorted(store.list_section("wechat_materials"))[:30]
 
 
 @app.get("/api/integrations/wechat/callback")

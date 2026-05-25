@@ -22,6 +22,7 @@ const activeApiBase = ref(configuredApiBase || browserApiBase || "http://127.0.0
 const notice = ref("");
 const errorMessage = ref("");
 const jobs = ref([]);
+const wechatMaterials = ref([]);
 const deletingJobId = ref("");
 const previewStoryboard = ref([]);
 const hardRules = ref([]);
@@ -48,6 +49,7 @@ const voicePresets = [
 const busy = reactive({
   connect: false,
   refresh: false,
+  refreshWechat: false,
   cleanup: false,
   uploadReference: false,
   uploadVoice: false,
@@ -185,6 +187,21 @@ function applyScriptResult(result) {
   scriptAi.value = result.script_ai || null;
   if (result.script_ai?.review) deepseekReview.value = result.script_ai.review;
   if (result.script_ai?.final_review) finalReview.value = result.script_ai.final_review;
+}
+
+function applyWechatMaterial(material) {
+  if (!material) return;
+  kidsForm.topic = material.text || kidsForm.topic;
+  kidsForm.content_mode = material.content_mode || kidsForm.content_mode;
+  kidsForm.script_provider = material.script_provider || kidsForm.script_provider;
+  kidsForm.custom_script = material.script || "";
+  previewStoryboard.value = Array.isArray(material.storyboard) ? material.storyboard : [];
+  quality.value = material.quality || null;
+  scriptAi.value = material.script_ai || null;
+  deepseekReview.value = material.script_ai?.review || null;
+  finalReview.value = material.script_ai?.final_review || null;
+  draftScript.value = material.script || "";
+  setNotice(material.script ? "已载入微信素材生成的文案。" : "已载入微信素材，文案还在生成或生成失败。");
 }
 
 function reviewLines(review) {
@@ -461,6 +478,18 @@ async function refreshJobs() {
   }
 }
 
+async function refreshWechatMaterials() {
+  busy.refreshWechat = true;
+  try {
+    const data = await requestApi("/api/integrations/wechat/materials");
+    wechatMaterials.value = Array.isArray(data) ? data : [];
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "刷新微信素材失败。"));
+  } finally {
+    busy.refreshWechat = false;
+  }
+}
+
 function jobProgress(job) {
   const raw = Number(job?.progress_percent);
   if (Number.isFinite(raw)) return Math.min(100, Math.max(0, Math.round(raw)));
@@ -471,12 +500,16 @@ const kidsJobs = computed(() => jobs.value.filter((job) => String(job?.request?.
 const runningKidsJobs = computed(() => kidsJobs.value.filter((job) => ["queued", "running"].includes(job.status)));
 const completedKidsJobs = computed(() => kidsJobs.value.filter((job) => job.status === "completed"));
 const failedKidsJobs = computed(() => kidsJobs.value.filter((job) => job.status === "failed"));
+const latestWechatMaterial = computed(() => wechatMaterials.value[0] || null);
+const pendingWechatMaterials = computed(() => wechatMaterials.value.filter((item) => item.status === "received"));
 
 let pollTimer = null;
 onMounted(async () => {
   await refreshJobs();
+  await refreshWechatMaterials();
   pollTimer = window.setInterval(() => {
     if (runningKidsJobs.value.length) refreshJobs();
+    if (pendingWechatMaterials.value.length) refreshWechatMaterials();
   }, 3000);
 });
 
@@ -509,6 +542,34 @@ onBeforeUnmount(() => {
 
     <div v-if="notice" class="notice">{{ notice }}</div>
     <div v-if="errorMessage" class="notice danger">{{ errorMessage }}</div>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>微信素材收件箱</h2>
+        <div class="top-actions">
+          <button class="btn secondary" :disabled="busy.refreshWechat" @click="refreshWechatMaterials">
+            {{ busy.refreshWechat ? "刷新中..." : "刷新微信素材" }}
+          </button>
+          <button v-if="latestWechatMaterial" class="btn accent" type="button" @click="applyWechatMaterial(latestWechatMaterial)">
+            载入最新文案
+          </button>
+        </div>
+      </div>
+      <div v-if="!wechatMaterials.length" class="meta">还没有收到微信素材。你可以在微信测试号里发一句真实经历。</div>
+      <div v-else class="wechat-grid">
+        <div v-for="item in wechatMaterials.slice(0, 6)" :key="item.id" class="wechat-card" :class="{ ready: item.script, failed: item.status === 'preview_failed' }">
+          <div class="script-preview-head">
+            <strong>{{ item.status === "preview_generated" ? "已生成文案" : item.status === "preview_failed" ? "生成失败" : "已收到素材" }}</strong>
+            <span>{{ item.created_at }}</span>
+          </div>
+          <p>{{ item.text }}</p>
+          <p v-if="item.error" class="error-text">{{ item.error }}</p>
+          <button class="btn secondary small" type="button" @click="applyWechatMaterial(item)">
+            {{ item.script ? "载入到编辑区" : "载入素材" }}
+          </button>
+        </div>
+      </div>
+    </section>
 
     <section class="panel">
       <div class="panel-header">
@@ -1076,6 +1137,35 @@ textarea {
 .reference-lock p {
   margin: 0;
   color: #5f7088;
+}
+
+.wechat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.wechat-card {
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfdff;
+}
+
+.wechat-card.ready {
+  border-color: #bce8ce;
+  background: #effaf4;
+}
+
+.wechat-card.failed {
+  border-color: #f0b8a8;
+  background: #fff8f5;
+}
+
+.wechat-card p {
+  margin: 8px 0 0;
+  color: #1f3045;
+  line-height: 1.55;
 }
 
 .storyboard {
