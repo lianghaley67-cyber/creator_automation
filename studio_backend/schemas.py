@@ -110,21 +110,33 @@ class SadTalkerConfigPayload(BaseModel):
 
 
 class KidsScriptPreviewRequest(BaseModel):
-    topic: str = "Daily routine"
+    topic: str = "今天送娃迟到被老板点名，心里很憋屈"
     seconds: int = Field(default=45, ge=30, le=60)
     prompt_hint: str = ""
-    content_mode: str = "science"
+    content_mode: str = "working_mom"
     learning_goal: str = ""
-    script_provider: str = "zhipu"
+    script_provider: str = "gemini_minimax"
+
+
+class KidsScriptReviseRequest(BaseModel):
+    topic: str = "今天送娃迟到被老板点名，心里很憋屈"
+    seconds: int = Field(default=45, ge=30, le=60)
+    prompt_hint: str = ""
+    content_mode: str = "working_mom"
+    learning_goal: str = ""
+    script_provider: str = "gemini_minimax"
+    draft_script: str
+    review: dict | str = Field(default_factory=dict)
+    human_feedback: str = ""
 
 
 class KidsGenerateRequest(BaseModel):
-    topic: str = "Daily routine"
+    topic: str = "今天送娃迟到被老板点名，心里很憋屈"
     seconds: int = Field(default=45, ge=30, le=60)
     prompt_hint: str = ""
-    content_mode: str = "science"
+    content_mode: str = "working_mom"
     learning_goal: str = ""
-    script_provider: str = "zhipu"
+    script_provider: str = "gemini_minimax"
     custom_script: str = ""
     uploaded_image_path: str = ""
     reference_image_path: str = ""
@@ -133,8 +145,21 @@ class KidsGenerateRequest(BaseModel):
     maodou_voice_reference_path: str = ""
     peanut_voice_reference_path: str = ""
     dynamic_background: bool = False
-    animation_style: str = "cartoon_3d_duo_cinematic"
+    animation_style: str = "videohao_real_person"
+    use_my_real_voice: bool = True
     video_provider: str = "zhipu_qingying"
+
+
+class WeChatMaterialRequest(BaseModel):
+    text: str
+    source_user: str = ""
+    source_message_id: str = ""
+    content_mode: str = "working_mom"
+    script_provider: str = "gemini_minimax"
+    learning_goal: str = "把微信发来的真实素材转成高共情、可落地的 AI 提效方案"
+    prompt_hint: str = "保留素材里的真实情绪，生成适合视频号的痛点钩子、方法和互动结尾"
+    seconds: int = Field(default=45, ge=30, le=60)
+    auto_preview: bool = True
 
 
 class DouyinPublishAssistantRequest(BaseModel):

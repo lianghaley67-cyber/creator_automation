@@ -2,10 +2,14 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
 const configuredApiBase = (import.meta.env.VITE_API_BASE || "").trim().replace(/\/$/, "");
+const browserApiBase = window.location.origin && window.location.protocol.startsWith("http")
+  ? window.location.origin.replace(/\/$/, "")
+  : "";
 const apiCandidates = Array.from(
   new Set(
     [
       configuredApiBase,
+      browserApiBase,
       "http://127.0.0.1:8000",
       "http://localhost:8000",
       "http://127.0.0.1:8011",
@@ -14,7 +18,7 @@ const apiCandidates = Array.from(
   )
 );
 
-const activeApiBase = ref(configuredApiBase || "http://127.0.0.1:8000");
+const activeApiBase = ref(configuredApiBase || browserApiBase || "http://127.0.0.1:8000");
 const notice = ref("");
 const errorMessage = ref("");
 const jobs = ref([]);
@@ -24,15 +28,21 @@ const hardRules = ref([]);
 const quality = ref(null);
 const referenceStyleContract = ref(null);
 const visualPipeline = ref(null);
+const scriptAi = ref(null);
+const draftScript = ref("");
+const deepseekReview = ref(null);
+const finalReview = ref(null);
+const humanReviewNotes = ref("");
 const referenceImageUrl = ref("");
 const maodouVoiceUrl = ref("");
 const peanutVoiceUrl = ref("");
 const publishDrafts = reactive({});
 
 const voicePresets = [
-  { label: "轻快软萌童声（推荐）", value: "zh-CN-XiaoyiNeural" },
-  { label: "活泼男孩中文声", value: "zh-CN-YunxiNeural" },
-  { label: "温柔姐姐中文声", value: "zh-CN-XiaoxiaoNeural" }
+  { label: "温暖真人女声（推荐）", value: "zh-CN-XiaoxiaoNeural" },
+  { label: "沉稳知识型女声", value: "zh-CN-XiaoyiNeural" },
+  { label: "轻快口语女声", value: "zh-CN-XiaoyiNeural" },
+  { label: "理性导师男声", value: "zh-CN-YunxiNeural" }
 ];
 
 const busy = reactive({
@@ -42,23 +52,25 @@ const busy = reactive({
   uploadReference: false,
   uploadVoice: false,
   previewScript: false,
+  reviseScript: false,
   generate: false,
   publish: ""
 });
 
 const kidsForm = reactive({
-  topic: "为什么小种子会发芽",
-  content_mode: "science",
-  script_provider: "zhipu",
-  learning_goal: "认识种子发芽需要水、阳光和耐心",
+  topic: "今天送娃迟到被老板点名，心里很憋屈",
+  content_mode: "working_mom",
+  script_provider: "gemini_minimax",
+  learning_goal: "把真实经历转成高共情、可落地的 AI 提效方案",
   seconds: 45,
-  prompt_hint: "请你找一找小芽在哪里，再数一数叶子",
+  prompt_hint: "提炼职场妈妈痛点，给出一个能拍成视频号爆款的观点",
   custom_script: "",
   reference_image_path: "",
   maodou_voice_reference_path: "",
   peanut_voice_reference_path: "",
-  edge_voice: "zh-CN-XiaoyiNeural",
-  animation_style: "cartoon_3d_duo_cinematic",
+  edge_voice: "zh-CN-XiaoxiaoNeural",
+  animation_style: "videohao_real_person",
+  use_my_real_voice: true,
   video_provider: "zhipu_qingying"
 });
 
@@ -158,8 +170,28 @@ function kidsPayload() {
     auto_generate_image: false,
     edge_voice: kidsForm.edge_voice,
     animation_style: kidsForm.animation_style,
+    use_my_real_voice: Boolean(kidsForm.use_my_real_voice),
     video_provider: kidsForm.video_provider
   };
+}
+
+function applyScriptResult(result) {
+  kidsForm.custom_script = result.script || "";
+  previewStoryboard.value = Array.isArray(result.storyboard) ? result.storyboard : [];
+  hardRules.value = Array.isArray(result.hard_rules) ? result.hard_rules : [];
+  quality.value = result.quality || null;
+  referenceStyleContract.value = result.reference_style_contract || null;
+  visualPipeline.value = result.visual_pipeline || null;
+  scriptAi.value = result.script_ai || null;
+  if (result.script_ai?.review) deepseekReview.value = result.script_ai.review;
+  if (result.script_ai?.final_review) finalReview.value = result.script_ai.final_review;
+}
+
+function reviewLines(review) {
+  const value = review || {};
+  const issues = Array.isArray(value.issues) ? value.issues : [];
+  const fixes = Array.isArray(value.fix_instructions) ? value.fix_instructions : [];
+  return [...issues, ...fixes].filter(Boolean);
 }
 
 async function uploadReferenceImage(event) {
@@ -179,7 +211,7 @@ async function uploadReferenceImage(event) {
     );
     kidsForm.reference_image_path = result.path || "";
     referenceImageUrl.value = result.url ? mediaUrl(result.url) : "";
-    setNotice("角色模板图已上传，后续生成会把它作为毛豆和花生的参考图。");
+    setNotice("人物/角色参考图已上传，后续生成会把它作为视觉参考。");
   } catch (error) {
     setError(normalizeErrorMessage(error, "角色模板图上传失败。"));
   } finally {
@@ -207,11 +239,11 @@ async function uploadCharacterVoice(role, event) {
     if (role === "maodou") {
       kidsForm.maodou_voice_reference_path = result.path || "";
       maodouVoiceUrl.value = result.url ? mediaUrl(result.url) : "";
-      setNotice("毛豆参考声音已提取，后续会优先用于毛豆台词。");
+      setNotice("嘉宾A参考声音已提取，访谈模式下会优先用于嘉宾A台词。");
     } else {
       kidsForm.peanut_voice_reference_path = result.path || "";
       peanutVoiceUrl.value = result.url ? mediaUrl(result.url) : "";
-      setNotice("花生参考声音已提取，后续会优先用于花生台词。");
+      setNotice("嘉宾B参考声音已提取，访谈模式下会优先用于嘉宾B台词。");
     }
   } catch (error) {
     setError(normalizeErrorMessage(error, "角色声音提取失败。"));
@@ -225,18 +257,18 @@ function clearCharacterVoice(role) {
   if (role === "maodou") {
     kidsForm.maodou_voice_reference_path = "";
     maodouVoiceUrl.value = "";
-    setNotice("已清除毛豆参考声音。");
+    setNotice("已清除嘉宾A参考声音。");
   } else {
     kidsForm.peanut_voice_reference_path = "";
     peanutVoiceUrl.value = "";
-    setNotice("已清除花生参考声音。");
+    setNotice("已清除嘉宾B参考声音。");
   }
 }
 
 function clearReferenceImage() {
   kidsForm.reference_image_path = "";
   referenceImageUrl.value = "";
-  setNotice("已清除角色模板图，本次将由智谱清影根据文案原创生成毛豆和花生形象。");
+  setNotice("已清除人物/角色参考图，本次将由智谱清影根据文案原创生成画面。");
 }
 
 async function previewKidsScript() {
@@ -247,13 +279,8 @@ async function previewKidsScript() {
       headers: { "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify(kidsPayload())
     });
-    kidsForm.custom_script = result.script || "";
-    previewStoryboard.value = Array.isArray(result.storyboard) ? result.storyboard : [];
-    hardRules.value = Array.isArray(result.hard_rules) ? result.hard_rules : [];
-    quality.value = result.quality || null;
-    referenceStyleContract.value = result.reference_style_contract || null;
-    visualPipeline.value = result.visual_pipeline || null;
-    setNotice(result.script_source?.startsWith("third_party_ai") ? "已通过第三方 AI 生成文案、质量检查和多场景分镜。" : "已生成本地规则文案、质量检查和多场景分镜。");
+    applyScriptResult(result);
+    setNotice(result.script_source?.startsWith("third_party_ai") ? "已通过第三方 AI 生成 IP 文案、质量检查和多场景分镜。" : "已生成本地规则文案、质量检查和多场景分镜。");
   } catch (error) {
     setError(normalizeErrorMessage(error, "文案预览失败。"));
   } finally {
@@ -339,6 +366,62 @@ async function copyText(text, successMessage = "已复制。") {
   }
 }
 
+async function generateDraftAndReview() {
+  busy.previewScript = true;
+  draftScript.value = "";
+  deepseekReview.value = null;
+  finalReview.value = null;
+  try {
+    const result = await requestApi(
+      "/api/kids/draft-review",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify(kidsPayload())
+      },
+      240000
+    );
+    applyScriptResult(result);
+    draftScript.value = result.script || "";
+    setNotice(result.script_source?.startsWith("third_party_ai") ? "初稿已生成，DeepSeek 审核意见已展示，可补充意见后再二次修改。" : "AI 审核链路未跑通，已回退本地文案。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "生成初稿与审核失败。"));
+  } finally {
+    busy.previewScript = false;
+  }
+}
+
+async function reviseWithReview() {
+  const sourceDraft = draftScript.value || kidsForm.custom_script;
+  if (!sourceDraft.trim()) {
+    setError("请先生成初稿，再进行二次修改。");
+    return;
+  }
+  busy.reviseScript = true;
+  try {
+    const result = await requestApi(
+      "/api/kids/revise-script",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          ...kidsPayload(),
+          draft_script: sourceDraft,
+          review: deepseekReview.value || {},
+          human_feedback: humanReviewNotes.value
+        })
+      },
+      240000
+    );
+    applyScriptResult(result);
+    setNotice("已根据 DeepSeek 审核意见和你的补充意见完成二次修改，并完成终稿复审。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "二次修改失败。"));
+  } finally {
+    busy.reviseScript = false;
+  }
+}
+
 async function prepareDouyinPublish(job) {
   if (!job?.id) return;
   busy.publish = String(job.id);
@@ -406,14 +489,17 @@ onBeforeUnmount(() => {
   <div class="app-shell">
     <section class="hero">
       <div>
-        <span class="eyebrow">3-6 岁 · 科普与益智早教动画</span>
-        <h1>毛豆和花生 3D 早教短视频生成</h1>
-        <p>围绕一个知识点生成第一人称短句、互动提问、学习步骤和可爱 3D 多场景分镜。</p>
+        <span class="eyebrow">职场妈妈 · AI 提效 · 视频号 IP 工作台</span>
+        <h1>职场精英妈妈 AI 视频流水线</h1>
+        <p>输入今天的憋屈或剪辑心得，一键切换真人出镜/嘉宾访谈，并保留声音蒸馏与 3D 渲染能力。</p>
         <div class="meta">当前 API：{{ activeApiBase }}</div>
       </div>
       <div class="hero-actions">
+        <button class="btn primary" :disabled="busy.previewScript" @click="generateDraftAndReview">
+          {{ busy.previewScript ? "生成中..." : "初稿 + DeepSeek 审核" }}
+        </button>
         <button class="btn primary" :disabled="busy.previewScript" @click="previewKidsScript">
-          {{ busy.previewScript ? "生成中..." : "生成文案预览" }}
+          {{ busy.previewScript ? "生成中..." : "直接生成终稿" }}
         </button>
         <button class="btn accent" :disabled="busy.generate" @click="generateKidsVideo">
           {{ busy.generate ? "提交中..." : "生成视频" }}
@@ -426,21 +512,24 @@ onBeforeUnmount(() => {
 
     <section class="panel">
       <div class="panel-header">
-        <h2>1. 学习设计</h2>
-        <span class="eyebrow">只讲一个知识点</span>
+        <h2>1. IP 选题与内容模式</h2>
+        <span class="eyebrow">高认知 · 强共情 · 有温度</span>
       </div>
       <div class="field-grid">
         <label class="field">
-          <span>内容类型</span>
+          <span>内容支柱</span>
           <select v-model="kidsForm.content_mode">
-            <option value="science">科普动画</option>
-            <option value="early_learning">益智早教</option>
+            <option value="working_mom">职场妈妈痛点解决</option>
+            <option value="creator_tips">短视频/剪辑提效</option>
+            <option value="ai_growth">AI 学习与职业重塑</option>
           </select>
         </label>
         <label class="field">
           <span>文案生成</span>
           <select v-model="kidsForm.script_provider">
-            <option value="zhipu">第三方 AI（智谱）</option>
+            <option value="gemini_minimax">Gemini 初稿 → DeepSeek 审核 → Gemini 修复 → DeepSeek 复审</option>
+            <option value="minimax_plan">MiniMax Token Plan 初稿 → DeepSeek 审核 → MiniMax 修复</option>
+            <option value="zhipu">智谱初稿（备用）</option>
             <option value="local">本地规则兜底</option>
           </select>
         </label>
@@ -449,52 +538,53 @@ onBeforeUnmount(() => {
           <input v-model.number="kidsForm.seconds" type="number" min="30" max="60" />
         </label>
         <label class="field wide">
-          <span>主题</span>
-          <input v-model="kidsForm.topic" placeholder="例如：为什么小种子会发芽" />
+          <span>输入今天的憋屈/剪辑心得</span>
+          <input v-model="kidsForm.topic" placeholder="例如：今天送娃迟到被老板点名，心里很憋屈" />
         </label>
         <label class="field wide">
-          <span>学习目标</span>
-          <input v-model="kidsForm.learning_goal" placeholder="例如：认识种子发芽需要水、阳光和耐心" />
+          <span>本条内容要解决的问题</span>
+          <input v-model="kidsForm.learning_goal" placeholder="例如：把职场妈妈的情绪困境转成一个可执行的 AI 提效方案" />
         </label>
         <label class="field wide">
-          <span>互动提示</span>
-          <input v-model="kidsForm.prompt_hint" placeholder="例如：请你找一找小芽在哪里，再数一数叶子" />
+          <span>爆款角度/补充提示</span>
+          <input v-model="kidsForm.prompt_hint" placeholder="例如：开头要有痛点暴击，结尾引导评论区分享同款经历" />
         </label>
         <label class="field">
-          <span>中文童声</span>
+          <span>真人/角色声音</span>
           <select v-model="kidsForm.edge_voice">
             <option v-for="voice in voicePresets" :key="voice.label" :value="voice.value">{{ voice.label }}</option>
           </select>
         </label>
         <label class="field">
-          <span>毛豆参考声音</span>
+          <span>嘉宾A参考声音</span>
           <input type="file" accept="audio/*,video/*" :disabled="busy.uploadVoice" @change="uploadCharacterVoice('maodou', $event)" />
         </label>
         <label class="field">
-          <span>花生参考声音</span>
+          <span>嘉宾B参考声音</span>
           <input type="file" accept="audio/*,video/*" :disabled="busy.uploadVoice" @change="uploadCharacterVoice('peanut', $event)" />
         </label>
         <div class="reference-card voice-card" :class="{ ready: kidsForm.maodou_voice_reference_path }">
           <div>
-            <strong>{{ kidsForm.maodou_voice_reference_path ? "毛豆声音已提取" : "未录入毛豆声音" }}</strong>
-            <p>上传毛豆的录音或视频，系统会提取前 30 秒作为毛豆语气参考。</p>
+            <strong>{{ kidsForm.maodou_voice_reference_path ? "嘉宾A声音已提取" : "未录入嘉宾A声音" }}</strong>
+            <p>上传嘉宾A的录音或视频，系统会提取前 30 秒作为访谈语气参考。</p>
             <audio v-if="maodouVoiceUrl" :src="maodouVoiceUrl" controls preload="metadata"></audio>
-            <button v-if="kidsForm.maodou_voice_reference_path" class="btn secondary small" type="button" @click="clearCharacterVoice('maodou')">清除毛豆声音</button>
+            <button v-if="kidsForm.maodou_voice_reference_path" class="btn secondary small" type="button" @click="clearCharacterVoice('maodou')">清除嘉宾A声音</button>
           </div>
         </div>
         <div class="reference-card voice-card" :class="{ ready: kidsForm.peanut_voice_reference_path }">
           <div>
-            <strong>{{ kidsForm.peanut_voice_reference_path ? "花生声音已提取" : "未录入花生声音" }}</strong>
-            <p>上传花生的录音或视频，系统会提取前 30 秒作为花生语气参考。</p>
+            <strong>{{ kidsForm.peanut_voice_reference_path ? "嘉宾B声音已提取" : "未录入嘉宾B声音" }}</strong>
+            <p>上传嘉宾B的录音或视频，系统会提取前 30 秒作为访谈语气参考。</p>
             <audio v-if="peanutVoiceUrl" :src="peanutVoiceUrl" controls preload="metadata"></audio>
-            <button v-if="kidsForm.peanut_voice_reference_path" class="btn secondary small" type="button" @click="clearCharacterVoice('peanut')">清除花生声音</button>
+            <button v-if="kidsForm.peanut_voice_reference_path" class="btn secondary small" type="button" @click="clearCharacterVoice('peanut')">清除嘉宾B声音</button>
           </div>
         </div>
         <label class="field">
-          <span>动画风格</span>
+          <span>一键切换成片模式</span>
           <select v-model="kidsForm.animation_style">
-            <option value="cartoon_3d_duo_cinematic">3D 双角色剧情（推荐）</option>
-            <option value="cartoon_3d">3D 通用动画</option>
+            <option value="videohao_real_person">真人出镜口播</option>
+            <option value="notebooklm_duo_interview">嘉宾A / 嘉宾B访谈</option>
+            <option value="cartoon_3d_duo_cinematic">3D 双角色访谈</option>
           </select>
         </label>
         <label class="field">
@@ -505,15 +595,19 @@ onBeforeUnmount(() => {
             <option value="local_preview">本地预览（低保真）</option>
           </select>
         </label>
+        <label class="field switch-field">
+          <span>一键启用：我的真人声音蒸馏</span>
+          <input v-model="kidsForm.use_my_real_voice" type="checkbox" />
+        </label>
         <label class="field wide">
-          <span>角色模板图</span>
+          <span>人物/角色参考图</span>
           <input type="file" accept="image/png,image/jpeg,image/webp" :disabled="busy.uploadReference" @change="uploadReferenceImage" />
         </label>
         <div class="reference-card wide" :class="{ ready: kidsForm.reference_image_path }">
-          <img v-if="referenceImageUrl" :src="referenceImageUrl" alt="角色模板图" />
+          <img v-if="referenceImageUrl" :src="referenceImageUrl" alt="人物/角色参考图" />
           <div>
             <strong>{{ kidsForm.reference_image_path ? "模板图已锁定" : "未上传模板图" }}</strong>
-            <p>{{ kidsForm.reference_image_path ? "生成任务会把这张图作为毛豆和花生的角色参考。" : "不上传模板图时，智谱清影会根据文案原创生成适合3岁小朋友的毛豆和花生形象。" }}</p>
+            <p>{{ kidsForm.reference_image_path ? "生成任务会把这张图作为人物或角色视觉参考。" : "不上传模板图时，智谱清影会根据文案原创生成匹配职场妈妈 IP 的视频画面。" }}</p>
             <button v-if="kidsForm.reference_image_path" class="btn secondary small" type="button" @click="clearReferenceImage">清除模板图，改用文案原创</button>
           </div>
         </div>
@@ -523,17 +617,54 @@ onBeforeUnmount(() => {
     <section class="panel">
       <div class="panel-header">
         <h2>2. 文案与质量检查</h2>
-        <span class="eyebrow">第一人称 · 短句 · 复习</span>
+        <span class="eyebrow">黄金钩子 · 情绪价值 · 可落地方法</span>
       </div>
       <label class="field script-field">
         <span>可编辑文案</span>
-        <textarea v-model="kidsForm.custom_script" placeholder="可以先点“生成文案预览”，也可以直接输入第一人称短句，例如：我们今天认识小种子。我先观察，再想一想。" />
+        <textarea v-model="kidsForm.custom_script" placeholder="可以先点“生成文案预览”，也可以直接输入视频号口播稿或嘉宾访谈稿，例如：[0-3秒钩子] 如果你也在公司洗手间崩溃过，请听我说..." />
       </label>
+
+      <div v-if="kidsForm.custom_script" class="script-preview-card">
+        <div class="script-preview-head">
+          <strong>当前生成文案</strong>
+          <button class="btn secondary small inline" type="button" @click="copyText(kidsForm.custom_script, '文案已复制。')">复制文案</button>
+        </div>
+        <pre>{{ kidsForm.custom_script }}</pre>
+      </div>
+
+      <div v-if="deepseekReview" class="review-card">
+        <div class="script-preview-head">
+          <strong>DeepSeek 审核意见</strong>
+          <span>分数：{{ deepseekReview.score ?? "未返回" }}</span>
+        </div>
+        <p v-if="deepseekReview.strongest_line">最强句：{{ deepseekReview.strongest_line }}</p>
+        <p v-if="deepseekReview.weakest_line">最弱句：{{ deepseekReview.weakest_line }}</p>
+        <ul>
+          <li v-for="item in reviewLines(deepseekReview)" :key="item">{{ item }}</li>
+        </ul>
+        <label class="field">
+          <span>人工补充审核意见</span>
+          <textarea class="review-notes" v-model="humanReviewNotes" placeholder="例如：语气再像我本人一点，减少夸张网感；结尾要引导评论区说出今天最崩溃的一件事。" />
+        </label>
+        <button class="btn accent" :disabled="busy.reviseScript" @click="reviseWithReview">
+          {{ busy.reviseScript ? "修改中..." : "根据审核意见二次修改" }}
+        </button>
+      </div>
+
+      <div v-if="finalReview" class="review-card final-review">
+        <div class="script-preview-head">
+          <strong>DeepSeek 终稿复审</strong>
+          <span>分数：{{ finalReview.score ?? "未返回" }}</span>
+        </div>
+        <ul>
+          <li v-for="item in reviewLines(finalReview)" :key="item">{{ item }}</li>
+        </ul>
+      </div>
 
       <div v-if="quality" class="quality" :class="{ pass: quality.passed }">
         <strong>{{ quality.profile_label }} · {{ quality.passed ? "通过基础检查" : "需要优化" }}</strong>
         <span>{{ quality.line_count }} 段 · {{ quality.char_count }} 字 · 互动点 {{ quality.interaction_count }}</span>
-        <p v-if="!quality.issues?.length">文案包含第一人称表达、学习目标、互动引导和结尾复习。</p>
+        <p v-if="!quality.issues?.length">文案包含痛点钩子、真实经历、方法输出和评论区互动。</p>
         <p v-for="issue in quality.issues" :key="issue">{{ issue }}</p>
       </div>
 
@@ -799,6 +930,10 @@ textarea {
   padding: 8px 10px;
 }
 
+.inline {
+  margin-top: 0;
+}
+
 .notice {
   border-radius: 8px;
   padding: 12px 14px;
@@ -847,6 +982,71 @@ textarea {
 .reference-card.ready {
   border-color: #8bd3a9;
   background: #effaf4;
+}
+
+.script-preview-card,
+.review-card {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfdff;
+}
+
+.review-card {
+  border-color: #c9d7ff;
+  background: #f6f8ff;
+}
+
+.final-review {
+  border-color: #bce8ce;
+  background: #effaf4;
+}
+
+.script-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.script-preview-head span {
+  color: #5f7088;
+  font-size: 13px;
+}
+
+.script-preview-card pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  line-height: 1.75;
+  color: #1f3045;
+}
+
+.review-card ul {
+  margin: 0;
+  padding-left: 20px;
+  color: #1f3045;
+  line-height: 1.6;
+}
+
+.review-notes {
+  min-height: 92px;
+}
+
+.switch-field {
+  align-content: start;
+}
+
+.switch-field input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  accent-color: #246bfe;
 }
 
 .voice-card {

@@ -11,13 +11,13 @@ CARTOON_ROOT = STUDIO_DIR / "cartoon_mode"
 CARTOON_UPLOADS_DIR = CARTOON_ROOT / "uploads"
 
 KIDS_ANIMATION_HARD_RULES = [
-    "固定双角色：拟人化毛豆与拟人化花生共同出镜，允许短暂表情特写，但必须快速回到双人互动。",
-    "保持同一明亮 3D 卡通世界观：允许在公园、花园、菜园、小舞台等区块自然转场，禁止突兀跳变。",
-    "镜头语言必须连续叙事：远景、中景、跟拍、表情特写、双人反应镜头自然切换。",
+    "固定双角色访谈时：嘉宾A与嘉宾B共同出镜，允许短暂表情特写，但必须快速回到双人互动。",
+    "保持同一明亮 3D 卡通世界观：允许在办公室、通勤路、剪辑台、AI 工作台等区块自然转场，禁止突兀跳变。",
+    "镜头语言必须连续叙事：远景、中景、跟拍、表情特写、反应镜头自然切换。",
     "全程逐帧原生动画，不允许静态图片平移、漂浮或慢推拉替代动作。",
-    "人物表情细腻多变：开心、惊讶、思考、委屈、鼓励、搞笑反应持续更新。",
+    "人物表情细腻多变：共情、惊讶、思考、委屈、笃定、搞笑反应持续更新。",
     "肢体动作连贯：走、跑、挥手、互动、停顿、回头、靠近镜头，节奏自然。",
-    "剧情完整起承转合，段落之间必须有因果与互动，不重复台词结构。",
+    "内容完整起承转合，段落之间必须有因果、观点递进和情绪起伏，不重复台词结构。",
     "光影、材质和色彩必须鲜明，角色呈现圆润立体、柔和高光和卡通 PBR 质感。",
     "角色风格参考可爱 3D 角色海报质感：大眼睛高光、张嘴微笑、腮红、运动鞋、柔和棚拍绿色背景。",
     "毛豆必须呈现打开的绿色豆荚和饱满豆豆；花生必须呈现暖黄色花生壳格纹与颗粒凹凸。",
@@ -25,7 +25,7 @@ KIDS_ANIMATION_HARD_RULES = [
     "风格参考经典夸张喜剧卡通节奏（如追逐喜剧感），但不复刻任何现有IP角色。",
     "限制额外角色和杂乱道具，主叙事始终围绕毛豆与花生展开。",
     "文案使用第一人称自然表达，不写“毛豆说”“花生说”等说话标签；镜头聚焦谁，谁自然开口。",
-    "可以适度使用第二人称互动，让孩子感觉角色正在带着“你”一起看、数、找、想。",
+    "可以适度使用第二人称互动，让观众感觉角色正在和屏幕前的职场妈妈真诚对话。",
 ]
 
 KIDS_CHARACTER_DESIGN = {
@@ -97,17 +97,23 @@ ACTION_ROTATION = [
 ]
 
 CONTENT_PROFILES = {
-    "science": {
-        "label": "科普动画",
-        "goal": "认识一个自然现象或生活小知识",
-        "steps": ["看一看", "想一想", "试一试", "说一说"],
-        "visuals": ["放大观察", "简单对比", "动作演示", "结果回顾"],
+    "working_mom": {
+        "label": "职场妈妈痛点解决",
+        "goal": "把真实憋屈转成可执行的 AI 提效方案",
+        "steps": ["痛点钩子", "真实共情", "方法拆解", "互动收束"],
+        "visuals": ["情绪特写", "职场反差", "AI 工作流", "金句花字"],
     },
-    "early_learning": {
-        "label": "益智早教",
-        "goal": "练习观察、分类、数数、颜色、形状或生活习惯",
-        "steps": ["找一找", "数一数", "比一比", "做一做"],
-        "visuals": ["颜色提示", "形状提示", "节奏重复", "鼓励反馈"],
+    "creator_tips": {
+        "label": "短视频/剪辑提效",
+        "goal": "把碎片化时间转成稳定出片流程",
+        "steps": ["结果钩子", "痛点共情", "工具步骤", "行动号召"],
+        "visuals": ["剪辑台", "时间对比", "工具演示", "成片预览"],
+    },
+    "ai_growth": {
+        "label": "AI 学习与职业重塑",
+        "goal": "降低新技术焦虑，建立普通女性的 AI 行动力",
+        "steps": ["反差钩子", "焦虑共情", "认知升级", "启发收束"],
+        "visuals": ["学习桌", "AI 界面", "认知转折", "温暖结尾"],
     },
 }
 
@@ -139,30 +145,30 @@ INLINE_SPEAKER_LABEL_PATTERN = re.compile(
 )
 
 AGE_RULES_3_TO_6 = [
-    "每句尽量 8-18 个汉字，避免长从句。",
-    "只讲 1 个核心知识点，最多 3 个小步骤。",
-    "用具体可见的东西解释，避免抽象说教。",
-    "每 10-15 秒设计一次提问、寻找、数数或模仿动作。",
-    "结尾必须复述关键知识，并给孩子正向鼓励。",
+    "开头 3 秒必须给出痛点、反差或结果钩子。",
+    "拒绝教条表达，多用“我当时也...”建立真实共情。",
+    "每 15-20 秒安排一次金句、方法或情绪高潮。",
+    "至少给出 1 个可马上执行的 AI/剪辑/时间管理动作。",
+    "结尾必须留下评论区互动钩子。",
 ]
 
 KIDS_VOICE_PRESETS = {
     "soft_child_cn": {
-        "label": "自然软萌中文童声",
-        "edge_voice": "zh-CN-XiaoyiNeural",
-        "edge_rate": "+3%",
+        "label": "温暖真人女声",
+        "edge_voice": "zh-CN-XiaoxiaoNeural",
+        "edge_rate": "+2%",
         "edge_volume": "+2%",
     },
     "bright_child_cn": {
-        "label": "自然活泼男孩声",
+        "label": "理性导师男声",
         "edge_voice": "zh-CN-YunxiNeural",
-        "edge_rate": "+4%",
+        "edge_rate": "+1%",
         "edge_volume": "+2%",
     },
     "warm_sister_cn": {
-        "label": "自然温柔姐姐声",
+        "label": "沉稳知识型女声",
         "edge_voice": "zh-CN-XiaoxiaoNeural",
-        "edge_rate": "+2%",
+        "edge_rate": "+1%",
         "edge_volume": "+1%",
     },
 }
@@ -196,9 +202,21 @@ def sanitize_hint(text: str, *, limit: int = 160) -> str:
 
 def normalize_content_mode(value: str) -> str:
     mode = str(value or "").strip().lower()
-    if mode in {"early", "early_learning", "education", "益智早教", "早教"}:
-        return "early_learning"
-    return "science"
+    if mode in {"creator_tips", "short_video", "editing", "剪辑", "短视频", "短视频/剪辑提效"}:
+        return "creator_tips"
+    if mode in {"ai_growth", "ai", "career_rebuild", "职业重塑", "ai 学习与职业重塑"}:
+        return "ai_growth"
+    if mode in {
+        "working_mom",
+        "science",
+        "early",
+        "early_learning",
+        "education",
+        "职场妈妈",
+        "职场妈妈痛点解决",
+    }:
+        return "working_mom"
+    return "working_mom"
 
 
 def normalize_video_provider(value: str) -> str:
@@ -211,10 +229,10 @@ def normalize_video_provider(value: str) -> str:
 
 
 def _clean_child_topic(topic: str) -> str:
-    text = sanitize_hint(topic, limit=18) or "有趣的小知识"
+    text = sanitize_hint(topic, limit=32) or "今天让我很憋屈的一件事"
     for term in UNSAFE_OR_OFF_TARGET_TERMS:
         text = text.replace(term, "")
-    return text.strip(" ，。！？") or "有趣的小知识"
+    return text.strip(" ，。！？") or "今天让我很憋屈的一件事"
 
 
 def _short_child_phrase(text: str, fallback: str, *, limit: int = 12) -> str:
@@ -225,7 +243,7 @@ def _short_child_phrase(text: str, fallback: str, *, limit: int = 12) -> str:
 
 
 def _profile_for(content_mode: str) -> dict[str, Any]:
-    return CONTENT_PROFILES.get(normalize_content_mode(content_mode), CONTENT_PROFILES["science"])
+    return CONTENT_PROFILES.get(normalize_content_mode(content_mode), CONTENT_PROFILES["working_mom"])
 
 
 def _arc_lines(
@@ -235,37 +253,22 @@ def _arc_lines(
     content_mode: str = "science",
     learning_goal: str = "",
 ) -> list[str]:
-    safe_topic = sanitize_hint(topic, limit=18) or "开心的一天"
+    safe_topic = sanitize_hint(topic, limit=32) or "今天让我很憋屈的一件事"
     safe_topic = _clean_child_topic(safe_topic)
     profile = _profile_for(content_mode)
     goal = _short_child_phrase(learning_goal, profile["goal"], limit=22)
     hint_text = _short_child_phrase(hint, "", limit=22)
     step_a, step_b, step_c, step_d = profile["steps"]
-
-    if normalize_content_mode(content_mode) == "early_learning":
-        hint_line = f"我先{step_a}，你也试一试。"
-        if hint_text:
-            hint_line = f"我的小提示：{hint_text}。"
-        return [
-            f"我们一起玩《{safe_topic}》。",
-            f"我看到小线索啦。",
-            f"我们来练习{goal}。",
-            hint_line,
-            f"我来{step_b}：一、二、三。",
-            f"我们再{step_c}，找不同。",
-            f"最后复习：我学会了，你真棒！",
-        ]
-
-    hint_line = f"我的小提示：{hint_text}。" if hint_text else f"我先{step_a}，再{step_b}。"
+    hint_line = f"我的补充角度：{hint_text}。" if hint_text else f"我先讲{step_a}，再拆{step_b}。"
     return [
-        f"我们今天认识《{safe_topic}》。",
-        f"我想知道：为什么会这样？",
-        f"我们只学一个小知识。",
-        f"我的重点：{goal}。",
+        f"如果你也经历过《{safe_topic}》，先别急着怪自己。",
+        f"我当时也很憋屈，甚至觉得努力像被按了静音键。",
+        f"但我后来发现，这件事真正要解决的是：{goal}。",
         hint_line,
-        f"我们一起{step_a}颜色和形状。",
-        f"我再{step_b}，答案更清楚。",
-        f"最后复习：我先观察，再思考，真棒！",
+        f"第一步，我先把情绪写下来，不让它继续消耗我。",
+        f"第二步，我用 AI 把混乱的事拆成三个能执行的小动作。",
+        f"第三步，我只保留今天最重要的一件事，其他都交给流程。",
+        f"你有没有类似的瞬间？评论区留一句，我帮你拆一个工作流。",
     ]
 
 
@@ -328,55 +331,53 @@ def _strip_visual_directives(line: str) -> str:
 
 def _scene_from_line(line: str, *, fallback_index: int) -> tuple[str, str, str]:
     text = str(line or "")
-    if any(token in text for token in ("复习", "学会", "真棒", "记住", "最后")):
+    if any(token in text for token in ("评论区", "留言", "结尾", "最后", "互动")):
         return (
-            "celebration_stage",
-            "a tiny 3D celebration stage in a green studio garden, warm spotlights, simple confetti shapes, happy preschool ending",
-            "结果回顾",
+            "warm_creator_close",
+            "a warm creator studio closing shot, confident female creator looking at camera, soft desktop light, subtle comment bubbles without readable text",
+            "互动收束",
         )
-    if any(token in text for token in ("水", "喝水", "浇水", "雨", "水滴", "湿")) and any(
-        token in text for token in ("太阳", "阳光", "光", "暖", "晒")
-    ):
+    if any(token in text for token in ("剪辑", "出片", "素材", "时间线", "视频")):
         return (
-            "sprout_needs_demo",
-            "a bright 3D preschool garden patch where a tiny sprout is shown with sparkling water drops and warm sunbeams, clean and magical but realistic for children",
-            "简单对比",
+            "editing_workbench",
+            "a vivid creator editing desk with timeline panels, phone tripod, notebook, warm practical lights, premium 3D/realistic hybrid look, no readable text",
+            "工具演示",
         )
-    if any(token in text for token in ("种子", "发芽", "小芽", "泥土", "土里", "叶子", "根")):
+    if any(token in text for token in ("AI", "自动化", "工作流", "提示词", "效率")):
         return (
-            "sprout_garden",
-            "a bright 3D preschool garden patch with soft soil, tiny sprouts, dew drops, colorful labels without readable text, warm toy-poster lighting",
-            "放大观察",
+            "ai_workflow_board",
+            "a clean AI workflow command center with floating task cards, calendar blocks, automation lines, high-end warm tech style, no readable text",
+            "AI 工作流",
         )
-    if any(token in text for token in ("水", "喝水", "浇水", "雨", "水滴", "湿")):
+    if any(token in text for token in ("送娃", "迟到", "通勤", "老板", "会议", "公司")):
         return (
-            "water_drop_demo",
-            "a clean 3D science table in a green garden studio, sparkling water drops, a tiny watering can, safe rounded props, no readable text",
-            "动作演示",
+            "commute_office_tension",
+            "a cinematic morning commute and office pressure montage, phone alarms, elevator light, meeting room silhouettes, warm yet empathetic colors, no readable text",
+            "职场反差",
         )
-    if any(token in text for token in ("太阳", "阳光", "光", "暖", "晒")):
+    if any(token in text for token in ("崩溃", "憋屈", "委屈", "焦虑", "难", "叹气")):
         return (
-            "sunlight_corner",
-            "a warm sunny corner of a colorful 3D garden studio, golden sunbeams, soft shadows, bright cheerful preschool atmosphere",
-            "简单对比",
+            "emotional_closeup",
+            "a close-up emotional portrait in a quiet office corner, soft light, restrained expression turning into clarity, warm high-empathy visual style",
+            "情绪特写",
         )
-    if any(token in text for token in ("数", "一、二、三", "几个", "多少")):
+    if any(token in text for token in ("第一步", "第二步", "第三步", "三个", "3个")):
         return (
-            "counting_play_mat",
-            "a colorful 3D early-learning play mat with three large rounded objects for counting, clean background, no readable text",
-            "节奏重复",
+            "three_step_method",
+            "a polished three-step method visualization with clean cards, hand gestures, warm desk scene, no readable text",
+            "方法拆解",
         )
-    if any(token in text for token in ("颜色", "红", "黄", "蓝", "绿", "形状", "圆", "方")):
+    if any(token in text for token in ("金句", "重点", "记住", "真的", "不是")):
         return (
-            "color_shape_corner",
-            "a bright 3D preschool color-and-shape corner with rounded blocks, vivid colors, simple uncluttered props, no readable text",
-            "颜色提示",
+            "quote_moment",
+            "a strong close-up quote moment with expressive hand movement, cinematic rim light, elegant motion typography space, no readable text",
+            "金句花字",
         )
-    if any(token in text for token in ("找", "哪里", "看一看", "观察", "发现", "线索")):
+    if any(token in text for token in ("发现", "原来", "后来", "直到")):
         return (
-            "discovery_garden",
-            "a playful 3D discovery garden scene with magnifying-glass-like framing, tiny child-friendly clues, saturated colors, soft green background",
-            "放大观察",
+            "realization_turn",
+            "a warm realization scene, creator looking from messy notes to a clear digital plan, high cognition visual metaphor, no readable text",
+            "认知转折",
         )
     key, prompt = SCENE_ROTATION[fallback_index % len(SCENE_ROTATION)]
     return key, prompt, "动作演示"
@@ -389,7 +390,7 @@ def _kids_voice_settings(edge_voice: str) -> dict[str, str]:
             if requested == preset["edge_voice"]:
                 return dict(preset)
         custom = dict(KIDS_VOICE_PRESETS["soft_child_cn"])
-        custom["label"] = "自定义中文童声"
+        custom["label"] = "自定义中文声音"
         custom["edge_voice"] = requested
         return custom
     return dict(KIDS_VOICE_PRESETS["soft_child_cn"])
@@ -399,16 +400,14 @@ def _expand_lines_for_duration(lines: list[str], target_seconds: int, *, content
     profile = _profile_for(content_mode)
     goal = _short_child_phrase(learning_goal, profile["goal"], limit=22)
     extras = [
-        "我把眼睛睁大，仔细看一看。",
-        "你也来找一找，线索藏在哪里？",
-        "我数一数：一、二、三。",
-        f"这个小知识，和{goal}有关。",
-        "我靠近一点，给你看清楚。",
-        "我做一个小动作，你跟我学一学。",
-        "我发现啦，原来答案很简单。",
-        "我们慢慢来，不着急。",
-        "我再试一次，看看会不会一样。",
-        "你做得很好，我们继续往下看。",
+        "真的，家人们，我以前也以为只能硬扛。",
+        "后来我才明白，情绪不是问题，没有流程才是问题。",
+        f"这件事的关键，和{goal}有关。",
+        "我先把脑子里的混乱倒出来，再让 AI 帮我分类。",
+        "能自动化的，不要用意志力硬撑。",
+        "能模板化的，不要每次从零开始。",
+        "这不是偷懒，这是把精力留给真正重要的人和事。",
+        "你也可以从今天的一句话开始，先把它交给流程。",
     ]
     target_line_count = 6 if target_seconds <= 35 else 9 if target_seconds <= 45 else 12
     result = list(lines)
@@ -457,39 +456,39 @@ def analyze_kids_script_quality(
     lines = [line.strip() for line in normalized_script.splitlines() if line.strip()]
     compact = re.sub(r"\s+", "", normalized_script)
     profile = _profile_for(content_mode)
-    interactions = sum(1 for line in lines if any(token in line for token in ("你", "找", "数", "看", "想", "试", "说")))
-    long_lines = [line for line in lines if len(re.sub(r"\s+", "", line)) > 28]
+    interactions = sum(1 for line in lines if any(token in line for token in ("你", "评论", "留言", "家人们", "有没有", "分享")))
+    long_lines = [line for line in lines if len(re.sub(r"\s+", "", line)) > 52]
     off_target = [term for term in UNSAFE_OR_OFF_TARGET_TERMS if term in compact]
-    has_review = any(token in compact for token in ("复习", "学会", "记住", "真棒", "小知识"))
-    has_goal = bool(sanitize_hint(learning_goal, limit=40)) or any(token in compact for token in ("认识", "练习", "观察", "数", "颜色", "形状"))
+    has_review = any(token in compact for token in ("评论区", "留言", "记住", "金句", "如果你也", "有没有"))
+    has_goal = bool(sanitize_hint(learning_goal, limit=40)) or any(token in compact for token in ("AI", "工作流", "提效", "剪辑", "职场", "妈妈"))
     has_first_person = any(token in compact for token in ("我", "我们"))
     has_speaker_label = bool(re.search(r"(毛豆|花生)\s*(说|问|喊|带你|举牌|靠近)", compact))
     issues: list[str] = []
     if len(lines) < 5:
-        issues.append("文案段落偏少，建议至少 5 段形成开场、提问、演示、互动、复习。")
+        issues.append("文案段落偏少，建议至少 5 段形成钩子、共情、方法、金句和互动。")
     if long_lines:
-        issues.append("存在偏长句，3-6 岁内容建议拆短。")
+        issues.append("存在偏长句，建议拆成更有节奏的短口播。")
     if interactions < 2:
-        issues.append("互动点不足，建议加入找一找、数一数、想一想或跟着做。")
+        issues.append("互动点不足，建议加入评论区提问、同款经历召唤或观点站队。")
     if not has_review:
-        issues.append("缺少结尾复习和正向鼓励。")
+        issues.append("缺少结尾金句或评论区互动钩子。")
     if not has_goal:
-        issues.append(f"学习目标不够明确，当前模式应聚焦：{profile['goal']}。")
+        issues.append(f"内容目标不够明确，当前模式应聚焦：{profile['goal']}。")
     if not has_first_person:
-        issues.append("文案应使用第一人称，让角色自然带孩子一起学习。")
+        issues.append("文案应使用第一人称，建立职场妈妈真实经历和情绪共鸣。")
     if has_speaker_label:
         issues.append("文案不需要“毛豆说/花生说”等说话标签，镜头聚焦时自然开口即可。")
     if off_target:
-        issues.append(f"包含不适合 3-6 岁的词：{', '.join(off_target)}。")
+        issues.append(f"包含不适合当前 IP 调性的词：{', '.join(off_target)}。")
     return {
-        "age_band": "3-6",
+        "audience": "working_mom_ai_creator",
         "content_mode": normalize_content_mode(content_mode),
         "profile_label": profile["label"],
         "line_count": len(lines),
         "char_count": len(compact),
         "interaction_count": interactions,
         "long_line_count": len(long_lines),
-        "age_rules": list(AGE_RULES_3_TO_6),
+        "content_rules": list(AGE_RULES_3_TO_6),
         "issues": issues,
         "passed": not issues,
     }
@@ -621,8 +620,8 @@ def build_kids_generate_payload(
     return {
         "project_mode": "kids_cartoon",
         "topic": topic,
-        "title": f"毛豆和花生：{topic}",
-        "keywords": ["3-6岁", "少儿", "中文", "毛豆", "花生", "双角色", "3D动画", CONTENT_PROFILES[normalized_mode]["label"]],
+        "title": f"职场妈妈 AI 提效：{topic}",
+        "keywords": ["职场妈妈", "AI提效", "短视频", "中文", "毛豆", "花生", "双角色访谈", CONTENT_PROFILES[normalized_mode]["label"]],
         "character_design": dict(KIDS_CHARACTER_DESIGN),
         "reference_style_contract": dict(REFERENCE_STYLE_CONTRACT),
         "visual_fidelity_mode": "reference_locked_high_quality",
@@ -631,7 +630,7 @@ def build_kids_generate_payload(
         "custom_script": normalized_script,
         "content_type": "tutorial",
         "emotion_tone": "warm",
-        "age_band": "3-6",
+        "audience": "working_mom_ai_creator",
         "kids_content_mode": normalized_mode,
         "learning_goal": sanitize_hint(learning_goal, limit=48) or CONTENT_PROFILES[normalized_mode]["goal"],
         "script_quality": quality,
@@ -681,8 +680,8 @@ def build_kids_generate_payload(
         "native_frame_animation": True,
         "forbid_static_micro_motion": True,
         "force_bgm": True,
-        "voice_character": "cute_child_cn",
+        "voice_character": "warm_creator_cn",
         "animation_hard_rules": list(KIDS_ANIMATION_HARD_RULES),
         "animation_storyboard": storyboard,
-        "notes": "kids_native_3d_duo_cinematic_no_default_background",
+        "notes": "creator_ip_native_3d_or_real_voice_no_default_background",
     }

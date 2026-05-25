@@ -1,0 +1,59 @@
+{
+  "$schema": "https://docs.openclaw.ai/schemas/openclaw.json",
+  "version": "0.1",
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 8456
+  },
+  "runtime": {
+    "node": "24",
+    "python": "3.10",
+    "workspaceRoot": "/home/ubuntu/.openclaw/workspace"
+  },
+  "workspace": {
+    "name": "media_flow",
+    "path": "/home/ubuntu/.openclaw/workspace/media_flow"
+  },
+  "agents": [
+    {
+      "id": "media-flow-controller",
+      "name": "One Person Media Flow Controller",
+      "entrypoint": "python3 /home/ubuntu/.openclaw/workspace/media_flow/main.py --mode ${MEDIA_FLOW_MODE:-notebooklm}",
+      "cwd": "/home/ubuntu/.openclaw/workspace/media_flow",
+      "envFile": "/home/ubuntu/.openclaw/workspace/media_flow/.env",
+      "schedule": {
+        "enabled": false,
+        "cron": "0 8 * * *",
+        "timezone": "Asia/Shanghai"
+      }
+    }
+  ],
+  "skills": [
+    {
+      "id": "hybrid-trend-intelligence",
+      "type": "custom-python",
+      "description": "Tavily plus domestic trend aggregation and personal raw material matching.",
+      "entrypoint": "python3 /home/ubuntu/.openclaw/workspace/media_flow/main.py"
+    },
+    {
+      "id": "legacy-video-bridge",
+      "type": "http-bridge",
+      "description": "POST parsed scripts, role voice IDs and storyboard scenes to the existing Huasheng/Maodou renderer."
+    }
+  ],
+  "channels": {
+    "wechat": {
+      "enabled": true,
+      "type": "webhook",
+      "urlEnv": "OPENCLAW_WECHAT_WEBHOOK_URL",
+      "async": true
+    }
+  },
+  "outputs": [
+    {
+      "id": "wechat-result-push",
+      "channel": "wechat",
+      "source": "/home/ubuntu/.openclaw/workspace/media_flow/08_outputs/*_wechat_payload.json"
+    }
+  ]
+}

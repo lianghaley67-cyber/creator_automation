@@ -12,24 +12,24 @@ from urllib import error, request
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="生成 3-6 岁科普/益智早教 3D 动画短视频")
+    parser = argparse.ArgumentParser(description="生成职场妈妈/AI 提效 IP 动画或口播短视频")
     parser.add_argument("--api-base", default="http://127.0.0.1:8000", help="后端 API 地址")
     parser.add_argument("--workspace", default=".", help="项目根目录，用于自动启动后端")
     parser.add_argument("--auto-start-backend", action="store_true", help="后端未启动时自动拉起")
     parser.add_argument("--python-exe", default="", help="指定启动后端的 Python")
-    parser.add_argument("--topic", default="为什么小种子会发芽", help="视频主题")
+    parser.add_argument("--topic", default="今天送娃迟到被老板点名，心里很憋屈", help="视频主题")
     parser.add_argument(
         "--content-mode",
-        choices=["science", "early_learning"],
-        default="science",
-        help="内容类型：science=科普动画，early_learning=益智早教",
+        choices=["working_mom", "creator_tips", "ai_growth"],
+        default="working_mom",
+        help="内容类型：working_mom=职场妈妈痛点，creator_tips=剪辑提效，ai_growth=AI职业重塑",
     )
-    parser.add_argument("--learning-goal", default="认识种子发芽需要水、阳光和耐心", help="3-6 岁学习目标")
+    parser.add_argument("--learning-goal", default="把真实经历转成高共情、可落地的 AI 提效方案", help="内容目标")
     parser.add_argument("--seconds", type=int, default=45, help="目标时长，30-60 秒")
     parser.add_argument("--script-source", choices=["auto", "manual"], default="auto", help="文案来源")
     parser.add_argument("--manual-script-file", default="", help="手动文案 txt 文件")
-    parser.add_argument("--prompt-hint", default="请你找一找小芽在哪里，再数一数叶子", help="互动提示")
-    parser.add_argument("--edge-voice", default="zh-CN-XiaoyiNeural", help="Edge TTS 中文童声")
+    parser.add_argument("--prompt-hint", default="痛点钩子，结尾评论区互动", help="爆款角度/互动提示")
+    parser.add_argument("--edge-voice", default="zh-CN-XiaoxiaoNeural", help="Edge TTS 中文声音")
     parser.add_argument("--auto-approve", action="store_true", help="不进入确认，直接提交生成")
     parser.add_argument("--run-once", action="store_true", help="生成一次后退出")
     return parser.parse_args()
@@ -100,27 +100,29 @@ def read_multiline_script() -> str:
 
 
 def build_child_script(args: argparse.Namespace) -> str:
-    if args.content_mode == "early_learning":
+    if args.content_mode == "creator_tips":
         return "\n".join(
             [
-                f"毛豆和花生对你挥手：今天玩《{args.topic}》。",
-                "花生问：你能找到画面里的小线索吗？",
-                f"毛豆说：我们要练习{args.learning_goal}。",
-                f"毛豆举起小牌子：{args.prompt_hint}。",
-                "花生带你慢慢数：一个、两个、三个。",
-                "他们一起比一比，找出一样和不一样。",
-                "最后毛豆和花生说：你学会了，真棒！",
+                f"如果你也卡在《{args.topic}》这种剪辑现场，先别急着熬夜硬扛。",
+                "我以前也以为效率低是自己不够努力，后来发现是流程太散。",
+                f"这条视频我只解决一件事：{args.learning_goal}。",
+                f"我的切入角度是：{args.prompt_hint}。",
+                "第一步，把素材按情绪、观点、动作三类丢给 AI 先分组。",
+                "第二步，只保留最能推动完播的三个镜头，别让素材绑架你。",
+                "第三步，标题和花字先用模板跑一版，再人工改出你的个人语气。",
+                "你最耗时间的是剪辑哪一步？评论区丢给我，我帮你拆流程。",
             ]
         )
     return "\n".join(
         [
-            f"毛豆和花生跑到草地上：今天认识《{args.topic}》。",
-            "花生眨眨眼问：你知道它为什么会这样吗？",
-            f"毛豆拿出放大镜：我们只学一个小知识，{args.learning_goal}。",
-            f"毛豆靠近镜头说：{args.prompt_hint}。",
-            "他们一起看一看，发现颜色、形状和位置的变化。",
-            "花生惊讶地说：原来仔细观察，答案就更清楚了！",
-            "最后一起复习：先观察，再思考，你又学会一个小知识！",
+            f"如果你也经历过《{args.topic}》，先别急着怪自己。",
+            "我当时也很憋屈，甚至觉得努力像被按了静音键。",
+            f"但我后来发现，这件事真正要解决的是：{args.learning_goal}。",
+            f"我的补充角度是：{args.prompt_hint}。",
+            "第一步，我先把情绪写下来，不让它继续消耗我。",
+            "第二步，我用 AI 把混乱的事拆成三个能执行的小动作。",
+            "第三步，我只保留今天最重要的一件事，其他都交给流程。",
+            "你有没有类似的瞬间？评论区留一句，我帮你拆一个工作流。",
         ]
     )
 
@@ -175,7 +177,8 @@ def build_payload(args: argparse.Namespace, script_text: str) -> dict[str, Any]:
         "uploaded_image_path": "",
         "auto_generate_image": False,
         "edge_voice": args.edge_voice,
-        "animation_style": "cartoon_3d_duo_cinematic",
+        "animation_style": "videohao_real_person",
+        "use_my_real_voice": True,
     }
 
 
@@ -231,7 +234,7 @@ def main() -> int:
         script_text = choose_script(args)
         if not script_text:
             raise ValueError("文案为空，无法生成。")
-        print("\n--- 当前 3-6 岁文案 ---")
+        print("\n--- 当前 IP 文案 ---")
         print(script_text)
         print("-" * 72)
         if not args.auto_approve:

@@ -159,7 +159,7 @@ def _build_prompt(request_payload: dict[str, Any], script_text: str) -> str:
         f"{video_prompt}\n"
         f"主题：{topic}\n"
         f"学习目标：{learning_goal}\n"
-        "风格：3-6岁儿童科普动画，明亮可爱，柔和绿色棚拍背景，角色始终与参考图一致。\n"
+        "风格：职场妈妈 AI 提效 IP 短视频，明亮高级、强共情、节奏紧凑，角色始终与参考图一致。\n"
         "动作：两个角色挥手、点头、眨眼、张嘴说话、轻微跳跃，镜头有中景和表情特写。\n"
         f"分镜：\n{storyboard_text}\n"
         f"旁白文案：\n{script_text}"

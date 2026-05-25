@@ -1,0 +1,15 @@
+[Unit]
+Description=Creator Studio FastAPI service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/creator_automation
+Environment=CREATOR_STUDIO_DATA_DIR=/home/ubuntu/creator_automation/studio_runtime
+ExecStart=/home/ubuntu/creator_automation/.venv/bin/python -m uvicorn studio_backend.app:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,6 @@
 # Creator Studio 本地启动说明
 
-这份文档用于在 Windows PowerShell 本地启动 3-6 岁儿童科普/早教动画短视频生成工具。
+这份文档用于在 Windows PowerShell 本地启动职场妈妈/AI 提效 IP 短视频生成工具。
 
 ## 1. 环境要求
 
@@ -33,19 +33,35 @@ powershell -ExecutionPolicy Bypass -File .\setup_creator_studio.ps1 -WithOptiona
 Copy-Item .\.env.example .\.env
 ```
 
-然后编辑 `.env`，至少填写：
+然后编辑 `.env`。视频生成至少填写：
 
 ```env
 ZHIPUAI_API_KEY=你的智谱Key
 ZHIPU_VIDEO_MODEL=cogvideox-3
-SCRIPT_AI_PROVIDER=zhipu
-SCRIPT_AI_MODEL=glm-4-flash
+```
+
+文案生成推荐使用四段式：
+
+```env
+SCRIPT_AI_PROVIDER=gemini_minimax
+GEMINI_API_KEY=你的GeminiKey
+MINIMAX_API_KEY=你的MiniMaxKey
+DEEPSEEK_API_KEY=你的DeepSeekKey
+```
+
+也可以改成 MiniMax Token Plan 初稿：
+
+```env
+SCRIPT_AI_PROVIDER=minimax_plan
+MINIMAX_API_KEY=你的MiniMaxKey
+DEEPSEEK_API_KEY=你的DeepSeekKey
 ```
 
 说明：
 
 - `.env` 已被 `.gitignore` 忽略，不会提交到仓库。
 - `ZHIPUAI_API_KEY` 同时用于文案生成和智谱清影视频生成。
+- Gemini/MiniMax 负责初稿，DeepSeek 负责审核；谁写初稿，谁结合问题修复终稿；DeepSeek 再做一次终稿复审。
 - 如果后续切换 OpenAI、ElevenLabs、可灵或 DashScope，再填写 `.env.example` 中对应字段即可。
 
 ## 4. 启动后端
@@ -125,6 +141,51 @@ for url in [
 
 ## 7. 常见问题
 
+### 微信素材入口
+
+后端已接入两类微信入口。
+
+通用机器人/企业微信服务端可以把聊天框里的文本转发到：
+
+```text
+POST http://127.0.0.1:8000/api/integrations/wechat/material
+```
+
+请求示例：
+
+```json
+{
+  "text": "今天客户临时改需求，我只能半夜剪视频，真的很崩溃",
+  "source_user": "wechat_user_id",
+  "source_message_id": "message_id",
+  "script_provider": "gemini_minimax",
+  "auto_preview": true
+}
+```
+
+返回里的 `wechat_reply.plain_text` 可以直接发回微信聊天框，包含素材摘要、文案终稿和 DeepSeek 审核摘要。
+
+微信公众号/服务号后台 URL 回调配置：
+
+```text
+URL:   http://你的公网域名/api/integrations/wechat/callback
+Token: 和 .env 里的 WECHAT_CALLBACK_TOKEN 保持一致
+```
+
+`.env` 示例：
+
+```env
+WECHAT_CALLBACK_TOKEN=你在微信后台填写的Token
+WECHAT_SYNC_REPLY=false
+```
+
+说明：
+
+- `GET /api/integrations/wechat/callback` 用于微信服务器验证。
+- `POST /api/integrations/wechat/callback` 用于接收聊天框文字素材。
+- 微信公众号被动回复通常有短超时限制，所以默认 `WECHAT_SYNC_REPLY=false`：先快速回复“素材已收到”，后台生成文案并保存到系统。
+- 如果你后续接入客服消息、企业微信机器人或公众号模板消息，可以把 `wechat_reply.plain_text` 自动推回微信。
+
 ### 个人号如何发布到抖音
 
 个人新号通常无法直接使用抖音开放平台 API 代发视频。当前项目提供的是发布助手：
@@ -174,7 +235,7 @@ ZHIPU_VIDEO_MODEL=cogvideox-3
 
 ### 视频没有声音或声音不自然
 
-默认会优先使用 Edge TTS。如果上传了毛豆/花生参考声音，后端会尝试按角色生成/转换音色。若在线 TTS 返回 403，通常是网络或服务限制，需要换网络环境或改用已配置的第三方 TTS。
+默认会优先使用 Edge TTS。如果上传了嘉宾A/嘉宾B参考声音，后端会尝试按角色生成/转换音色；开启“我的真人声音蒸馏”后，会优先走个人真人声音链路。若在线 TTS 返回 403，通常是网络或服务限制，需要换网络环境或改用已配置的第三方 TTS。
 
 ## 8. 本次本地验证记录
 

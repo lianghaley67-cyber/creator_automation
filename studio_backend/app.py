@@ -5,12 +5,15 @@ import subprocess
 import threading
 import re
 import os
+import hashlib
+import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .analysis import analyze_media_file, detect_media_kind
@@ -33,16 +36,18 @@ from .kids_mode import (
 )
 from .persona import default_persona, distill_persona
 from .scheduler import StudioScheduler
-from .script_ai import generate_kids_script_with_ai
+from .script_ai import generate_kids_script_with_ai, generate_reviewed_draft, revise_script_with_feedback
 from .schemas import (
     DistillRequest,
     DouyinPublishAssistantRequest,
     GenerateRequest,
     KidsGenerateRequest,
     KidsScriptPreviewRequest,
+    KidsScriptReviseRequest,
     PersonaUpdate,
     SadTalkerConfigPayload,
     SchedulePayload,
+    WeChatMaterialRequest,
 )
 from .storage import (
     OUTPUTS_DIR,
@@ -83,6 +88,8 @@ DOUYIN_CREATOR_UPLOAD_URL = os.getenv(
     "DOUYIN_CREATOR_UPLOAD_URL",
     "https://creator.douyin.com/creator-micro/content/post/video",
 ).strip() or "https://creator.douyin.com/"
+WECHAT_CALLBACK_TOKEN = os.getenv("WECHAT_CALLBACK_TOKEN", os.getenv("WECHAT_TOKEN", "")).strip()
+WECHAT_SYNC_REPLY = os.getenv("WECHAT_SYNC_REPLY", "false").strip().lower() in {"1", "true", "yes", "on"}
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -250,14 +257,14 @@ def _normalize_hashtag(value: Any) -> str:
 def _default_douyin_hashtags(job: dict[str, Any]) -> list[str]:
     request_payload = job.get("request") if isinstance(job.get("request"), dict) else {}
     topic = _compact_text(request_payload.get("topic"), limit=24)
-    content_mode = str(request_payload.get("content_mode", "")).strip().lower()
-    base = ["毛豆和花生", "儿童动画", "亲子早教"]
-    if content_mode == "science":
-        base += ["儿童科普", "科学启蒙"]
-    elif content_mode == "early_learning":
-        base += ["益智早教", "认知启蒙"]
+    content_mode = str(request_payload.get("content_mode") or request_payload.get("kids_content_mode") or "").strip().lower()
+    base = ["职场妈妈", "AI提效", "短视频创作"]
+    if content_mode == "creator_tips":
+        base += ["剪辑提效", "自媒体运营"]
+    elif content_mode == "ai_growth":
+        base += ["AI学习", "职业重塑"]
     else:
-        base += ["3到6岁", "动画短视频"]
+        base += ["时间管理", "情绪价值"]
     if topic:
         base.insert(0, topic)
     normalized: list[str] = []
@@ -275,6 +282,82 @@ def _build_douyin_caption(title: str, hashtags: list[str]) -> str:
     tag_text = " ".join(f"#{tag}" for tag in hashtags if tag)
     caption = f"{title.strip()} {tag_text}".strip()
     return caption[:1000]
+
+
+def json_like_compact(value: Any) -> str:
+    if not value:
+        return ""
+    return re.sub(r"\s+", " ", str(value))[:900]
+
+
+def _format_wechat_copy_reply(preview: dict[str, Any] | None, *, material_text: str) -> dict[str, Any]:
+    if not preview:
+        return {
+            "summary": f"已收到素材：{_compact_text(material_text, limit=80)}",
+            "plain_text": "素材已进入队列，稍后生成文案。",
+            "sections": [],
+        }
+    script = str(preview.get("script") or "").strip()
+    script_ai = preview.get("script_ai") if isinstance(preview.get("script_ai"), dict) else {}
+    review = script_ai.get("review") if isinstance(script_ai.get("review"), dict) else {}
+    final_review = script_ai.get("final_review") if isinstance(script_ai.get("final_review"), dict) else {}
+    issues = review.get("issues") if isinstance(review.get("issues"), list) else []
+    fixes = review.get("fix_instructions") if isinstance(review.get("fix_instructions"), list) else []
+    lines = [
+        "【素材已生成文案】",
+        f"素材：{_compact_text(material_text, limit=80)}",
+        f"来源：{preview.get('script_source', 'unknown')}",
+    ]
+    if review:
+        lines.append(f"DeepSeek 初审：{review.get('score', '未评分')}/100")
+    if final_review:
+        lines.append(f"DeepSeek 复审：{final_review.get('score', '未评分')}/100")
+    if issues or fixes:
+        lines.append("审核摘要：")
+        for item in [*issues, *fixes][:5]:
+            lines.append(f"- {item}")
+    lines.extend(["", "【终稿文案】", script])
+    return {
+        "summary": f"文案已生成：{_compact_text(script, limit=60)}",
+        "plain_text": "\n".join(lines).strip(),
+        "sections": [
+            {"title": "素材", "content": material_text},
+            {"title": "终稿文案", "content": script},
+            {"title": "DeepSeek 审核", "content": json_like_compact(review)},
+            {"title": "DeepSeek 复审", "content": json_like_compact(final_review)},
+        ],
+    }
+
+
+def _wechat_signature_ok(signature: str, timestamp: str, nonce: str) -> bool:
+    if not WECHAT_CALLBACK_TOKEN:
+        return False
+    values = sorted([WECHAT_CALLBACK_TOKEN, str(timestamp or ""), str(nonce or "")])
+    digest = hashlib.sha1("".join(values).encode("utf-8")).hexdigest()
+    return digest == str(signature or "").strip()
+
+
+def _wechat_text_response(*, to_user: str, from_user: str, content: str) -> str:
+    safe_content = str(content or "")[:1800]
+    return (
+        "<xml>"
+        f"<ToUserName><![CDATA[{to_user}]]></ToUserName>"
+        f"<FromUserName><![CDATA[{from_user}]]></FromUserName>"
+        f"<CreateTime>{int(time.time())}</CreateTime>"
+        "<MsgType><![CDATA[text]]></MsgType>"
+        f"<Content><![CDATA[{safe_content}]]></Content>"
+        "</xml>"
+    )
+
+
+def _parse_wechat_xml(raw_body: bytes) -> dict[str, str]:
+    if not raw_body:
+        return {}
+    root = ET.fromstring(raw_body.decode("utf-8", errors="replace"))
+    result: dict[str, str] = {}
+    for child in root:
+        result[child.tag] = str(child.text or "")
+    return result
 
 
 def _build_douyin_publish_draft(
@@ -1003,6 +1086,204 @@ def _extract_kids_voice_sample(source_path: Path, role: str) -> dict[str, Any]:
     }
 
 
+@app.post("/api/kids/draft-review")
+def draft_review_kids_script(payload: KidsScriptPreviewRequest) -> dict[str, Any]:
+    seconds = clamp_kids_seconds(payload.seconds)
+    try:
+        if str(payload.script_provider or "").strip().lower() in {"local", "local_rules", "rules", "zhipu"}:
+            raise RuntimeError("Reviewed draft requires Gemini or MiniMax.")
+        script_ai = generate_reviewed_draft(
+            draft_provider=payload.script_provider,
+            topic=payload.topic,
+            seconds=seconds,
+            prompt_hint=payload.prompt_hint,
+            content_mode=normalize_content_mode(payload.content_mode),
+            learning_goal=payload.learning_goal,
+        )
+        script = script_ai["script"]
+        script_source = f"third_party_ai:{script_ai.get('provider', '')}"
+    except Exception as exc:
+        script = build_kids_english_script(
+            topic=payload.topic,
+            seconds=seconds,
+            prompt_hint=payload.prompt_hint,
+            content_mode=payload.content_mode,
+            learning_goal=payload.learning_goal,
+        )
+        script_ai = {"fallback_reason": str(exc)[:500]}
+        script_source = "local_rules"
+    return {
+        "topic": payload.topic,
+        "seconds": seconds,
+        "script": script,
+        "script_source": script_source,
+        "script_ai": script_ai,
+        "content_mode": normalize_content_mode(payload.content_mode),
+        "learning_goal": payload.learning_goal,
+        "quality": analyze_kids_script_quality(
+            script,
+            content_mode=payload.content_mode,
+            learning_goal=payload.learning_goal,
+        ),
+        "storyboard": build_kids_storyboard(
+            script,
+            seconds,
+            content_mode=payload.content_mode,
+            learning_goal=payload.learning_goal,
+        ),
+    }
+
+
+@app.post("/api/kids/revise-script")
+def revise_kids_script(payload: KidsScriptReviseRequest) -> dict[str, Any]:
+    draft_script = normalize_kids_script_text(payload.draft_script)
+    if not draft_script:
+        raise HTTPException(status_code=400, detail="初稿为空，无法二次修改。")
+    seconds = clamp_kids_seconds(payload.seconds)
+    script_ai = revise_script_with_feedback(
+        revision_provider=payload.script_provider,
+        draft_script=draft_script,
+        review=payload.review,
+        human_feedback=payload.human_feedback,
+        topic=payload.topic,
+        seconds=seconds,
+        prompt_hint=payload.prompt_hint,
+        content_mode=normalize_content_mode(payload.content_mode),
+        learning_goal=payload.learning_goal,
+    )
+    script = script_ai["script"]
+    return {
+        "topic": payload.topic,
+        "seconds": seconds,
+        "script": script,
+        "script_source": f"third_party_ai:{script_ai.get('provider', '')}",
+        "script_ai": script_ai,
+        "content_mode": normalize_content_mode(payload.content_mode),
+        "learning_goal": payload.learning_goal,
+        "quality": analyze_kids_script_quality(
+            script,
+            content_mode=payload.content_mode,
+            learning_goal=payload.learning_goal,
+        ),
+        "storyboard": build_kids_storyboard(
+            script,
+            seconds,
+            content_mode=payload.content_mode,
+            learning_goal=payload.learning_goal,
+        ),
+    }
+
+
+@app.post("/api/integrations/wechat/material")
+def receive_wechat_material(payload: WeChatMaterialRequest) -> dict[str, Any]:
+    material_text = re.sub(r"\s+", " ", str(payload.text or "")).strip()
+    if not material_text:
+        raise HTTPException(status_code=400, detail="微信素材不能为空。")
+    record = {
+        "id": make_id("wechat_material"),
+        "created_at": now_iso(),
+        "source_user": payload.source_user,
+        "source_message_id": payload.source_message_id,
+        "text": material_text,
+        "content_mode": normalize_content_mode(payload.content_mode),
+        "script_provider": payload.script_provider,
+        "status": "received",
+    }
+    store.add_record("wechat_materials", record)
+    preview: dict[str, Any] | None = None
+    if payload.auto_preview:
+        preview = preview_kids_script(
+            KidsScriptPreviewRequest(
+                topic=material_text,
+                seconds=payload.seconds,
+                prompt_hint=payload.prompt_hint,
+                content_mode=payload.content_mode,
+                learning_goal=payload.learning_goal,
+                script_provider=payload.script_provider,
+            )
+        )
+        reply = _format_wechat_copy_reply(preview, material_text=material_text)
+        store.update_record(
+            "wechat_materials",
+            record["id"],
+            {
+                "status": "preview_generated",
+                "script_source": preview.get("script_source"),
+                "script": preview.get("script"),
+                "reply": reply,
+            },
+        )
+    else:
+        reply = _format_wechat_copy_reply(preview, material_text=material_text)
+    return {
+        "status": "ok",
+        "material_id": record["id"],
+        "material": record,
+        "preview": preview,
+        "wechat_reply": reply,
+        "next_step": "后续微信机器人只需要把消息文本 POST 到本接口，即可进入现有文案生成流水线。",
+    }
+
+
+@app.get("/api/integrations/wechat/callback")
+def verify_wechat_callback(
+    signature: str = Query(""),
+    timestamp: str = Query(""),
+    nonce: str = Query(""),
+    echostr: str = Query(""),
+) -> Response:
+    if not _wechat_signature_ok(signature, timestamp, nonce):
+        raise HTTPException(status_code=403, detail="Invalid WeChat signature.")
+    return Response(content=echostr, media_type="text/plain")
+
+
+@app.post("/api/integrations/wechat/callback")
+async def receive_wechat_callback(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    signature: str = Query(""),
+    timestamp: str = Query(""),
+    nonce: str = Query(""),
+) -> Response:
+    if WECHAT_CALLBACK_TOKEN and not _wechat_signature_ok(signature, timestamp, nonce):
+        raise HTTPException(status_code=403, detail="Invalid WeChat signature.")
+    try:
+        message = _parse_wechat_xml(await request.body())
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid WeChat XML.")
+    msg_type = message.get("MsgType", "")
+    to_user = message.get("FromUserName", "")
+    from_user = message.get("ToUserName", "")
+    content = re.sub(r"\s+", " ", message.get("Content", "")).strip()
+    msg_id = message.get("MsgId", "")
+    if msg_type != "text" or not content:
+        reply = "我现在先支持接收文字素材。你可以直接发：今天发生了什么、你的感想、剪辑心得。"
+        return Response(
+            content=_wechat_text_response(to_user=to_user, from_user=from_user, content=reply),
+            media_type="application/xml",
+        )
+
+    payload = WeChatMaterialRequest(
+        text=content,
+        source_user=to_user,
+        source_message_id=msg_id,
+        auto_preview=WECHAT_SYNC_REPLY,
+    )
+    if WECHAT_SYNC_REPLY:
+        result = receive_wechat_material(payload)
+        reply_text = (result.get("wechat_reply") or {}).get("plain_text") or "素材已收到，文案已生成。"
+    else:
+        background_tasks.add_task(receive_wechat_material, payload)
+        reply_text = (
+            "素材已收到，我会按职场妈妈/AI 提效 IP 流水线生成文案。\n"
+            "为了避免微信回调超时，生成结果会先保存在系统里；后续接入客服消息/企业微信机器人后可自动推回聊天框。"
+        )
+    return Response(
+        content=_wechat_text_response(to_user=to_user, from_user=from_user, content=reply_text),
+        media_type="application/xml",
+    )
+
+
 @app.post("/api/kids/upload-voice")
 async def upload_kids_voice(role: str = Form(...), file: UploadFile = File(...)) -> dict[str, Any]:
     safe_role = str(role or "").strip().lower()
@@ -1074,6 +1355,18 @@ def create_kids_generation(payload: KidsGenerateRequest, background_tasks: Backg
     )
     request_payload["maodou_voice_reference_path"] = str(payload.maodou_voice_reference_path or "").strip()
     request_payload["peanut_voice_reference_path"] = str(payload.peanut_voice_reference_path or "").strip()
+    request_payload["use_my_real_voice"] = bool(payload.use_my_real_voice)
+    if payload.use_my_real_voice:
+        request_payload["voice_role_mode"] = "my_real_voice"
+        request_payload["single_protagonist"] = True
+        request_payload["voice_clone_reference_path"] = str(
+            payload.maodou_voice_reference_path
+            or payload.peanut_voice_reference_path
+            or request_payload.get("voice_clone_reference_path", "")
+            or ""
+        ).strip()
+    else:
+        request_payload["voice_role_mode"] = "duo_interview"
     selected_provider = normalize_video_provider(payload.video_provider)
     if not str(request_payload.get("reference_image", "")).strip():
         if selected_provider == "zhipu_qingying":
