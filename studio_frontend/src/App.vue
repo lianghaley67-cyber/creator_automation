@@ -23,6 +23,7 @@ const notice = ref("");
 const errorMessage = ref("");
 const jobs = ref([]);
 const wechatMaterials = ref([]);
+const aiTrends = ref([]);
 const deletingJobId = ref("");
 const previewStoryboard = ref([]);
 const hardRules = ref([]);
@@ -50,6 +51,8 @@ const busy = reactive({
   connect: false,
   refresh: false,
   refreshWechat: false,
+  refreshTrends: false,
+  archive: "",
   cleanup: false,
   uploadReference: false,
   uploadVoice: false,
@@ -202,6 +205,37 @@ function applyWechatMaterial(material) {
   finalReview.value = material.script_ai?.final_review || null;
   draftScript.value = material.script || "";
   setNotice(material.script ? "已载入微信素材生成的文案。" : "已载入微信素材，文案还在生成或生成失败。");
+}
+
+async function generateWechatMaterial(material, mode) {
+  if (!material?.id) return;
+  const isInterview = mode === "interview";
+  busy.previewScript = true;
+  try {
+    const result = await requestApi(
+      `/api/integrations/wechat/materials/${material.id}/generate`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          content_mode: kidsForm.content_mode,
+          script_provider: kidsForm.script_provider,
+          learning_goal: kidsForm.learning_goal,
+          prompt_hint: isInterview ? "生成嘉宾A/嘉宾B访谈脚本，保留情绪标签和互动钩子。" : "生成真人出镜口播脚本，突出3秒钩子、3个方法和评论互动。",
+          animation_style: isInterview ? "notebooklm_duo_interview" : "videohao_real_person",
+          use_my_real_voice: !isInterview || kidsForm.use_my_real_voice,
+          seconds: kidsForm.seconds
+        })
+      },
+      240000
+    );
+    await refreshWechatMaterials();
+    applyWechatMaterial(result);
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "微信素材生成文案失败。"));
+  } finally {
+    busy.previewScript = false;
+  }
 }
 
 function reviewLines(review) {
@@ -490,6 +524,75 @@ async function refreshWechatMaterials() {
   }
 }
 
+async function clearWechatMaterials() {
+  if (!window.confirm("确定清空所有微信旧素材吗？已生成的文案记录也会从收件箱移除。")) return;
+  busy.refreshWechat = true;
+  try {
+    const result = await requestApi("/api/integrations/wechat/materials", { method: "DELETE" });
+    wechatMaterials.value = [];
+    setNotice(`已清理微信旧素材 ${result.removed || 0} 条。`);
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "清理微信素材失败。"));
+  } finally {
+    busy.refreshWechat = false;
+  }
+}
+
+async function refreshAiTrends(force = false) {
+  busy.refreshTrends = true;
+  try {
+    const data = force
+      ? await requestApi("/api/ai-trends/refresh", { method: "POST" }, 90000)
+      : await requestApi("/api/ai-trends");
+    aiTrends.value = Array.isArray(data) ? data : [data];
+    setNotice(force ? "AI 最新资讯已刷新。" : notice.value);
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "刷新 AI 资讯失败。"));
+  } finally {
+    busy.refreshTrends = false;
+  }
+}
+
+async function archiveWechatMaterial(material) {
+  if (!material?.id) return;
+  busy.archive = String(material.id);
+  try {
+    const result = await requestApi(`/api/integrations/wechat/materials/${material.id}/archive`, { method: "POST" }, 60000);
+    await refreshWechatMaterials();
+    const statusText = result.archive?.status === "archived" ? "已归档到 Obsidian Gitee 仓库。" : "已先归档到服务器本地，配置 GITEE_ACCESS_TOKEN 后可写入 Obsidian 仓库。";
+    setNotice(statusText);
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "归档到 Obsidian 失败。"));
+  } finally {
+    if (busy.archive === String(material.id)) busy.archive = "";
+  }
+}
+
+async function archiveCurrentScript() {
+  const body = String(kidsForm.custom_script || "").trim();
+  if (!body) {
+    setError("当前没有可归档的文案。");
+    return;
+  }
+  busy.archive = "current";
+  try {
+    const result = await requestApi(
+      "/api/archive/obsidian",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ title: kidsForm.topic || "Creator Studio 文案", body })
+      },
+      60000
+    );
+    setNotice(result.archive?.status === "archived" ? "当前文案已归档到 Obsidian Gitee 仓库。" : "当前文案已先归档到服务器本地。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "当前文案归档失败。"));
+  } finally {
+    if (busy.archive === "current") busy.archive = "";
+  }
+}
+
 function jobProgress(job) {
   const raw = Number(job?.progress_percent);
   if (Number.isFinite(raw)) return Math.min(100, Math.max(0, Math.round(raw)));
@@ -507,6 +610,7 @@ let pollTimer = null;
 onMounted(async () => {
   await refreshJobs();
   await refreshWechatMaterials();
+  await refreshAiTrends();
   pollTimer = window.setInterval(() => {
     if (runningKidsJobs.value.length) refreshJobs();
     if (pendingWechatMaterials.value.length) refreshWechatMaterials();
@@ -550,6 +654,9 @@ onBeforeUnmount(() => {
           <button class="btn secondary" :disabled="busy.refreshWechat" @click="refreshWechatMaterials">
             {{ busy.refreshWechat ? "刷新中..." : "刷新微信素材" }}
           </button>
+          <button class="btn secondary" :disabled="busy.refreshWechat" @click="clearWechatMaterials">
+            清理旧素材
+          </button>
           <button v-if="latestWechatMaterial" class="btn accent" type="button" @click="applyWechatMaterial(latestWechatMaterial)">
             载入最新文案
           </button>
@@ -564,9 +671,47 @@ onBeforeUnmount(() => {
           </div>
           <p>{{ item.text }}</p>
           <p v-if="item.error" class="error-text">{{ item.error }}</p>
-          <button class="btn secondary small" type="button" @click="applyWechatMaterial(item)">
-            {{ item.script ? "载入到编辑区" : "载入素材" }}
+          <div class="material-actions">
+            <button class="btn primary small" type="button" :disabled="busy.previewScript" @click="generateWechatMaterial(item, 'real_person')">真人口播生成</button>
+            <button class="btn primary small" type="button" :disabled="busy.previewScript" @click="generateWechatMaterial(item, 'interview')">嘉宾访谈生成</button>
+            <button class="btn secondary small" type="button" @click="applyWechatMaterial(item)">
+              {{ item.script ? "载入到编辑区" : "载入素材" }}
+            </button>
+            <button v-if="item.script" class="btn secondary small" type="button" :disabled="busy.archive === String(item.id)" @click="archiveWechatMaterial(item)">
+              {{ busy.archive === String(item.id) ? "归档中..." : "归档 Obsidian" }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>AI 最新实时信息</h2>
+        <div class="top-actions">
+          <button class="btn secondary" :disabled="busy.refreshTrends" @click="refreshAiTrends(false)">刷新列表</button>
+          <button class="btn accent" :disabled="busy.refreshTrends" @click="refreshAiTrends(true)">
+            {{ busy.refreshTrends ? "抓取中..." : "立即抓取" }}
           </button>
+        </div>
+      </div>
+      <div v-if="!aiTrends.length" class="meta">暂无 AI 日报。系统会每天自动抓取，也可以点击“立即抓取”。</div>
+      <div v-else class="trend-card">
+        <div class="script-preview-head">
+          <strong>{{ aiTrends[0].title }}</strong>
+          <span>{{ aiTrends[0].created_at }}</span>
+        </div>
+        <p>{{ aiTrends[0].summary }}</p>
+        <ul>
+          <li v-for="item in (aiTrends[0].items || []).slice(0, 8)" :key="item.url || item.title">
+            <a v-if="item.url" :href="item.url" target="_blank" rel="noreferrer">{{ item.title }}</a>
+            <strong v-else>{{ item.title }}</strong>
+            <span>{{ item.summary }}</span>
+          </li>
+        </ul>
+        <div class="trend-angles">
+          <strong>可转化选题角度</strong>
+          <span v-for="angle in aiTrends[0].angles || []" :key="angle">{{ angle }}</span>
         </div>
       </div>
     </section>
@@ -688,7 +833,12 @@ onBeforeUnmount(() => {
       <div v-if="kidsForm.custom_script" class="script-preview-card">
         <div class="script-preview-head">
           <strong>当前生成文案</strong>
-          <button class="btn secondary small inline" type="button" @click="copyText(kidsForm.custom_script, '文案已复制。')">复制文案</button>
+          <div class="top-actions">
+            <button class="btn secondary small inline" type="button" @click="copyText(kidsForm.custom_script, '文案已复制。')">复制文案</button>
+            <button class="btn secondary small inline" type="button" :disabled="busy.archive === 'current'" @click="archiveCurrentScript">
+              {{ busy.archive === "current" ? "归档中..." : "归档 Obsidian" }}
+            </button>
+          </div>
         </div>
         <pre>{{ kidsForm.custom_script }}</pre>
       </div>
@@ -1166,6 +1316,65 @@ textarea {
   margin: 8px 0 0;
   color: #1f3045;
   line-height: 1.55;
+}
+
+.material-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.trend-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfdff;
+}
+
+.trend-card p {
+  margin: 0;
+  color: #5f7088;
+}
+
+.trend-card ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trend-card li {
+  display: grid;
+  gap: 3px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e6edf7;
+}
+
+.trend-card li:last-child {
+  border-bottom: 0;
+}
+
+.trend-card a {
+  color: #246bfe;
+  font-weight: 800;
+}
+
+.trend-card li span,
+.trend-angles span {
+  color: #5f7088;
+  line-height: 1.5;
+}
+
+.trend-angles {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fff8ee;
 }
 
 .storyboard {

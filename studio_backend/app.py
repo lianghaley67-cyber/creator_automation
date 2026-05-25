@@ -11,12 +11,15 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .analysis import analyze_media_file, detect_media_kind
+from .ai_trends import archive_markdown_to_obsidian, collect_ai_trends
 from .avatar import detect_sadtalker_status, normalize_sadtalker_config
 from .generation import render_job
 from .kids_mode import (
@@ -90,6 +93,8 @@ DOUYIN_CREATOR_UPLOAD_URL = os.getenv(
 ).strip() or "https://creator.douyin.com/"
 WECHAT_CALLBACK_TOKEN = os.getenv("WECHAT_CALLBACK_TOKEN", os.getenv("WECHAT_TOKEN", "")).strip()
 WECHAT_SYNC_REPLY = os.getenv("WECHAT_SYNC_REPLY", "false").strip().lower() in {"1", "true", "yes", "on"}
+AI_TRENDS_ENABLED = os.getenv("AI_TRENDS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+AI_TRENDS_TIME = os.getenv("AI_TRENDS_TIME", "07:30").strip() or "07:30"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -726,6 +731,32 @@ def _clear_human_distill_data() -> dict[str, Any]:
 
 
 scheduler = StudioScheduler(_run_schedule)
+ai_trends_scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
+
+
+def _sync_ai_trends_scheduler() -> None:
+    if not AI_TRENDS_ENABLED:
+        return
+    if not ai_trends_scheduler.running:
+        ai_trends_scheduler.start()
+    hour_text, minute_text = (AI_TRENDS_TIME.split(":", 1) + ["30"])[:2]
+    ai_trends_scheduler.add_job(
+        _run_ai_trends_collection,
+        trigger=CronTrigger(hour=int(hour_text), minute=int(minute_text), timezone="Asia/Shanghai"),
+        id="daily_ai_trends",
+        replace_existing=True,
+        misfire_grace_time=1800,
+    )
+
+
+def _run_ai_trends_collection() -> dict[str, Any]:
+    report = collect_ai_trends()
+    record = {
+        "id": make_id("ai_trends"),
+        **report,
+    }
+    store.add_record("ai_trends", record)
+    return record
 
 
 @app.on_event("startup")
@@ -734,11 +765,14 @@ def on_startup() -> None:
     _ensure_persona()
     _recover_interrupted_jobs()
     _sync_scheduler()
+    _sync_ai_trends_scheduler()
 
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
     scheduler.shutdown()
+    if ai_trends_scheduler.running:
+        ai_trends_scheduler.shutdown(wait=False)
 
 
 @app.get("/api/health")
@@ -1086,6 +1120,28 @@ def _extract_kids_voice_sample(source_path: Path, role: str) -> dict[str, Any]:
     }
 
 
+@app.get("/api/ai-trends")
+def list_ai_trends() -> list[dict[str, Any]]:
+    return _sorted(store.list_section("ai_trends"))[:14]
+
+
+@app.post("/api/ai-trends/refresh")
+def refresh_ai_trends() -> dict[str, Any]:
+    return _run_ai_trends_collection()
+
+
+@app.post("/api/archive/obsidian")
+def archive_copy_to_obsidian(payload: dict[str, Any]) -> dict[str, Any]:
+    title = str(payload.get("title") or "Creator Studio 文案").strip()
+    body = str(payload.get("body") or "").strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="归档内容不能为空。")
+    result = archive_markdown_to_obsidian(title=title, body=body, source="creator_studio_manual")
+    record = {"id": make_id("obsidian_archive"), "created_at": now_iso(), "source_type": "manual", **result}
+    store.add_record("obsidian_archives", record)
+    return {"status": "ok", "archive": record}
+
+
 @app.post("/api/kids/draft-review")
 def draft_review_kids_script(payload: KidsScriptPreviewRequest) -> dict[str, Any]:
     seconds = clamp_kids_seconds(payload.seconds)
@@ -1247,6 +1303,90 @@ def list_wechat_materials() -> list[dict[str, Any]]:
     return _sorted(store.list_section("wechat_materials"))[:30]
 
 
+@app.delete("/api/integrations/wechat/materials")
+def clear_wechat_materials(status: str = Query("all")) -> dict[str, Any]:
+    status_filter = str(status or "all").strip()
+
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        existing = list(state.get("wechat_materials", []))
+        if status_filter == "all":
+            state["wechat_materials"] = []
+            removed = len(existing)
+        else:
+            kept = [item for item in existing if str(item.get("status")) != status_filter]
+            removed = len(existing) - len(kept)
+            state["wechat_materials"] = kept
+        return {"removed": removed, "remaining": len(state.get("wechat_materials", []))}
+
+    return {"status": "ok", **store.mutate(updater)}
+
+
+@app.post("/api/integrations/wechat/materials/{material_id}/generate")
+def generate_wechat_material_script(material_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    material = store.find_record("wechat_materials", material_id)
+    if not material:
+        raise HTTPException(status_code=404, detail="微信素材不存在。")
+    material_text = str(material.get("text", "")).strip()
+    if not material_text:
+        raise HTTPException(status_code=400, detail="微信素材文本为空。")
+    content_mode = normalize_content_mode(str(payload.get("content_mode") or material.get("content_mode") or "working_mom"))
+    script_provider = str(payload.get("script_provider") or material.get("script_provider") or "gemini_minimax")
+    prompt_hint = str(payload.get("prompt_hint") or "根据选择的模式重写成适合视频号发布的文案。")
+    learning_goal = str(payload.get("learning_goal") or "把微信发来的真实素材转成高共情、可落地的 AI 提效方案")
+    seconds = int(payload.get("seconds") or 45)
+    preview = preview_kids_script(
+        KidsScriptPreviewRequest(
+            topic=material_text,
+            seconds=seconds,
+            prompt_hint=prompt_hint,
+            content_mode=content_mode,
+            learning_goal=learning_goal,
+            script_provider=script_provider,
+        )
+    )
+    patch = {
+        "status": "preview_generated",
+        "content_mode": content_mode,
+        "script_provider": script_provider,
+        "animation_style": str(payload.get("animation_style") or material.get("animation_style") or ""),
+        "use_my_real_voice": bool(payload.get("use_my_real_voice", material.get("use_my_real_voice", True))),
+        "script_source": preview.get("script_source"),
+        "script": preview.get("script"),
+        "storyboard": preview.get("storyboard"),
+        "quality": preview.get("quality"),
+        "script_ai": preview.get("script_ai"),
+        "reply": _format_wechat_copy_reply(preview, material_text=material_text),
+        "updated_at": now_iso(),
+    }
+    return store.update_record("wechat_materials", material_id, patch)
+
+
+@app.post("/api/integrations/wechat/materials/{material_id}/archive")
+def archive_wechat_material(material_id: str) -> dict[str, Any]:
+    material = store.find_record("wechat_materials", material_id)
+    if not material:
+        raise HTTPException(status_code=404, detail="微信素材不存在。")
+    script = str(material.get("script") or "").strip()
+    if not script:
+        raise HTTPException(status_code=400, detail="这条微信素材还没有生成文案，不能归档。")
+    title = str(material.get("text") or "微信素材文案")[:50]
+    result = archive_markdown_to_obsidian(
+        title=title,
+        body=f"## 原始素材\n\n{material.get('text', '')}\n\n## 生成文案\n\n{script}\n",
+        source="creator_studio_wechat",
+    )
+    archive_record = {
+        "id": make_id("obsidian_archive"),
+        "created_at": now_iso(),
+        "source_type": "wechat_material",
+        "source_id": material_id,
+        **result,
+    }
+    store.add_record("obsidian_archives", archive_record)
+    store.update_record("wechat_materials", material_id, {"archived_at": now_iso(), "archive": archive_record})
+    return {"status": "ok", "archive": archive_record}
+
+
 @app.get("/api/integrations/wechat/callback")
 def verify_wechat_callback(
     signature: str = Query(""),
@@ -1289,7 +1429,7 @@ async def receive_wechat_callback(
         text=content,
         source_user=to_user,
         source_message_id=msg_id,
-        auto_preview=WECHAT_SYNC_REPLY,
+        auto_preview=True,
     )
     if WECHAT_SYNC_REPLY:
         result = receive_wechat_material(payload)

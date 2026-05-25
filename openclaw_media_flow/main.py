@@ -926,6 +926,22 @@ def validate_startup(mode: str) -> dict[str, Any]:
     return result
 
 
+def collect_creator_studio_ai_trends() -> dict[str, Any]:
+    ensure_dirs()
+    load_dotenv(WORKSPACE / ".env")
+    base = os.getenv("CREATOR_STUDIO_API_BASE", "http://127.0.0.1:8000").strip().rstrip("/")
+    request = urllib.request.Request(f"{base}/api/ai-trends/refresh", data=b"{}", method="POST")
+    with urllib.request.urlopen(request, timeout=120) as response:
+        result = json.loads(response.read().decode("utf-8", errors="replace"))
+    write_json(DIRS["trends"] / f"{now_stamp()}_creator_studio_ai_trends.json", result)
+    return {
+        "status": "ok",
+        "creator_studio_api_base": base,
+        "saved_to": str(DIRS["trends"]),
+        "report": result,
+    }
+
+
 def run_flow(mode: str) -> dict[str, Any]:
     ensure_dirs()
     load_dotenv(WORKSPACE / ".env")
@@ -993,8 +1009,16 @@ def main() -> None:
         action="store_true",
         help="Validate workspace, env and legacy bridge settings without calling external APIs.",
     )
+    parser.add_argument(
+        "--collect-ai-trends",
+        action="store_true",
+        help="Ask Creator Studio to collect latest AI trend information and save the report.",
+    )
     args = parser.parse_args()
-    result = validate_startup(args.mode) if args.validate else run_flow(args.mode)
+    if args.collect_ai_trends:
+        result = collect_creator_studio_ai_trends()
+    else:
+        result = validate_startup(args.mode) if args.validate else run_flow(args.mode)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
