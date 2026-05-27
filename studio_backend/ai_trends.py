@@ -175,11 +175,14 @@ def build_notebooklm_import_package(report: dict[str, Any] | None = None) -> dic
     ]
     lines.extend(f"- {angle}" for angle in angles)
     lines.extend(["", "## 资讯来源", ""])
+    source_urls: list[str] = []
     for index, item in enumerate(items, 1):
         title_text = str(item.get("title") or "未命名资讯").strip()
         summary = str(item.get("summary") or "").strip()
         url = str(item.get("url") or "").strip()
         source = str(item.get("source") or "").strip()
+        if url and url not in source_urls:
+            source_urls.append(url)
         lines.append(f"### {index}. {title_text}")
         lines.append("")
         if source:
@@ -206,12 +209,17 @@ def build_notebooklm_import_package(report: dict[str, Any] | None = None) -> dic
     file_path = package_dir / f"{safe_date}-ai-trends-notebooklm.md"
     body = "\n".join(lines).strip() + "\n"
     file_path.write_text(body, encoding="utf-8")
+    links_path = package_dir / f"{safe_date}-ai-trends-source-links.txt"
+    links_path.write_text("\n".join(source_urls).strip() + "\n", encoding="utf-8")
     return {
         "status": "ok",
         "title": title,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "path": str(file_path),
         "url": f"/studio-files/notebooklm/{file_path.name}",
+        "source_urls": source_urls,
+        "source_links_path": str(links_path),
+        "source_links_url": f"/studio-files/notebooklm/{links_path.name}",
         "body": body,
     }
 

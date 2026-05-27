@@ -595,6 +595,20 @@ async function createNotebookLmPackage() {
   }
 }
 
+async function copyNotebookLmSourceLinks() {
+  const links = Array.isArray(notebookLmPackage.value?.source_urls) ? notebookLmPackage.value.source_urls : [];
+  if (!links.length) {
+    setError("当前 NotebookLM 导入包里还没有原始链接清单。");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(links.join("\n"));
+    setNotice(`已复制 ${links.length} 条原始资讯链接，可粘贴到 NotebookLM 的网站来源里。`);
+  } catch {
+    setError("复制失败，可以打开原始链接清单后手动复制。");
+  }
+}
+
 async function archiveWechatMaterial(material) {
   if (!material?.id) return;
   busy.archive = String(material.id);
@@ -785,8 +799,12 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="notebookLmPackage" class="notebooklm-box">
           <strong>NotebookLM 导入包</strong>
-          <span>下载后上传到 NotebookLM，即可让它分析资料并生成 Audio Overview。</span>
-          <a :href="mediaUrl(notebookLmPackage.url)" target="_blank" rel="noreferrer">{{ notebookLmPackage.title || "打开导入包" }}</a>
+          <span>Markdown 包适合整体导入；原始链接清单适合让 NotebookLM 分别读取每篇资讯网页。</span>
+          <div class="notebooklm-actions">
+            <a :href="mediaUrl(notebookLmPackage.url)" target="_blank" rel="noreferrer">{{ notebookLmPackage.title || "打开导入包" }}</a>
+            <a v-if="notebookLmPackage.source_links_url" :href="mediaUrl(notebookLmPackage.source_links_url)" target="_blank" rel="noreferrer">打开原始链接清单</a>
+            <button class="btn secondary small" type="button" @click="copyNotebookLmSourceLinks">复制全部原始链接</button>
+          </div>
         </div>
       </div>
     </section>
@@ -1502,6 +1520,13 @@ textarea {
 .notebooklm-box a {
   color: #246bfe;
   font-weight: 800;
+}
+
+.notebooklm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
 }
 
 .trend-card {
