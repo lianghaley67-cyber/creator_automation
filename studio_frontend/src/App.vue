@@ -23,6 +23,7 @@ const notice = ref("");
 const errorMessage = ref("");
 const jobs = ref([]);
 const wechatMaterials = ref([]);
+const selectedWechatMaterialId = ref("");
 const aiTrends = ref([]);
 const notebookLmPackage = ref(null);
 const deletingJobId = ref("");
@@ -523,6 +524,9 @@ async function refreshWechatMaterials() {
   try {
     const data = await requestApi("/api/integrations/wechat/materials");
     wechatMaterials.value = Array.isArray(data) ? data : [];
+    if (!wechatMaterials.value.some((item) => item.id === selectedWechatMaterialId.value)) {
+      selectedWechatMaterialId.value = wechatMaterials.value[0]?.id || "";
+    }
   } catch (error) {
     setError(normalizeErrorMessage(error, "刷新微信素材失败。"));
   } finally {
@@ -536,6 +540,7 @@ async function clearWechatMaterials() {
   try {
     const result = await requestApi("/api/integrations/wechat/materials", { method: "DELETE" });
     wechatMaterials.value = [];
+    selectedWechatMaterialId.value = "";
     setNotice(`已清理微信旧素材 ${result.removed || 0} 条。`);
   } catch (error) {
     setError(normalizeErrorMessage(error, "清理微信素材失败。"));
@@ -551,6 +556,9 @@ async function deleteWechatMaterial(material) {
   try {
     await requestApi(`/api/integrations/wechat/materials/${material.id}`, { method: "DELETE" });
     wechatMaterials.value = wechatMaterials.value.filter((item) => item.id !== material.id);
+    if (selectedWechatMaterialId.value === material.id) {
+      selectedWechatMaterialId.value = wechatMaterials.value[0]?.id || "";
+    }
     setNotice("已删除这一条微信素材。");
   } catch (error) {
     setError(normalizeErrorMessage(error, "删除微信素材失败。"));
@@ -638,6 +646,9 @@ const runningKidsJobs = computed(() => kidsJobs.value.filter((job) => ["queued",
 const completedKidsJobs = computed(() => kidsJobs.value.filter((job) => job.status === "completed"));
 const failedKidsJobs = computed(() => kidsJobs.value.filter((job) => job.status === "failed"));
 const latestWechatMaterial = computed(() => wechatMaterials.value[0] || null);
+const selectedWechatMaterial = computed(() => (
+  wechatMaterials.value.find((item) => item.id === selectedWechatMaterialId.value) || latestWechatMaterial.value
+));
 
 let pollTimer = null;
 onMounted(async () => {
@@ -696,26 +707,46 @@ onBeforeUnmount(() => {
       </div>
       <div class="meta">微信发新消息后，点击“刷新微信素材”加载；页面不会自动轮询刷新。</div>
       <div v-if="!wechatMaterials.length" class="meta">还没有收到微信素材。你可以在微信测试号里发一句真实经历。</div>
-      <div v-else class="wechat-grid">
-        <div v-for="item in wechatMaterials.slice(0, 30)" :key="item.id" class="wechat-card" :class="{ ready: item.script, failed: item.status === 'preview_failed' }">
-          <div class="material-main">
-            <div class="script-preview-head">
-              <strong>{{ item.status === "preview_generated" ? "已生成文案" : item.status === "preview_failed" ? "生成失败" : "已收到素材" }}</strong>
-              <span>{{ item.created_at }}</span>
-            </div>
-            <p>{{ item.text }}</p>
-            <p v-if="item.error" class="error-text">{{ item.error }}</p>
+      <div v-else class="wechat-mailbox">
+        <div class="mail-list" aria-label="微信素材列表">
+          <button
+            v-for="item in wechatMaterials.slice(0, 30)"
+            :key="item.id"
+            class="mail-row"
+            :class="{
+              selected: selectedWechatMaterial?.id === item.id,
+              ready: item.script,
+              failed: item.status === 'preview_failed'
+            }"
+            type="button"
+            @click="selectedWechatMaterialId = item.id"
+          >
+            <span class="mail-status">{{ item.status === "preview_generated" ? "已生成文案" : item.status === "preview_failed" ? "生成失败" : "已收到素材" }}</span>
+            <span class="mail-time">{{ item.created_at }}</span>
+            <span class="mail-summary">{{ item.text }}</span>
+          </button>
+        </div>
+        <div v-if="selectedWechatMaterial" class="mail-detail" :class="{ ready: selectedWechatMaterial.script, failed: selectedWechatMaterial.status === 'preview_failed' }">
+          <div class="script-preview-head">
+            <strong>{{ selectedWechatMaterial.status === "preview_generated" ? "已生成文案" : selectedWechatMaterial.status === "preview_failed" ? "生成失败" : "已收到素材" }}</strong>
+            <span>{{ selectedWechatMaterial.created_at }}</span>
+          </div>
+          <p>{{ selectedWechatMaterial.text }}</p>
+          <p v-if="selectedWechatMaterial.error" class="error-text">{{ selectedWechatMaterial.error }}</p>
+          <div v-if="selectedWechatMaterial.script" class="generated-copy">
+            <strong>已生成文案</strong>
+            <pre>{{ selectedWechatMaterial.script }}</pre>
           </div>
           <div class="material-actions">
-            <button class="btn primary small" type="button" :disabled="busy.previewScript" @click="generateWechatMaterial(item, 'real_person')">真人口播生成</button>
-            <button class="btn primary small" type="button" :disabled="busy.previewScript" @click="generateWechatMaterial(item, 'interview')">嘉宾访谈生成</button>
-            <button class="btn secondary small" type="button" @click="applyWechatMaterial(item)">
-              {{ item.script ? "载入到编辑区" : "载入素材" }}
+            <button class="btn primary small" type="button" :disabled="busy.previewScript" @click="generateWechatMaterial(selectedWechatMaterial, 'real_person')">真人口播生成</button>
+            <button class="btn primary small" type="button" :disabled="busy.previewScript" @click="generateWechatMaterial(selectedWechatMaterial, 'interview')">嘉宾访谈生成</button>
+            <button class="btn secondary small" type="button" @click="applyWechatMaterial(selectedWechatMaterial)">
+              {{ selectedWechatMaterial.script ? "载入到编辑区" : "载入素材" }}
             </button>
-            <button v-if="item.script" class="btn secondary small" type="button" :disabled="busy.archive === String(item.id)" @click="archiveWechatMaterial(item)">
-              {{ busy.archive === String(item.id) ? "归档中..." : "归档 Obsidian" }}
+            <button v-if="selectedWechatMaterial.script" class="btn secondary small" type="button" :disabled="busy.archive === String(selectedWechatMaterial.id)" @click="archiveWechatMaterial(selectedWechatMaterial)">
+              {{ busy.archive === String(selectedWechatMaterial.id) ? "归档中..." : "归档 Obsidian" }}
             </button>
-            <button class="btn secondary small danger-action" type="button" :disabled="busy.refreshWechat" @click="deleteWechatMaterial(item)">删除本条</button>
+            <button class="btn secondary small danger-action" type="button" :disabled="busy.refreshWechat" @click="deleteWechatMaterial(selectedWechatMaterial)">删除本条</button>
           </div>
         </div>
       </div>
@@ -1333,49 +1364,122 @@ textarea {
   color: #5f7088;
 }
 
-.wechat-grid {
+.wechat-mailbox {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.35fr);
+  gap: 12px;
+  min-height: 360px;
 }
 
-.wechat-card {
+.mail-list {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
-  align-items: start;
+  align-content: start;
+  max-height: 520px;
+  overflow: auto;
   border: 1px solid #d7e2f1;
   border-radius: 8px;
-  padding: 12px;
   background: #fbfdff;
 }
 
-.wechat-card.ready {
+.mail-row {
+  display: grid;
+  grid-template-columns: 86px 1fr;
+  gap: 5px 10px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #e6edf7;
+  padding: 11px 12px;
+  color: #1f3045;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.mail-row:last-child {
+  border-bottom: 0;
+}
+
+.mail-row:hover,
+.mail-row.selected {
+  background: #eef5ff;
+}
+
+.mail-row.ready {
+  border-left: 3px solid #30b46c;
+}
+
+.mail-row.failed {
+  border-left: 3px solid #d65f2b;
+}
+
+.mail-status {
+  font-weight: 900;
+}
+
+.mail-time {
+  justify-self: end;
+  color: #5f7088;
+  font-size: 12px;
+}
+
+.mail-summary {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: #40546d;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mail-detail {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfdff;
+}
+
+.mail-detail.ready {
   border-color: #bce8ce;
   background: #effaf4;
 }
 
-.wechat-card.failed {
+.mail-detail.failed {
   border-color: #f0b8a8;
   background: #fff8f5;
 }
 
-.wechat-card p {
-  margin: 8px 0 0;
+.mail-detail p {
+  margin: 0;
   color: #1f3045;
-  line-height: 1.55;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.generated-copy {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.generated-copy pre {
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  color: #1f3045;
 }
 
 .material-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  justify-content: flex-end;
-  max-width: 340px;
-}
-
-.material-main {
-  min-width: 0;
+  justify-content: flex-start;
 }
 
 .danger-action {
@@ -1619,15 +1723,10 @@ textarea {
   }
 
   .field-grid,
-  .wechat-card,
+  .wechat-mailbox,
   .storyboard-head,
   .shot-row {
     grid-template-columns: 1fr;
-  }
-
-  .material-actions {
-    justify-content: flex-start;
-    max-width: none;
   }
 
   .floating-generate {
