@@ -133,6 +133,89 @@ def collect_ai_trends() -> dict[str, Any]:
     return report
 
 
+def build_notebooklm_import_package(report: dict[str, Any] | None = None) -> dict[str, Any]:
+    data = report or {}
+    if not data:
+        archive_dir = STUDIO_DIR / "ai_trends"
+        latest = sorted(archive_dir.glob("*.json"), reverse=True)[:1] if archive_dir.exists() else []
+        if latest:
+            try:
+                data = json.loads(latest[0].read_text(encoding="utf-8", errors="replace"))
+            except Exception:  # noqa: BLE001
+                data = {}
+    if not data:
+        data = collect_ai_trends()
+
+    created_at = str(data.get("created_at") or datetime.now().isoformat(timespec="seconds"))
+    title = str(data.get("title") or f"AI 最新资讯日报 {created_at[:10]}")
+    items = list(data.get("items") or [])
+    angles = list(data.get("angles") or [])
+    lines = [
+        f"# {title} - NotebookLM 导入包",
+        "",
+        "## 使用方式",
+        "",
+        "1. 打开 NotebookLM，新建一个 notebook。",
+        "2. 把这份 Markdown 作为资料源上传或复制进去。",
+        "3. 让 NotebookLM 先总结趋势，再生成 Audio Overview / 播客音频。",
+        "",
+        "## 播客分析指令",
+        "",
+        "请以“职场精英妈妈/AI 科技女性”的频道定位分析下面的 AI 资讯：",
+        "- 先提炼 3 个普通人能听懂的技术变化。",
+        "- 再判断哪些适合转化成视频号口播、嘉宾访谈或图文。",
+        "- 最后生成一段 6-8 分钟播客大纲，语气要高认知、强共情、有温度。",
+        "",
+        "## 今日摘要",
+        "",
+        str(data.get("summary") or "").strip(),
+        "",
+        "## 可转化选题角度",
+        "",
+    ]
+    lines.extend(f"- {angle}" for angle in angles)
+    lines.extend(["", "## 资讯来源", ""])
+    for index, item in enumerate(items, 1):
+        title_text = str(item.get("title") or "未命名资讯").strip()
+        summary = str(item.get("summary") or "").strip()
+        url = str(item.get("url") or "").strip()
+        source = str(item.get("source") or "").strip()
+        lines.append(f"### {index}. {title_text}")
+        lines.append("")
+        if source:
+            lines.append(f"- 来源：{source}")
+        if url:
+            lines.append(f"- 链接：{url}")
+        if summary:
+            lines.append(f"- 摘要：{summary}")
+        lines.append("")
+    lines.extend(
+        [
+            "## 给 NotebookLM 的输出要求",
+            "",
+            "请生成：",
+            "- 一份适合微信视频号的选题清单。",
+            "- 一份双人访谈播客脚本，角色为理性 AI 专家和真实职场妈妈。",
+            "- 一份真人出镜口播稿，保留 3 秒钩子、3 个方法、评论区互动。",
+        ]
+    )
+
+    package_dir = STUDIO_DIR / "notebooklm"
+    package_dir.mkdir(parents=True, exist_ok=True)
+    safe_date = created_at[:10] or datetime.now().strftime("%Y-%m-%d")
+    file_path = package_dir / f"{safe_date}-ai-trends-notebooklm.md"
+    body = "\n".join(lines).strip() + "\n"
+    file_path.write_text(body, encoding="utf-8")
+    return {
+        "status": "ok",
+        "title": title,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "path": str(file_path),
+        "url": f"/studio-files/notebooklm/{file_path.name}",
+        "body": body,
+    }
+
+
 def archive_markdown_to_obsidian(*, title: str, body: str, source: str = "creator_studio") -> dict[str, Any]:
     safe_title = re.sub(r"[\\/:*?\"<>|#\[\]]+", "-", title).strip("- ") or "creator-studio-copy"
     date_text = datetime.now().strftime("%Y-%m-%d")

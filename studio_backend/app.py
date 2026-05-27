@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .analysis import analyze_media_file, detect_media_kind
-from .ai_trends import archive_markdown_to_obsidian, collect_ai_trends
+from .ai_trends import archive_markdown_to_obsidian, build_notebooklm_import_package, collect_ai_trends
 from .avatar import detect_sadtalker_status, normalize_sadtalker_config
 from .generation import render_job
 from .kids_mode import (
@@ -1130,6 +1130,26 @@ def refresh_ai_trends() -> dict[str, Any]:
     return _run_ai_trends_collection()
 
 
+@app.post("/api/ai-trends/notebooklm-package")
+def create_notebooklm_package() -> dict[str, Any]:
+    latest = _sorted(store.list_section("ai_trends"))[:1]
+    package = build_notebooklm_import_package(latest[0] if latest else None)
+    archive = archive_markdown_to_obsidian(
+        title=f"NotebookLM AI 资讯导入包 {str(package.get('title') or '')[:28]}",
+        body=str(package.get("body") or ""),
+        source="creator_studio_notebooklm_package",
+    )
+    record = {
+        "id": make_id("notebooklm_package"),
+        "created_at": now_iso(),
+        "source_type": "ai_trends_notebooklm",
+        "package": {key: value for key, value in package.items() if key != "body"},
+        "archive": archive,
+    }
+    store.add_record("obsidian_archives", record)
+    return {"status": "ok", **record}
+
+
 @app.post("/api/archive/obsidian")
 def archive_copy_to_obsidian(payload: dict[str, Any]) -> dict[str, Any]:
     title = str(payload.get("title") or "Creator Studio 文案").strip()
@@ -1319,6 +1339,20 @@ def clear_wechat_materials(status: str = Query("all")) -> dict[str, Any]:
         return {"removed": removed, "remaining": len(state.get("wechat_materials", []))}
 
     return {"status": "ok", **store.mutate(updater)}
+
+
+@app.delete("/api/integrations/wechat/materials/{material_id}")
+def delete_wechat_material(material_id: str) -> dict[str, Any]:
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        existing = list(state.get("wechat_materials", []))
+        kept = [item for item in existing if str(item.get("id")) != material_id]
+        state["wechat_materials"] = kept
+        return {"removed": len(existing) - len(kept), "remaining": len(kept)}
+
+    result = store.mutate(updater)
+    if not result.get("removed"):
+        raise HTTPException(status_code=404, detail="微信素材不存在。")
+    return {"status": "ok", **result}
 
 
 @app.post("/api/integrations/wechat/materials/{material_id}/generate")

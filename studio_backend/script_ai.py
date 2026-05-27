@@ -5,6 +5,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from .kids_mode import normalize_kids_script_text
@@ -14,6 +15,7 @@ ZHIPU_CHAT_ENDPOINT = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 MINIMAX_CHAT_ENDPOINT = "https://api.minimax.io/v1/chat/completions"
 DEEPSEEK_CHAT_ENDPOINT = "https://api.deepseek.com/chat/completions"
 GEMINI_GENERATE_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
 def _string(value: Any) -> str:
@@ -122,10 +124,37 @@ def _target_lines(seconds: int) -> int:
     return 6 if seconds <= 35 else 9 if seconds <= 45 else 12
 
 
+def _load_creator_skills() -> str:
+    raw_dir = os.getenv("CREATOR_SKILLS_DIR", "creator_skills").strip() or "creator_skills"
+    skills_dir = Path(raw_dir)
+    if not skills_dir.is_absolute():
+        skills_dir = ROOT_DIR / skills_dir
+    if not skills_dir.exists():
+        return ""
+
+    blocks: list[str] = []
+    for path in sorted(skills_dir.glob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            continue
+        if text:
+            blocks.append(f"## {path.stem}\n{text}")
+    return "\n\n".join(blocks)[:12000]
+
+
 def _creator_system_prompt(*, output_mode: str = "draft") -> str:
     suffix = ""
     if output_mode == "revision":
         suffix = "你正在做终稿修复，必须逐条吸收审核意见，保留爆点，删除废话，输出可直接配音的最终文案。"
+    custom_skills = _load_creator_skills()
+    skills_block = ""
+    if custom_skills:
+        skills_block = (
+            "\n\n以下是用户长期维护的 Creator Skills。它们优先级高于普通表达偏好，"
+            "但不得覆盖安全、合规、事实准确和用户本次主题：\n"
+            f"{custom_skills}\n"
+        )
     return (
         "你是高认知、强共情、有温度的职场妈妈/AI 科技女性 IP 编剧。"
         "只输出最终中文口播文案，不要标题，不要解释，不要分镜，不要括号场景说明。"
@@ -135,6 +164,7 @@ def _creator_system_prompt(*, output_mode: str = "draft") -> str:
         "语气要口语化、犀利但温暖，允许高级幽默和轻微调侃。"
         "严禁输出思考过程、分析过程、审核过程、<think>标签或项目符号说明。"
         "必须严格围绕用户给定主题，不得改写成其他主题。"
+        f"{skills_block}"
         f"{suffix}"
     )
 
