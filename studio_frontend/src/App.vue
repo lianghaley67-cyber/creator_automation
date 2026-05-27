@@ -103,6 +103,10 @@ async function pingApi(base) {
   try {
     const response = await fetch(`${base}/api/health`, { signal: controller.signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) throw new Error("Health endpoint did not return JSON.");
+    const payload = await response.json();
+    if (payload?.status !== "ok") throw new Error("Health endpoint returned an invalid payload.");
     return true;
   } finally {
     window.clearTimeout(timer);
