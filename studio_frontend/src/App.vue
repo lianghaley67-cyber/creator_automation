@@ -23,6 +23,7 @@ const notice = ref("");
 const errorMessage = ref("");
 const jobs = ref([]);
 const wechatMaterials = ref([]);
+const wechatCallbackEvents = ref([]);
 const selectedWechatMaterialId = ref("");
 const aiTrends = ref([]);
 const notebookLmPackage = ref(null);
@@ -522,8 +523,12 @@ async function refreshJobs() {
 async function refreshWechatMaterials() {
   busy.refreshWechat = true;
   try {
-    const data = await requestApi("/api/integrations/wechat/materials");
+    const [data, events] = await Promise.all([
+      requestApi("/api/integrations/wechat/materials"),
+      requestApi("/api/integrations/wechat/callback-events").catch(() => [])
+    ]);
     wechatMaterials.value = Array.isArray(data) ? data : [];
+    wechatCallbackEvents.value = Array.isArray(events) ? events : [];
     if (!wechatMaterials.value.some((item) => item.id === selectedWechatMaterialId.value)) {
       selectedWechatMaterialId.value = wechatMaterials.value[0]?.id || "";
     }
@@ -663,6 +668,7 @@ const latestWechatMaterial = computed(() => wechatMaterials.value[0] || null);
 const selectedWechatMaterial = computed(() => (
   wechatMaterials.value.find((item) => item.id === selectedWechatMaterialId.value) || latestWechatMaterial.value
 ));
+const latestWechatCallbackEvent = computed(() => wechatCallbackEvents.value[0] || null);
 
 let pollTimer = null;
 onMounted(async () => {
@@ -720,7 +726,12 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="meta">微信发新消息后，点击“刷新微信素材”加载；页面不会自动轮询刷新。</div>
-      <div v-if="!wechatMaterials.length" class="meta">还没有收到微信素材。你可以在微信测试号里发一句真实经历。</div>
+      <div v-if="!wechatMaterials.length" class="meta">
+        还没有收到微信素材。你可以在微信测试号里发一句真实经历。
+        <span v-if="latestWechatCallbackEvent">
+          最近一次微信回调：{{ latestWechatCallbackEvent.created_at }} / {{ latestWechatCallbackEvent.msg_type }} / {{ latestWechatCallbackEvent.action }}，{{ latestWechatCallbackEvent.reason }}
+        </span>
+      </div>
       <div v-else class="wechat-mailbox">
         <div class="mail-list" aria-label="微信素材列表">
           <button
@@ -761,6 +772,21 @@ onBeforeUnmount(() => {
               {{ busy.archive === String(selectedWechatMaterial.id) ? "归档中..." : "归档 Obsidian" }}
             </button>
             <button class="btn secondary small danger-action" type="button" :disabled="busy.refreshWechat" @click="deleteWechatMaterial(selectedWechatMaterial)">删除本条</button>
+          </div>
+        </div>
+      </div>
+      <div v-if="wechatCallbackEvents.length" class="callback-diagnostics">
+        <div class="script-preview-head">
+          <strong>最近微信回调诊断</strong>
+          <span>用于判断消息是否真的进入后端</span>
+        </div>
+        <div class="callback-list">
+          <div v-for="event in wechatCallbackEvents.slice(0, 8)" :key="event.id" class="callback-row" :class="event.action">
+            <span class="callback-time">{{ event.created_at }}</span>
+            <span class="callback-type">{{ event.msg_type }}{{ event.event ? `/${event.event}` : "" }}</span>
+            <span class="callback-action">{{ event.action }}</span>
+            <span class="callback-reason">{{ event.reason }}</span>
+            <span class="callback-preview">{{ event.content_preview || "无文本内容" }}</span>
           </div>
         </div>
       </div>
@@ -1474,6 +1500,71 @@ textarea {
   color: #1f3045;
   line-height: 1.7;
   white-space: pre-wrap;
+}
+
+.callback-diagnostics {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #e0e8f4;
+}
+
+.callback-list {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.callback-row {
+  display: grid;
+  grid-template-columns: 150px 90px 118px minmax(160px, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 9px 10px;
+  border-bottom: 1px solid #e6edf7;
+  color: #40546d;
+}
+
+.callback-row:last-child {
+  border-bottom: 0;
+}
+
+.callback-row.queued_material {
+  background: #effaf4;
+}
+
+.callback-row.ignored {
+  background: #fffaf0;
+}
+
+.callback-row.rejected {
+  background: #fff1f1;
+}
+
+.callback-time,
+.callback-type,
+.callback-action {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.callback-action {
+  color: #1f3045;
+}
+
+.callback-reason,
+.callback-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.callback-preview {
+  grid-column: 1 / -1;
+  color: #5f7088;
 }
 
 .generated-copy {

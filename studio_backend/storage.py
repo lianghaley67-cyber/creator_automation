@@ -26,6 +26,7 @@ DEFAULT_STATE: dict[str, Any] = {
     "jobs": [],
     "schedules": [],
     "wechat_materials": [],
+    "wechat_callback_events": [],
     "ai_trends": [],
     "obsidian_archives": [],
     "avatar_settings": {},

@@ -355,6 +355,43 @@ def _wechat_text_response(*, to_user: str, from_user: str, content: str) -> str:
     )
 
 
+def _record_wechat_callback_event(
+    message: dict[str, str],
+    *,
+    action: str,
+    reason: str,
+    content_preview: str | None = None,
+) -> dict[str, Any]:
+    msg_type = str(message.get("MsgType") or "").strip() or "unknown"
+    preview = (
+        content_preview
+        or message.get("Content")
+        or message.get("Recognition")
+        or message.get("Event")
+        or message.get("PicUrl")
+        or ""
+    )
+    record = {
+        "id": make_id("wechat_callback"),
+        "created_at": now_iso(),
+        "msg_type": msg_type,
+        "event": str(message.get("Event") or "").strip(),
+        "source_user": str(message.get("FromUserName") or "").strip(),
+        "source_message_id": str(message.get("MsgId") or "").strip(),
+        "content_preview": _compact_text(preview, limit=160),
+        "action": action,
+        "reason": reason,
+    }
+
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        events = list(state.get("wechat_callback_events", []))
+        events.append(record)
+        state["wechat_callback_events"] = events[-80:]
+        return record
+
+    return store.mutate(updater)
+
+
 def _parse_wechat_xml(raw_body: bytes) -> dict[str, str]:
     if not raw_body:
         return {}
@@ -1355,6 +1392,21 @@ def delete_wechat_material(material_id: str) -> dict[str, Any]:
     return {"status": "ok", **result}
 
 
+@app.get("/api/integrations/wechat/callback-events")
+def list_wechat_callback_events() -> list[dict[str, Any]]:
+    return _sorted(store.list_section("wechat_callback_events"))[:50]
+
+
+@app.delete("/api/integrations/wechat/callback-events")
+def clear_wechat_callback_events() -> dict[str, Any]:
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        existing = list(state.get("wechat_callback_events", []))
+        state["wechat_callback_events"] = []
+        return {"removed": len(existing), "remaining": 0}
+
+    return {"status": "ok", **store.mutate(updater)}
+
+
 @app.post("/api/integrations/wechat/materials/{material_id}/generate")
 def generate_wechat_material_script(material_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     material = store.find_record("wechat_materials", material_id)
@@ -1442,10 +1494,21 @@ async def receive_wechat_callback(
     nonce: str = Query(""),
 ) -> Response:
     if WECHAT_CALLBACK_TOKEN and not _wechat_signature_ok(signature, timestamp, nonce):
+        _record_wechat_callback_event(
+            {"MsgType": "signature_check"},
+            action="rejected",
+            reason="签名校验失败，请检查微信测试号 Token 是否和 .env 的 WECHAT_CALLBACK_TOKEN 一致。",
+        )
         raise HTTPException(status_code=403, detail="Invalid WeChat signature.")
+    raw_body = await request.body()
     try:
-        message = _parse_wechat_xml(await request.body())
+        message = _parse_wechat_xml(raw_body)
     except Exception:
+        _record_wechat_callback_event(
+            {"MsgType": "invalid_xml"},
+            action="rejected",
+            reason=f"微信 XML 解析失败，body_length={len(raw_body)}。",
+        )
         raise HTTPException(status_code=400, detail="Invalid WeChat XML.")
     msg_type = message.get("MsgType", "")
     to_user = message.get("FromUserName", "")
@@ -1453,6 +1516,11 @@ async def receive_wechat_callback(
     content = re.sub(r"\s+", " ", message.get("Content", "")).strip()
     msg_id = message.get("MsgId", "")
     if msg_type != "text" or not content:
+        _record_wechat_callback_event(
+            message,
+            action="ignored",
+            reason="已收到微信回调，但当前只把文字消息写入素材箱。",
+        )
         reply = "我现在先支持接收文字素材。你可以直接发：今天发生了什么、你的感想、剪辑心得。"
         return Response(
             content=_wechat_text_response(to_user=to_user, from_user=from_user, content=reply),
@@ -1465,6 +1533,7 @@ async def receive_wechat_callback(
         source_message_id=msg_id,
         auto_preview=True,
     )
+    _record_wechat_callback_event(message, action="queued_material", reason="文字素材已进入生成队列。")
     if WECHAT_SYNC_REPLY:
         result = receive_wechat_material(payload)
         reply_text = (result.get("wechat_reply") or {}).get("plain_text") or "素材已收到，文案已生成。"
