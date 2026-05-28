@@ -54,6 +54,7 @@ const busy = reactive({
   connect: false,
   refresh: false,
   refreshWechat: false,
+  clearWechatDiagnostics: false,
   refreshTrends: false,
   notebooklm: false,
   archive: "",
@@ -554,6 +555,20 @@ async function clearWechatMaterials() {
   }
 }
 
+async function clearWechatDiagnostics() {
+  if (!window.confirm("确定清空微信回调诊断记录吗？这不会删除微信素材。")) return;
+  busy.clearWechatDiagnostics = true;
+  try {
+    const result = await requestApi("/api/integrations/wechat/callback-events", { method: "DELETE" });
+    wechatCallbackEvents.value = [];
+    setNotice(`已清理微信回调诊断 ${result.removed || 0} 条。`);
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "清理微信回调诊断失败。"));
+  } finally {
+    busy.clearWechatDiagnostics = false;
+  }
+}
+
 async function deleteWechatMaterial(material) {
   if (!material?.id) return;
   if (!window.confirm("确定删除这一条微信素材吗？")) return;
@@ -778,7 +793,12 @@ onBeforeUnmount(() => {
       <div v-if="wechatCallbackEvents.length" class="callback-diagnostics">
         <div class="script-preview-head">
           <strong>最近微信回调诊断</strong>
-          <span>用于判断消息是否真的进入后端</span>
+          <div class="diagnostics-head-actions">
+            <span>用于判断消息是否真的进入后端</span>
+            <button class="btn secondary small danger-action" type="button" :disabled="busy.clearWechatDiagnostics" @click="clearWechatDiagnostics">
+              {{ busy.clearWechatDiagnostics ? "清理中..." : "清空诊断" }}
+            </button>
+          </div>
         </div>
         <div class="callback-list">
           <div v-for="event in wechatCallbackEvents.slice(0, 8)" :key="event.id" class="callback-row" :class="event.action">
@@ -1516,6 +1536,13 @@ textarea {
   border: 1px solid #d7e2f1;
   border-radius: 8px;
   background: #fbfdff;
+}
+
+.diagnostics-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 .callback-row {
