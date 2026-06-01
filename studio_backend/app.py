@@ -786,8 +786,8 @@ def _sync_ai_trends_scheduler() -> None:
     )
 
 
-def _run_ai_trends_collection() -> dict[str, Any]:
-    report = collect_ai_trends()
+def _run_ai_trends_collection(query: str | None = None) -> dict[str, Any]:
+    report = collect_ai_trends(query=query)
     record = {
         "id": make_id("ai_trends"),
         **report,
@@ -1163,8 +1163,15 @@ def list_ai_trends() -> list[dict[str, Any]]:
 
 
 @app.post("/api/ai-trends/refresh")
-def refresh_ai_trends() -> dict[str, Any]:
-    return _run_ai_trends_collection()
+async def refresh_ai_trends(request: Request) -> dict[str, Any]:
+    query = ""
+    try:
+        payload = await request.json()
+        if isinstance(payload, dict):
+            query = str(payload.get("query") or "").strip()
+    except Exception:  # noqa: BLE001
+        query = ""
+    return _run_ai_trends_collection(query=query or None)
 
 
 @app.post("/api/ai-trends/notebooklm-package")

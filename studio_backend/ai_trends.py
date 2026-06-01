@@ -51,16 +51,21 @@ def _compact(value: str, limit: int = 220) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _fetch_tavily() -> list[dict[str, Any]]:
+def _normalize_query(query: str | None) -> str:
+    return re.sub(r"\s+", " ", str(query or "")).strip()
+
+
+def _fetch_tavily(query: str | None = None) -> list[dict[str, Any]]:
     api_key = os.getenv("TAVILY_API_KEY", "").strip()
     if not api_key:
         return []
     items: list[dict[str, Any]] = []
-    for query in TREND_QUERIES:
+    search_queries = [_normalize_query(query)] if _normalize_query(query) else TREND_QUERIES
+    for search_query in search_queries:
         try:
             payload = {
                 "api_key": api_key,
-                "query": query,
+                "query": search_query,
                 "search_depth": "basic",
                 "max_results": 5,
                 "include_answer": True,
@@ -70,14 +75,14 @@ def _fetch_tavily() -> list[dict[str, Any]]:
                 items.append(
                     {
                         "source": "tavily",
-                        "query": query,
+                        "query": search_query,
                         "title": _compact(result.get("title", ""), 120),
                         "summary": _compact(result.get("content", "")),
                         "url": result.get("url", ""),
                     }
                 )
         except Exception as exc:  # noqa: BLE001
-            items.append({"source": "tavily", "query": query, "title": "Tavily 抓取失败", "summary": str(exc), "url": ""})
+            items.append({"source": "tavily", "query": search_query, "title": "Tavily 抓取失败", "summary": str(exc), "url": ""})
     return items
 
 
@@ -104,8 +109,9 @@ def _fetch_rss() -> list[dict[str, Any]]:
     return items
 
 
-def collect_ai_trends() -> dict[str, Any]:
-    items = _fetch_tavily() + _fetch_rss()
+def collect_ai_trends(query: str | None = None) -> dict[str, Any]:
+    normalized_query = _normalize_query(query)
+    items = _fetch_tavily(normalized_query) + ([] if normalized_query else _fetch_rss())
     seen: set[str] = set()
     deduped: list[dict[str, Any]] = []
     for item in items:
@@ -118,8 +124,13 @@ def collect_ai_trends() -> dict[str, Any]:
     now = datetime.now().isoformat(timespec="seconds")
     report = {
         "created_at": now,
-        "title": f"AI 最新资讯日报 {now[:10]}",
-        "summary": "聚焦 AI 视频生成、创作者工具、效率工作流和职场妈妈可转化选题。",
+        "query": normalized_query,
+        "title": f"{normalized_query} 资讯检索 {now[:10]}" if normalized_query else f"AI 最新资讯日报 {now[:10]}",
+        "summary": (
+            f"按你的要求检索：{normalized_query}。以下内容来自 Tavily 接口返回结果，适合继续转成学习问答、选题和口播文案。"
+            if normalized_query
+            else "聚焦 AI 视频生成、创作者工具、效率工作流和职场妈妈可转化选题。"
+        ),
         "items": selected,
         "angles": [
             "把 AI 新工具转译成职场妈妈能立刻用的省时方法。",

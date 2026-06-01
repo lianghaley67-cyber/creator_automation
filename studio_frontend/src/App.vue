@@ -27,10 +27,15 @@ const wechatCallbackEvents = ref([]);
 const selectedWechatMaterialId = ref("");
 const aiTrends = ref([]);
 const notebookLmPackage = ref(null);
+const trendSearchQuery = ref("");
 const deletingJobId = ref("");
 const previewStoryboard = ref([]);
 const hardRules = ref([]);
 const quality = ref(null);
+const activeTab = ref("trends"); // trends | materials
+const trendQuestions = ref([]);
+const trendScripts = ref({});
+const generatingTrendScript = ref(false);
 const referenceStyleContract = ref(null);
 const visualPipeline = ref(null);
 const scriptAi = ref(null);
@@ -590,15 +595,74 @@ async function deleteWechatMaterial(material) {
 async function refreshAiTrends(force = false) {
   busy.refreshTrends = true;
   try {
+    const query = trendSearchQuery.value.trim();
     const data = force
-      ? await requestApi("/api/ai-trends/refresh", { method: "POST" }, 90000)
+      ? await requestApi(
+          "/api/ai-trends/refresh",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json; charset=utf-8" },
+            body: JSON.stringify({ query })
+          },
+          90000
+        )
       : await requestApi("/api/ai-trends");
     aiTrends.value = Array.isArray(data) ? data : [data];
-    setNotice(force ? "AI 最新资讯已刷新。" : notice.value);
+    // 自动生成6个问题
+    if (aiTrends.value.length > 0) {
+      generateTrendQuestions(aiTrends.value[0]);
+    }
+    setNotice(force ? (query ? `已按"${query}"抓取 AI 资讯。` : "AI 最新资讯已刷新。") : notice.value);
   } catch (error) {
     setError(normalizeErrorMessage(error, "刷新 AI 资讯失败。"));
   } finally {
     busy.refreshTrends = false;
+  }
+}
+
+function generateTrendQuestions(trend) {
+  if (!trend) return;
+  trendQuestions.value = [
+    "AI 对普通人有什么影响？",
+    "AI 未来会带来哪些好的改变和坏的风险？",
+    "AI 是不是完全准确？它和人的判断有什么区别？",
+    "普通学习者现在应该先学会哪 3 个 AI 用法？",
+    "AI 会不会取代我们的工作，哪些能力反而更值钱？",
+    "怎么把今天的 AI 资讯转成短视频选题和口播文案？"
+  ];
+}
+
+async function generateScriptFromTrend(question, trend) {
+  if (!trend) {
+    setError("请先获取 AI 最新资讯");
+    return;
+  }
+  generatingTrendScript.value = true;
+  try {
+    const result = await requestApi("/api/kids/preview-script", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({
+        topic: question,
+        content_mode: "ai_growth",
+        script_provider: "gemini_minimax",
+        learning_goal: `结合最新 AI 资讯：${trend.title}，回答普通学习者关心的问题：${question}`,
+        seconds: 45,
+        prompt_hint: `必须基于接口抓取到的 AI 最新资讯回答：${trend.summary}。要明确提醒：AI 输出来自模型和数据接口，不等于人的价值判断，也不保证完全准确；请同时讲清机会、风险和普通人可以立刻做的小行动。`,
+        custom_script: "",
+        auto_generate_image: false,
+        edge_voice: kidsForm.edge_voice,
+        animation_style: "videohao_real_person",
+        use_my_real_voice: kidsForm.use_my_real_voice,
+        video_provider: kidsForm.video_provider
+      })
+    }, 90000);
+    trendScripts.value[question] = result;
+    setNotice(`已生成关于"${question}"的文案`);
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "生成文案失败"));
+  } finally {
+    generatingTrendScript.value = false;
   }
 }
 
@@ -722,10 +786,114 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
+    <div class="tabs">
+      <button class="tab-btn" :class="{ active: activeTab === 'trends' }" @click="activeTab = 'trends'">
+        实时信息
+      </button>
+      <button class="tab-btn" :class="{ active: activeTab === 'materials' }" @click="activeTab = 'materials'">
+        微信素材与文案生成
+      </button>
+    </div>
+
     <div v-if="notice" class="notice">{{ notice }}</div>
     <div v-if="errorMessage" class="notice danger">{{ errorMessage }}</div>
 
-    <section class="panel">
+    <!-- 实时信息 Tab -->
+    <div v-if="activeTab === 'trends'">
+      <section class="panel">
+        <div class="panel-header">
+          <h2>AI 最新实时信息</h2>
+          <div class="top-actions">
+            <button class="btn secondary" :disabled="busy.refreshTrends" @click="refreshAiTrends(false)">刷新列表</button>
+            <button class="btn accent" :disabled="busy.refreshTrends" @click="refreshAiTrends(true)">
+              {{ busy.refreshTrends ? "抓取中..." : "立即抓取" }}
+            </button>
+            <button class="btn primary" :disabled="busy.notebooklm" @click="createNotebookLmPackage">
+              {{ busy.notebooklm ? "生成中..." : "生成 NotebookLM 导入包" }}
+            </button>
+          </div>
+        </div>
+        <div class="meta">这里展示的是 Tavily/RSS 等接口抓取到的资讯，不是系统自己的主观看法；生成文案时会提醒 AI 输出仍需要人来判断。</div>
+        <div class="trend-search-box">
+          <label for="trend-search-query">按你的要求获取信息</label>
+          <div class="trend-search-row">
+            <input
+              id="trend-search-query"
+              v-model="trendSearchQuery"
+              type="text"
+              placeholder="例如：AI 对普通职场妈妈的影响、NotebookLM 播客生成、AI 视频工具最新进展"
+              @keydown.enter.prevent="refreshAiTrends(true)"
+            />
+            <button class="btn primary" :disabled="busy.refreshTrends" @click="refreshAiTrends(true)">
+              {{ busy.refreshTrends ? "抓取中..." : "按要求抓取" }}
+            </button>
+          </div>
+          <span>不填写时，默认获取最新 AI 实时信息；填写后，会优先根据这个主题检索。</span>
+        </div>
+        <div v-if="!aiTrends.length" class="meta">暂无 AI 日报。系统会每天自动抓取，也可以点击“立即抓取”。</div>
+        <div v-else class="trend-card">
+          <div class="script-preview-head">
+            <strong>{{ aiTrends[0].title }}</strong>
+            <span>{{ aiTrends[0].created_at }}</span>
+          </div>
+          <p>{{ aiTrends[0].summary }}</p>
+          <ul>
+            <li v-for="item in (aiTrends[0].items || []).slice(0, 8)" :key="item.url || item.title">
+              <a v-if="item.url" :href="item.url" target="_blank" rel="noreferrer">{{ item.title }}</a>
+              <strong v-else>{{ item.title }}</strong>
+              <span>{{ item.summary }}</span>
+            </li>
+          </ul>
+          <div class="trend-angles">
+            <strong>可转化选题角度</strong>
+            <span v-for="angle in aiTrends[0].angles || []" :key="angle">{{ angle }}</span>
+          </div>
+          <div v-if="notebookLmPackage" class="notebooklm-box">
+            <strong>NotebookLM 导入包</strong>
+            <span>Markdown 包适合整体导入；原始链接清单适合让 NotebookLM 分别读取每篇资讯网页。</span>
+            <div class="notebooklm-actions">
+              <a :href="mediaUrl(notebookLmPackage.url)" target="_blank" rel="noreferrer">{{ notebookLmPackage.title || "打开导入包" }}</a>
+              <a v-if="notebookLmPackage.source_links_url" :href="mediaUrl(notebookLmPackage.source_links_url)" target="_blank" rel="noreferrer">打开原始链接清单</a>
+              <button class="btn secondary small" type="button" @click="copyNotebookLmSourceLinks">复制全部原始链接</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="aiTrends.length > 0" class="panel">
+        <div class="panel-header">
+          <h2>普通学习者最关心的 6 个问题</h2>
+          <span class="eyebrow">点击任意问题可生成口播文案</span>
+        </div>
+        <div class="questions-grid">
+          <div v-for="(question, index) in trendQuestions" :key="index" class="question-card">
+            <div class="question-header">
+              <span class="question-number">{{ index + 1 }}</span>
+              <h3>{{ question }}</h3>
+            </div>
+            <button class="btn primary small" :disabled="generatingTrendScript" @click="generateScriptFromTrend(question, aiTrends[0])">
+              {{ generatingTrendScript ? "生成中..." : "生成文案" }}
+            </button>
+            <!-- 生成的文案 -->
+            <div v-if="trendScripts[question]" class="script-preview-card">
+              <div class="script-preview-head">
+                <strong>已生成文案</strong>
+                <button class="btn secondary small inline" @click="copyText(trendScripts[question].script, '文案已复制')">复制</button>
+              </div>
+              <pre>{{ trendScripts[question].script }}</pre>
+              <div v-if="trendScripts[question].quality" class="quality" :class="{ pass: trendScripts[question].quality.passed }">
+                <strong>{{ trendScripts[question].quality.profile_label }} · {{ trendScripts[question].quality.passed ? "通过基础检查" : "需要优化" }}</strong>
+                <span>{{ trendScripts[question].quality.line_count }} 段 · {{ trendScripts[question].quality.char_count }} 字</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 素材与生成 Tab -->
+    <div v-if="activeTab === 'materials'">
+      <section class="panel">
       <div class="panel-header">
         <h2>微信素材收件箱</h2>
         <div class="top-actions">
@@ -807,49 +975,6 @@ onBeforeUnmount(() => {
             <span class="callback-action">{{ event.action }}</span>
             <span class="callback-reason">{{ event.reason }}</span>
             <span class="callback-preview">{{ event.content_preview || "无文本内容" }}</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
-        <h2>AI 最新实时信息</h2>
-        <div class="top-actions">
-          <button class="btn secondary" :disabled="busy.refreshTrends" @click="refreshAiTrends(false)">刷新列表</button>
-          <button class="btn accent" :disabled="busy.refreshTrends" @click="refreshAiTrends(true)">
-            {{ busy.refreshTrends ? "抓取中..." : "立即抓取" }}
-          </button>
-          <button class="btn primary" :disabled="busy.notebooklm" @click="createNotebookLmPackage">
-            {{ busy.notebooklm ? "生成中..." : "生成 NotebookLM 导入包" }}
-          </button>
-        </div>
-      </div>
-      <div v-if="!aiTrends.length" class="meta">暂无 AI 日报。系统会每天自动抓取，也可以点击“立即抓取”。</div>
-      <div v-else class="trend-card">
-        <div class="script-preview-head">
-          <strong>{{ aiTrends[0].title }}</strong>
-          <span>{{ aiTrends[0].created_at }}</span>
-        </div>
-        <p>{{ aiTrends[0].summary }}</p>
-        <ul>
-          <li v-for="item in (aiTrends[0].items || []).slice(0, 8)" :key="item.url || item.title">
-            <a v-if="item.url" :href="item.url" target="_blank" rel="noreferrer">{{ item.title }}</a>
-            <strong v-else>{{ item.title }}</strong>
-            <span>{{ item.summary }}</span>
-          </li>
-        </ul>
-        <div class="trend-angles">
-          <strong>可转化选题角度</strong>
-          <span v-for="angle in aiTrends[0].angles || []" :key="angle">{{ angle }}</span>
-        </div>
-        <div v-if="notebookLmPackage" class="notebooklm-box">
-          <strong>NotebookLM 导入包</strong>
-          <span>Markdown 包适合整体导入；原始链接清单适合让 NotebookLM 分别读取每篇资讯网页。</span>
-          <div class="notebooklm-actions">
-            <a :href="mediaUrl(notebookLmPackage.url)" target="_blank" rel="noreferrer">{{ notebookLmPackage.title || "打开导入包" }}</a>
-            <a v-if="notebookLmPackage.source_links_url" :href="mediaUrl(notebookLmPackage.source_links_url)" target="_blank" rel="noreferrer">打开原始链接清单</a>
-            <button class="btn secondary small" type="button" @click="copyNotebookLmSourceLinks">复制全部原始链接</button>
           </div>
         </div>
       </div>
@@ -1117,12 +1242,82 @@ onBeforeUnmount(() => {
     <button class="floating-generate" :disabled="busy.generate" @click="generateKidsVideo">
       {{ busy.generate ? "提交中..." : "生成视频" }}
     </button>
+    </div>
   </div>
 </template>
 
 <style scoped>
 * {
   box-sizing: border-box;
+}
+
+.tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.tab-btn {
+  flex: 1;
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: 15px;
+  font-weight: 700;
+  background: #f6f9ff;
+  color: #40546e;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-btn:hover {
+  background: #eef5ff;
+}
+
+.tab-btn.active {
+  background: #246bfe;
+  color: white;
+  border-color: #246bfe;
+}
+
+.questions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.question-card {
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  padding: 16px;
+  background: #fdfdff;
+}
+
+.question-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.question-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: #246bfe;
+  color: white;
+  font-weight: 800;
+  border-radius: 50%;
+  font-size: 14px;
+}
+
+.question-card h3 {
+  font-size: 15px;
+  margin: 0;
+  color: #1f3045;
+  line-height: 1.4;
 }
 
 .app-shell {
@@ -1645,6 +1840,47 @@ textarea {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+}
+
+.trend-search-box {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.trend-search-box label {
+  font-weight: 800;
+  color: #20324a;
+}
+
+.trend-search-box span {
+  color: #6a7890;
+  line-height: 1.5;
+}
+
+.trend-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.trend-search-row input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #cfdced;
+  border-radius: 8px;
+  padding: 11px 12px;
+  font: inherit;
+  color: #20324a;
+  background: #ffffff;
+}
+
+.trend-search-row input:focus {
+  outline: 2px solid rgba(36, 107, 254, 0.18);
+  border-color: #7aa3ff;
 }
 
 .trend-card {

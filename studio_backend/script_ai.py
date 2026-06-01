@@ -125,21 +125,32 @@ def _target_lines(seconds: int) -> int:
 
 
 def _load_creator_skills() -> str:
-    raw_dir = os.getenv("CREATOR_SKILLS_DIR", "creator_skills").strip() or "creator_skills"
-    skills_dir = Path(raw_dir)
-    if not skills_dir.is_absolute():
-        skills_dir = ROOT_DIR / skills_dir
-    if not skills_dir.exists():
-        return ""
-
     blocks: list[str] = []
-    for path in sorted(skills_dir.glob("*.md")):
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace").strip()
-        except OSError:
+    raw_dirs = [
+        os.getenv("CREATOR_SKILLS_DIR", "creator_skills").strip() or "creator_skills",
+        os.getenv("OBSIDIAN_SKILLS_DIR", "").strip(),
+    ]
+    seen_dirs: set[Path] = set()
+    for raw_dir in raw_dirs:
+        if not raw_dir:
             continue
-        if text:
-            blocks.append(f"## {path.stem}\n{text}")
+        skills_dir = Path(raw_dir).expanduser()
+        if not skills_dir.is_absolute():
+            skills_dir = ROOT_DIR / skills_dir
+        try:
+            resolved = skills_dir.resolve()
+        except OSError:
+            resolved = skills_dir
+        if resolved in seen_dirs or not skills_dir.exists():
+            continue
+        seen_dirs.add(resolved)
+        for path in sorted(skills_dir.glob("*.md")):
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace").strip()
+            except OSError:
+                continue
+            if text:
+                blocks.append(f"## {path.stem}\n{text}")
     return "\n\n".join(blocks)[:12000]
 
 
