@@ -129,6 +129,8 @@ def _load_creator_skills() -> str:
     raw_dirs = [
         os.getenv("CREATOR_SKILLS_DIR", "creator_skills").strip() or "creator_skills",
         os.getenv("OBSIDIAN_SKILLS_DIR", "").strip(),
+        "D:/obsMD/Obsidian/vault/CreatorStudioSkills",
+        "~/obsidian/CreatorStudioSkills",
     ]
     seen_dirs: set[Path] = set()
     for raw_dir in raw_dirs:
