@@ -1446,16 +1446,42 @@ def receive_wechat_material(payload: WeChatMaterialRequest) -> dict[str, Any]:
 def get_wechat_entry() -> dict[str, Any]:
     public_base = os.getenv("CREATOR_STUDIO_PUBLIC_BASE_URL", "").strip().rstrip("/")
     callback_path = "/api/integrations/wechat/callback"
+    qr_path = "/api/integrations/wechat/qr"
     return {
         "status": "ok",
         "account_name": WECHAT_ACCOUNT_NAME,
         "qr_image_url": WECHAT_QR_IMAGE_URL,
+        "qr_proxy_url": f"{public_base}{qr_path}" if public_base else qr_path,
         "callback_url": f"{public_base}{callback_path}" if public_base else callback_path,
         "voice_supported": True,
         "voice_requirement": "微信后台需要开启语音识别，语音消息回调里才会带 Recognition 文本。",
         "voice_fallback_enabled": WECHAT_VOICE_FALLBACK_TRANSCRIBE,
         "voice_fallback_configured": bool(WECHAT_APP_ID and WECHAT_APP_SECRET),
     }
+
+
+@app.get("/api/integrations/wechat/qr")
+def get_wechat_qr() -> Response:
+    if not WECHAT_QR_IMAGE_URL:
+        raise HTTPException(status_code=404, detail="WECHAT_QR_IMAGE_URL is not configured.")
+    try:
+        request = urllib.request.Request(
+            WECHAT_QR_IMAGE_URL,
+            headers={
+                "User-Agent": "Mozilla/5.0 CreatorStudio/1.0",
+                "Referer": "https://mp.weixin.qq.com/",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=12) as response:
+            content = response.read()
+            content_type = response.headers.get("Content-Type") or "image/jpeg"
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch WeChat QR image: {exc}") from exc
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @app.get("/api/integrations/wechat/materials")

@@ -25,6 +25,10 @@ const jobs = ref([]);
 const wechatMaterials = ref([]);
 const wechatCallbackEvents = ref([]);
 const wechatEntry = ref(null);
+const wechatQrImageUrl = computed(() => {
+  const entry = wechatEntry.value || {};
+  return entry.qr_proxy_url || entry.qr_image_url || "";
+});
 const selectedWechatMaterialId = ref("");
 const aiTrends = ref([]);
 const notebookLmPackage = ref(null);
@@ -799,8 +803,8 @@ onBeforeUnmount(() => {
     </div>
 
     <section class="panel wechat-entry-card sticky-wechat-entry">
-      <div class="wechat-qr-box" :class="{ empty: !wechatEntry?.qr_image_url }">
-        <img v-if="wechatEntry?.qr_image_url" :src="wechatEntry.qr_image_url" :alt="`${wechatEntry.account_name || '微信素材入口'}二维码`" />
+      <div class="wechat-qr-box" :class="{ empty: !wechatQrImageUrl }">
+        <img v-if="wechatQrImageUrl" :src="wechatQrImageUrl" :alt="`${wechatEntry?.account_name || '微信素材入口'}二维码`" />
         <span v-else>二维码未配置</span>
       </div>
       <div class="wechat-entry-copy">
@@ -925,8 +929,8 @@ onBeforeUnmount(() => {
       </div>
       <div class="meta">微信发新消息后，点击“刷新微信素材”加载；页面不会自动轮询刷新。</div>
       <div class="wechat-entry-card">
-        <div class="wechat-qr-box" :class="{ empty: !wechatEntry?.qr_image_url }">
-          <img v-if="wechatEntry?.qr_image_url" :src="wechatEntry.qr_image_url" :alt="`${wechatEntry.account_name || '微信素材入口'}二维码`" />
+        <div class="wechat-qr-box" :class="{ empty: !wechatQrImageUrl }">
+          <img v-if="wechatQrImageUrl" :src="wechatQrImageUrl" :alt="`${wechatEntry?.account_name || '微信素材入口'}二维码`" />
           <span v-else>二维码未配置</span>
         </div>
         <div class="wechat-entry-copy">
@@ -936,7 +940,7 @@ onBeforeUnmount(() => {
             兜底转写：{{ wechatEntry.voice_fallback_configured ? "已配置 AppID/AppSecret，微信不返回识别文本时会尝试下载语音转写。" : "未配置 AppID/AppSecret，只能依赖微信 Recognition 识别文本。" }}
           </p>
           <p class="meta">回调地址：{{ wechatEntry?.callback_url || "/api/integrations/wechat/callback" }}</p>
-          <p v-if="!wechatEntry?.qr_image_url" class="error-text">请在 .env 配置 WECHAT_QR_IMAGE_URL 为微信测试号/公众号二维码图片地址，然后重启后端。</p>
+          <p v-if="!wechatQrImageUrl" class="error-text">请在 .env 配置 WECHAT_QR_IMAGE_URL 为微信测试号/公众号二维码图片地址，然后重启后端。</p>
         </div>
       </div>
       <div v-if="!wechatMaterials.length" class="meta">
