@@ -6,7 +6,10 @@ import threading
 import re
 import os
 import hashlib
+import json
 import time
+import urllib.parse
+import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -18,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .analysis import analyze_media_file, detect_media_kind
+from .analysis import analyze_media_file, detect_media_kind, transcribe_audio
 from .ai_trends import archive_markdown_to_obsidian, build_notebooklm_import_package, collect_ai_trends
 from .avatar import detect_sadtalker_status, normalize_sadtalker_config
 from .generation import render_job
@@ -95,6 +98,10 @@ WECHAT_CALLBACK_TOKEN = os.getenv("WECHAT_CALLBACK_TOKEN", os.getenv("WECHAT_TOK
 WECHAT_SYNC_REPLY = os.getenv("WECHAT_SYNC_REPLY", "false").strip().lower() in {"1", "true", "yes", "on"}
 WECHAT_QR_IMAGE_URL = os.getenv("WECHAT_QR_IMAGE_URL", "").strip()
 WECHAT_ACCOUNT_NAME = os.getenv("WECHAT_ACCOUNT_NAME", "微信素材测试号").strip() or "微信素材测试号"
+WECHAT_APP_ID = os.getenv("WECHAT_APP_ID", "").strip()
+WECHAT_APP_SECRET = os.getenv("WECHAT_APP_SECRET", "").strip()
+WECHAT_VOICE_FALLBACK_TRANSCRIBE = os.getenv("WECHAT_VOICE_FALLBACK_TRANSCRIBE", "true").strip().lower() in {"1", "true", "yes", "on"}
+WECHAT_VOICE_WHISPER_MODEL = os.getenv("WECHAT_VOICE_WHISPER_MODEL", "small").strip() or "small"
 AI_TRENDS_ENABLED = os.getenv("AI_TRENDS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 AI_TRENDS_TIME = os.getenv("AI_TRENDS_TIME", "07:30").strip() or "07:30"
 app.add_middleware(
@@ -402,6 +409,76 @@ def _parse_wechat_xml(raw_body: bytes) -> dict[str, str]:
     for child in root:
         result[child.tag] = str(child.text or "")
     return result
+
+
+_WECHAT_ACCESS_TOKEN_CACHE: dict[str, Any] = {"token": "", "expires_at": 0.0}
+
+
+def _get_wechat_access_token() -> str:
+    if not WECHAT_APP_ID or not WECHAT_APP_SECRET:
+        return ""
+    now = time.time()
+    cached_token = str(_WECHAT_ACCESS_TOKEN_CACHE.get("token") or "")
+    expires_at = float(_WECHAT_ACCESS_TOKEN_CACHE.get("expires_at") or 0.0)
+    if cached_token and now < expires_at - 120:
+        return cached_token
+    query = urllib.parse.urlencode(
+        {
+            "grant_type": "client_credential",
+            "appid": WECHAT_APP_ID,
+            "secret": WECHAT_APP_SECRET,
+        }
+    )
+    url = f"https://api.weixin.qq.com/cgi-bin/token?{query}"
+    with urllib.request.urlopen(url, timeout=15) as response:
+        payload = json.loads(response.read().decode("utf-8", errors="replace"))
+    token = str(payload.get("access_token") or "").strip()
+    if not token:
+        raise RuntimeError(str(payload))
+    _WECHAT_ACCESS_TOKEN_CACHE["token"] = token
+    _WECHAT_ACCESS_TOKEN_CACHE["expires_at"] = now + float(payload.get("expires_in") or 7200)
+    return token
+
+
+def _download_wechat_voice_media(media_id: str, *, msg_id: str = "") -> Path:
+    token = _get_wechat_access_token()
+    if not token:
+        raise RuntimeError("未配置 WECHAT_APP_ID / WECHAT_APP_SECRET，无法下载微信语音素材。")
+    query = urllib.parse.urlencode({"access_token": token, "media_id": media_id})
+    url = f"https://api.weixin.qq.com/cgi-bin/media/get?{query}"
+    request = urllib.request.Request(url, headers={"User-Agent": "CreatorStudio/1.0"})
+    with urllib.request.urlopen(request, timeout=25) as response:
+        content_type = str(response.headers.get("Content-Type") or "").lower()
+        body = response.read()
+    if "json" in content_type or body[:1] == b"{":
+        raise RuntimeError(body.decode("utf-8", errors="replace"))
+    suffix = ".amr"
+    if "speex" in content_type:
+        suffix = ".speex"
+    elif "audio/mpeg" in content_type:
+        suffix = ".mp3"
+    voice_dir = STUDIO_DIR / "wechat_voice"
+    voice_dir.mkdir(parents=True, exist_ok=True)
+    safe_id = re.sub(r"[^A-Za-z0-9_-]+", "", msg_id or media_id)[:42] or make_id("wechat_voice")
+    target = voice_dir / f"{safe_id}{suffix}"
+    target.write_bytes(body)
+    return target
+
+
+def _transcribe_wechat_voice_media(message: dict[str, str]) -> tuple[str, str]:
+    media_id = str(message.get("MediaId") or "").strip()
+    if not media_id:
+        return "", "微信语音回调没有 MediaId，无法下载语音。"
+    if not WECHAT_VOICE_FALLBACK_TRANSCRIBE:
+        return "", "已关闭 WECHAT_VOICE_FALLBACK_TRANSCRIBE，未尝试下载语音转写。"
+    try:
+        source_path = _download_wechat_voice_media(media_id, msg_id=str(message.get("MsgId") or ""))
+        transcript, note = transcribe_audio(source_path, model_name=WECHAT_VOICE_WHISPER_MODEL)
+        if transcript:
+            return re.sub(r"\s+", " ", transcript).strip(), f"微信未返回 Recognition，已下载语音并本地转写：{note}"
+        return "", f"已下载语音但本地转写为空：{note}"
+    except Exception as exc:  # noqa: BLE001
+        return "", f"微信未返回 Recognition，下载/转写兜底失败：{exc}"
 
 
 def _build_douyin_publish_draft(
@@ -1376,6 +1453,8 @@ def get_wechat_entry() -> dict[str, Any]:
         "callback_url": f"{public_base}{callback_path}" if public_base else callback_path,
         "voice_supported": True,
         "voice_requirement": "微信后台需要开启语音识别，语音消息回调里才会带 Recognition 文本。",
+        "voice_fallback_enabled": WECHAT_VOICE_FALLBACK_TRANSCRIBE,
+        "voice_fallback_configured": bool(WECHAT_APP_ID and WECHAT_APP_SECRET),
     }
 
 
@@ -1541,13 +1620,19 @@ async def receive_wechat_callback(
     recognition = re.sub(r"\s+", " ", message.get("Recognition", "")).strip()
     msg_id = message.get("MsgId", "")
     material_text = content if msg_type == "text" else recognition if msg_type == "voice" else ""
+    voice_fallback_note = ""
+    if msg_type == "voice" and not material_text:
+        material_text, voice_fallback_note = _transcribe_wechat_voice_media(message)
     if msg_type == "voice" and not material_text:
         _record_wechat_callback_event(
             message,
             action="ignored",
-            reason="已收到语音，但微信回调没有 Recognition 识别文本；请在微信后台开启语音识别。",
+            reason=voice_fallback_note or "已收到语音，但微信回调没有 Recognition 识别文本；请在微信后台开启语音识别。",
         )
-        reply = "语音已收到，但微信没有返回识别文字。请在微信测试号/公众号后台开启语音识别后再发一次。"
+        reply = (
+            "语音已收到，但微信没有返回识别文字，本地兜底转写也没有成功。\n"
+            "请确认：1）语音识别已开启；2）重新关注测试号后再发；3）如需兜底下载转写，请配置 WECHAT_APP_ID 和 WECHAT_APP_SECRET。"
+        )
         return Response(
             content=_wechat_text_response(to_user=to_user, from_user=from_user, content=reply),
             media_type="application/xml",
@@ -1574,7 +1659,7 @@ async def receive_wechat_callback(
     _record_wechat_callback_event(
         message,
         action="queued_material",
-        reason="语音素材已识别并进入生成队列。" if msg_type == "voice" else "文字素材已进入生成队列。",
+        reason=(voice_fallback_note or "语音素材已识别并进入生成队列。") if msg_type == "voice" else "文字素材已进入生成队列。",
         content_preview=material_text,
     )
     if WECHAT_SYNC_REPLY:

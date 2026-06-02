@@ -920,6 +920,9 @@ onBeforeUnmount(() => {
         <div class="wechat-entry-copy">
           <strong>扫码后直接用语音提供素材</strong>
           <p>关注 {{ wechatEntry?.account_name || "微信测试号/公众号" }} 后，直接按住说话：今天发生了什么、你的感想、剪辑心得。开启微信语音识别后，系统会把识别文字自动放入素材箱。</p>
+          <p v-if="wechatEntry?.voice_fallback_enabled" class="meta">
+            兜底转写：{{ wechatEntry.voice_fallback_configured ? "已配置 AppID/AppSecret，微信不返回识别文本时会尝试下载语音转写。" : "未配置 AppID/AppSecret，只能依赖微信 Recognition 识别文本。" }}
+          </p>
           <p class="meta">回调地址：{{ wechatEntry?.callback_url || "/api/integrations/wechat/callback" }}</p>
           <p v-if="!wechatEntry?.qr_image_url" class="error-text">请在 .env 配置 WECHAT_QR_IMAGE_URL 为微信测试号/公众号二维码图片地址，然后重启后端。</p>
         </div>
