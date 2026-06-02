@@ -798,6 +798,18 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
+    <section class="panel wechat-entry-card sticky-wechat-entry">
+      <div class="wechat-qr-box" :class="{ empty: !wechatEntry?.qr_image_url }">
+        <img v-if="wechatEntry?.qr_image_url" :src="wechatEntry.qr_image_url" :alt="`${wechatEntry.account_name || '微信素材入口'}二维码`" />
+        <span v-else>二维码未配置</span>
+      </div>
+      <div class="wechat-entry-copy">
+        <strong>扫码用微信语音提供素材</strong>
+        <p>关注 {{ wechatEntry?.account_name || "微信测试号/公众号" }} 后，直接按住说话；页面点击“刷新微信素材”即可加载。</p>
+        <p class="meta">回调地址：{{ wechatEntry?.callback_url || "/api/integrations/wechat/callback" }}</p>
+      </div>
+    </section>
+
     <div v-if="notice" class="notice">{{ notice }}</div>
     <div v-if="errorMessage" class="notice danger">{{ errorMessage }}</div>
 
