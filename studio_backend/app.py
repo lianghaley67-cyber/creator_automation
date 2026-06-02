@@ -102,6 +102,7 @@ WECHAT_APP_ID = os.getenv("WECHAT_APP_ID", "").strip()
 WECHAT_APP_SECRET = os.getenv("WECHAT_APP_SECRET", "").strip()
 WECHAT_VOICE_FALLBACK_TRANSCRIBE = os.getenv("WECHAT_VOICE_FALLBACK_TRANSCRIBE", "true").strip().lower() in {"1", "true", "yes", "on"}
 WECHAT_VOICE_WHISPER_MODEL = os.getenv("WECHAT_VOICE_WHISPER_MODEL", "small").strip() or "small"
+WECHAT_NORMALIZE_SIMPLIFIED = os.getenv("WECHAT_NORMALIZE_SIMPLIFIED", "true").strip().lower() in {"1", "true", "yes", "on"}
 AI_TRENDS_ENABLED = os.getenv("AI_TRENDS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 AI_TRENDS_TIME = os.getenv("AI_TRENDS_TIME", "07:30").strip() or "07:30"
 app.add_middleware(
@@ -411,6 +412,54 @@ def _parse_wechat_xml(raw_body: bytes) -> dict[str, str]:
     return result
 
 
+_OPENCC_CONVERTER: Any | None = None
+_OPENCC_CHECKED = False
+_TRADITIONAL_TO_SIMPLIFIED = str.maketrans(
+    {
+        "請": "请", "問": "问", "會": "会", "這": "这", "個": "个", "種": "种", "後": "后", "們": "们",
+        "麼": "么", "嗎": "吗", "為": "为", "與": "与", "時": "时", "對": "对", "說": "说", "聽": "听",
+        "讓": "让", "學": "学", "習": "习", "訊": "讯", "開": "开", "關": "关", "發": "发",
+        "現": "现", "裡": "里", "裏": "里", "點": "点", "擊": "击", "頁": "页", "輸": "输", "錄": "录",
+        "聲": "声", "識": "识", "別": "别", "產": "产", "業": "业", "職": "职", "場": "场", "媽": "妈",
+        "寶": "宝", "貝": "贝", "幫": "帮", "檢": "检", "查": "查", "實": "实", "將": "将", "帶": "带",
+        "過": "过", "還": "还", "並": "并", "從": "从", "變": "变", "應": "应", "該": "该", "滿": "满",
+        "壓": "压", "線": "线", "網": "网", "圖": "图", "視": "视", "頻": "频", "號": "号", "質": "质",
+        "選": "选", "題": "题", "審": "审", "核": "核", "補": "补", "充": "充", "語": "语", "氣": "气",
+        "內": "内", "容": "容", "產": "产", "驗": "验", "證": "证", "權": "权", "限": "限", "雲": "云",
+        "獲": "获", "取": "取", "資": "资", "料": "料", "庫": "库", "儲": "储", "存": "存", "檔": "档",
+        "復": "复", "製": "制", "歸": "归", "導": "导", "覽": "览", "鏈": "链", "結": "结", "優": "优",
+        "化": "化", "啟": "启", "動": "动", "項": "项", "目": "目", "嗎": "吗", "長": "长", "輕": "轻",
+        "難": "难", "離": "离", "總": "总", "體": "体", "機": "机", "構": "构", "單": "单", "條": "条",
+        "刪": "删", "除": "除", "統": "统", "緒": "绪", "調": "调", "節": "节", "處": "处", "備": "备",
+        "無": "无", "國": "国", "際": "际", "標": "标", "籤": "签", "則": "则", "類": "类", "轉": "转",
+        "寫": "写", "傳": "传", "測": "测", "試": "试", "顯": "显", "示": "示", "碼": "码", "從": "从",
+    }
+)
+
+
+def _normalize_chinese_text(text: str) -> str:
+    if not WECHAT_NORMALIZE_SIMPLIFIED:
+        return str(text or "")
+    raw = str(text or "")
+    if not raw:
+        return ""
+    global _OPENCC_CONVERTER, _OPENCC_CHECKED
+    if not _OPENCC_CHECKED:
+        _OPENCC_CHECKED = True
+        try:
+            from opencc import OpenCC  # type: ignore
+
+            _OPENCC_CONVERTER = OpenCC("t2s")
+        except Exception:
+            _OPENCC_CONVERTER = None
+    if _OPENCC_CONVERTER is not None:
+        try:
+            return str(_OPENCC_CONVERTER.convert(raw))
+        except Exception:
+            pass
+    return raw.translate(_TRADITIONAL_TO_SIMPLIFIED)
+
+
 _WECHAT_ACCESS_TOKEN_CACHE: dict[str, Any] = {"token": "", "expires_at": 0.0}
 
 
@@ -475,7 +524,7 @@ def _transcribe_wechat_voice_media(message: dict[str, str]) -> tuple[str, str]:
         source_path = _download_wechat_voice_media(media_id, msg_id=str(message.get("MsgId") or ""))
         transcript, note = transcribe_audio(source_path, model_name=WECHAT_VOICE_WHISPER_MODEL)
         if transcript:
-            return re.sub(r"\s+", " ", transcript).strip(), f"微信未返回 Recognition，已下载语音并本地转写：{note}"
+            return _normalize_chinese_text(re.sub(r"\s+", " ", transcript).strip()), f"微信未返回 Recognition，已下载语音并本地转写：{note}"
         return "", f"已下载语音但本地转写为空：{note}"
     except Exception as exc:  # noqa: BLE001
         return "", f"微信未返回 Recognition，下载/转写兜底失败：{exc}"
@@ -1375,7 +1424,7 @@ def revise_kids_script(payload: KidsScriptReviseRequest) -> dict[str, Any]:
 
 @app.post("/api/integrations/wechat/material")
 def receive_wechat_material(payload: WeChatMaterialRequest) -> dict[str, Any]:
-    material_text = re.sub(r"\s+", " ", str(payload.text or "")).strip()
+    material_text = _normalize_chinese_text(re.sub(r"\s+", " ", str(payload.text or "")).strip())
     if not material_text:
         raise HTTPException(status_code=400, detail="微信素材不能为空。")
     record = {
@@ -1642,8 +1691,8 @@ async def receive_wechat_callback(
     msg_type = message.get("MsgType", "")
     to_user = message.get("FromUserName", "")
     from_user = message.get("ToUserName", "")
-    content = re.sub(r"\s+", " ", message.get("Content", "")).strip()
-    recognition = re.sub(r"\s+", " ", message.get("Recognition", "")).strip()
+    content = _normalize_chinese_text(re.sub(r"\s+", " ", message.get("Content", "")).strip())
+    recognition = _normalize_chinese_text(re.sub(r"\s+", " ", message.get("Recognition", "")).strip())
     msg_id = message.get("MsgId", "")
     material_text = content if msg_type == "text" else recognition if msg_type == "voice" else ""
     voice_fallback_note = ""
