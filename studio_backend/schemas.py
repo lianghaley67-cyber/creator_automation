@@ -154,6 +154,7 @@ class WeChatMaterialRequest(BaseModel):
     text: str
     source_user: str = ""
     source_message_id: str = ""
+    source_type: str = "wechat_text"
     content_mode: str = "working_mom"
     script_provider: str = "gemini_minimax"
     learning_goal: str = "把微信发来的真实素材转成高共情、可落地的 AI 提效方案"

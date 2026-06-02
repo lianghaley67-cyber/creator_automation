@@ -24,6 +24,7 @@ const errorMessage = ref("");
 const jobs = ref([]);
 const wechatMaterials = ref([]);
 const wechatCallbackEvents = ref([]);
+const wechatEntry = ref(null);
 const selectedWechatMaterialId = ref("");
 const aiTrends = ref([]);
 const notebookLmPackage = ref(null);
@@ -529,12 +530,14 @@ async function refreshJobs() {
 async function refreshWechatMaterials() {
   busy.refreshWechat = true;
   try {
-    const [data, events] = await Promise.all([
+    const [data, events, entry] = await Promise.all([
       requestApi("/api/integrations/wechat/materials"),
-      requestApi("/api/integrations/wechat/callback-events").catch(() => [])
+      requestApi("/api/integrations/wechat/callback-events").catch(() => []),
+      requestApi("/api/integrations/wechat/entry").catch(() => null)
     ]);
     wechatMaterials.value = Array.isArray(data) ? data : [];
     wechatCallbackEvents.value = Array.isArray(events) ? events : [];
+    if (entry) wechatEntry.value = entry;
     if (!wechatMaterials.value.some((item) => item.id === selectedWechatMaterialId.value)) {
       selectedWechatMaterialId.value = wechatMaterials.value[0]?.id || "";
     }
@@ -909,6 +912,18 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="meta">微信发新消息后，点击“刷新微信素材”加载；页面不会自动轮询刷新。</div>
+      <div class="wechat-entry-card">
+        <div class="wechat-qr-box" :class="{ empty: !wechatEntry?.qr_image_url }">
+          <img v-if="wechatEntry?.qr_image_url" :src="wechatEntry.qr_image_url" :alt="`${wechatEntry.account_name || '微信素材入口'}二维码`" />
+          <span v-else>二维码未配置</span>
+        </div>
+        <div class="wechat-entry-copy">
+          <strong>扫码后直接用语音提供素材</strong>
+          <p>关注 {{ wechatEntry?.account_name || "微信测试号/公众号" }} 后，直接按住说话：今天发生了什么、你的感想、剪辑心得。开启微信语音识别后，系统会把识别文字自动放入素材箱。</p>
+          <p class="meta">回调地址：{{ wechatEntry?.callback_url || "/api/integrations/wechat/callback" }}</p>
+          <p v-if="!wechatEntry?.qr_image_url" class="error-text">请在 .env 配置 WECHAT_QR_IMAGE_URL 为微信测试号/公众号二维码图片地址，然后重启后端。</p>
+        </div>
+      </div>
       <div v-if="!wechatMaterials.length" class="meta">
         还没有收到微信素材。你可以在微信测试号里发一句真实经历。
         <span v-if="latestWechatCallbackEvent">
@@ -1623,6 +1638,53 @@ textarea {
   color: #5f7088;
 }
 
+.wechat-entry-card {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #bce8ce;
+  border-radius: 8px;
+  background: #effaf4;
+}
+
+.wechat-qr-box {
+  display: grid;
+  place-items: center;
+  width: 128px;
+  aspect-ratio: 1;
+  border: 1px solid #cddcf4;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.wechat-qr-box.empty {
+  border-style: dashed;
+  color: #6a7890;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.wechat-qr-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.wechat-entry-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.wechat-entry-copy p {
+  margin: 0;
+  color: #40546d;
+  line-height: 1.6;
+}
+
 .wechat-mailbox {
   display: grid;
   grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.35fr);
@@ -2103,6 +2165,7 @@ textarea {
 
   .field-grid,
   .wechat-mailbox,
+  .wechat-entry-card,
   .storyboard-head,
   .shot-row {
     grid-template-columns: 1fr;

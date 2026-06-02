@@ -93,6 +93,8 @@ DOUYIN_CREATOR_UPLOAD_URL = os.getenv(
 ).strip() or "https://creator.douyin.com/"
 WECHAT_CALLBACK_TOKEN = os.getenv("WECHAT_CALLBACK_TOKEN", os.getenv("WECHAT_TOKEN", "")).strip()
 WECHAT_SYNC_REPLY = os.getenv("WECHAT_SYNC_REPLY", "false").strip().lower() in {"1", "true", "yes", "on"}
+WECHAT_QR_IMAGE_URL = os.getenv("WECHAT_QR_IMAGE_URL", "").strip()
+WECHAT_ACCOUNT_NAME = os.getenv("WECHAT_ACCOUNT_NAME", "微信素材测试号").strip() or "微信素材测试号"
 AI_TRENDS_ENABLED = os.getenv("AI_TRENDS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 AI_TRENDS_TIME = os.getenv("AI_TRENDS_TIME", "07:30").strip() or "07:30"
 app.add_middleware(
@@ -1304,6 +1306,7 @@ def receive_wechat_material(payload: WeChatMaterialRequest) -> dict[str, Any]:
         "created_at": now_iso(),
         "source_user": payload.source_user,
         "source_message_id": payload.source_message_id,
+        "source_type": payload.source_type,
         "text": material_text,
         "content_mode": normalize_content_mode(payload.content_mode),
         "script_provider": payload.script_provider,
@@ -1359,6 +1362,20 @@ def receive_wechat_material(payload: WeChatMaterialRequest) -> dict[str, Any]:
         "preview": preview,
         "wechat_reply": reply,
         "next_step": "后续微信机器人只需要把消息文本 POST 到本接口，即可进入现有文案生成流水线。",
+    }
+
+
+@app.get("/api/integrations/wechat/entry")
+def get_wechat_entry() -> dict[str, Any]:
+    public_base = os.getenv("CREATOR_STUDIO_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    callback_path = "/api/integrations/wechat/callback"
+    return {
+        "status": "ok",
+        "account_name": WECHAT_ACCOUNT_NAME,
+        "qr_image_url": WECHAT_QR_IMAGE_URL,
+        "callback_url": f"{public_base}{callback_path}" if public_base else callback_path,
+        "voice_supported": True,
+        "voice_requirement": "微信后台需要开启语音识别，语音消息回调里才会带 Recognition 文本。",
     }
 
 
@@ -1521,26 +1538,45 @@ async def receive_wechat_callback(
     to_user = message.get("FromUserName", "")
     from_user = message.get("ToUserName", "")
     content = re.sub(r"\s+", " ", message.get("Content", "")).strip()
+    recognition = re.sub(r"\s+", " ", message.get("Recognition", "")).strip()
     msg_id = message.get("MsgId", "")
-    if msg_type != "text" or not content:
+    material_text = content if msg_type == "text" else recognition if msg_type == "voice" else ""
+    if msg_type == "voice" and not material_text:
         _record_wechat_callback_event(
             message,
             action="ignored",
-            reason="已收到微信回调，但当前只把文字消息写入素材箱。",
+            reason="已收到语音，但微信回调没有 Recognition 识别文本；请在微信后台开启语音识别。",
         )
-        reply = "我现在先支持接收文字素材。你可以直接发：今天发生了什么、你的感想、剪辑心得。"
+        reply = "语音已收到，但微信没有返回识别文字。请在微信测试号/公众号后台开启语音识别后再发一次。"
+        return Response(
+            content=_wechat_text_response(to_user=to_user, from_user=from_user, content=reply),
+            media_type="application/xml",
+        )
+    if msg_type not in {"text", "voice"} or not material_text:
+        _record_wechat_callback_event(
+            message,
+            action="ignored",
+            reason="已收到微信回调，但当前只把文字或带识别文本的语音写入素材箱。",
+        )
+        reply = "我现在支持文字素材，也支持开启语音识别后的语音素材。你可以直接说：今天发生了什么、你的感想、剪辑心得。"
         return Response(
             content=_wechat_text_response(to_user=to_user, from_user=from_user, content=reply),
             media_type="application/xml",
         )
 
     payload = WeChatMaterialRequest(
-        text=content,
+        text=material_text,
         source_user=to_user,
         source_message_id=msg_id,
+        source_type="wechat_voice" if msg_type == "voice" else "wechat_text",
         auto_preview=True,
     )
-    _record_wechat_callback_event(message, action="queued_material", reason="文字素材已进入生成队列。")
+    _record_wechat_callback_event(
+        message,
+        action="queued_material",
+        reason="语音素材已识别并进入生成队列。" if msg_type == "voice" else "文字素材已进入生成队列。",
+        content_preview=material_text,
+    )
     if WECHAT_SYNC_REPLY:
         result = receive_wechat_material(payload)
         reply_text = (result.get("wechat_reply") or {}).get("plain_text") or "素材已收到，文案已生成。"
