@@ -107,6 +107,64 @@ def _load_skill(skill_path: Path) -> str:
     return skill_path.read_text(encoding="utf-8", errors="replace").strip()
 
 
+def _content_chars(text: str) -> int:
+    return len(re.sub(r"\s+", "", str(text or "")))
+
+
+def _expand_script_to_minimum(
+    studio_url: str,
+    *,
+    script: str,
+    skill_text: str,
+    query: str,
+    platform_label: str,
+    min_chars: int,
+    target_chars: int,
+    package: dict[str, Any],
+    max_retries: int = 2,
+) -> str:
+    current = str(script or "").strip()
+    api_base = _base_url(studio_url)
+    for attempt in range(1, max_retries + 1):
+        current_chars = _content_chars(current)
+        if current_chars >= min_chars:
+            return current
+        print(
+            f"[长度校验] {platform_label}文案只有 {current_chars} 字，低于 {min_chars} 字，"
+            f"第 {attempt} 次自动扩写到约 {target_chars} 字。"
+        )
+        payload = {
+            "topic": query or str(package.get("title") or "AI 最新实时信息"),
+            "seconds": 60,
+            "prompt_hint": (
+                f"必须严格应用这个 Skill，扩写为完整{platform_label}成稿。\n"
+                f"硬性长度：正文至少 {min_chars} 个中文字符，目标约 {target_chars} 个中文字符。\n"
+                "必须保留原始观点，但要加入真实经历感、具体数字、3段递进结构、金句和行动钩子。\n"
+                "不要解释规则，不要输出标题说明，不要用项目符号，直接输出可口播正文。\n\n"
+                f"【文案生成 Skill】\n{skill_text[:8000]}"
+            ),
+            "content_mode": "ai_growth",
+            "learning_goal": f"把短稿扩写成可直接发布的{platform_label}完整口播稿。",
+            "script_provider": os.getenv("SCRIPT_AI_PROVIDER", "gemini_minimax"),
+            "draft_script": current,
+            "review": {
+                "length_check": "too_short",
+                "current_chars": current_chars,
+                "minimum_chars": min_chars,
+                "target_chars": target_chars,
+            },
+            "human_feedback": (
+                f"当前文案太短。请扩写到至少 {min_chars} 个中文字符，目标约 {target_chars} 个中文字符。"
+                "要有故事、有观点、有方法、有金句、有互动钩子，严格遵守 Skill。"
+            ),
+        }
+        result = _json_request(f"{api_base}/api/kids/revise-script", method="POST", payload=payload, timeout=180)
+        revised = str(result.get("script") or "").strip()
+        if revised:
+            current = revised
+    return current
+
+
 def _review_pause(path: Path) -> str:
     print("\n========== 人工审核 ==========")
     print(f"已生成审核文件：{path}")
@@ -149,6 +207,8 @@ def generate_ximalaya_copy(studio_url: str, skill_text: str, package: dict[str, 
     prompt_hint = (
         "请严格应用下面 Skill 的风格规则，生成适合喜马拉雅发布的播客文案。"
         "输出要像真人口播，不要解释规则。"
+        "硬性要求：播客口播正文至少 900 个中文字符，目标约 1200 个中文字符；"
+        "要有开场钩子、3段递进观点、真实经历感、方法总结、结尾互动。"
         "\n\n【文案生成 Skill】\n"
         f"{skill_text[:8000]}"
     )
@@ -163,6 +223,16 @@ def generate_ximalaya_copy(studio_url: str, skill_text: str, package: dict[str, 
     print("[3/6] 根据 Skill 生成喜马拉雅标题/简介/文案")
     result = _json_request(f"{api_base}/api/kids/draft-review", method="POST", payload=payload, timeout=180)
     script = str(result.get("script") or "").strip()
+    script = _expand_script_to_minimum(
+        studio_url,
+        script=script,
+        skill_text=skill_text,
+        query=query,
+        platform_label="喜马拉雅播客",
+        min_chars=900,
+        target_chars=1200,
+        package=package,
+    )
     title = _clean_title((package.get("title") or query or "AI最新资讯") + "：普通人该怎么看")
     description = (
         "本期基于最新 AI 资讯和 NotebookLM 分析整理，聊聊 AI 对普通学习者、职场妈妈、内容创作者的真实影响。\n\n"
@@ -182,6 +252,7 @@ def generate_videohao_copy(studio_url: str, skill_text: str, package: dict[str, 
     prompt_hint = (
         "请严格应用下面 Skill 的风格规则，生成视频号 60-90 秒真人口播文案。"
         "必须符合：3秒黄金钩子、真实经历共情、3个可落地观点/方法、启发式金句结尾、评论区互动。"
+        "硬性要求：正文至少 450 个中文字符，目标约 650 个中文字符。"
         "输出不要加角色标签，不要分镜说明，不要解释规则，只给可直接口播的正文。"
         "\n\n【文案生成 Skill】\n"
         f"{skill_text[:8000]}"
@@ -197,6 +268,16 @@ def generate_videohao_copy(studio_url: str, skill_text: str, package: dict[str, 
     print("[3/6] 根据 Skill 同步生成视频号口播文案")
     result = _json_request(f"{api_base}/api/kids/draft-review", method="POST", payload=payload, timeout=180)
     script = str(result.get("script") or "").strip()
+    script = _expand_script_to_minimum(
+        studio_url,
+        script=script,
+        skill_text=skill_text,
+        query=query,
+        platform_label="视频号",
+        min_chars=450,
+        target_chars=650,
+        package=package,
+    )
     title = _clean_title((query or package.get("title") or "AI最新资讯") + "，普通人别只看热闹")
     hashtags = "#AI #人工智能 #普通人学AI #职场妈妈 #效率工具 #视频号"
     return {"title": title, "hashtags": hashtags, "script": script}
@@ -211,6 +292,9 @@ def revise_copy_if_needed(
     *,
     platform_label: str,
     learning_goal: str,
+    package: dict[str, Any],
+    min_chars: int,
+    target_chars: int,
 ) -> dict[str, str]:
     if not feedback:
         return copy
@@ -229,6 +313,16 @@ def revise_copy_if_needed(
     print(f"[3.5/6] 根据人工意见二次修改{platform_label}文案")
     result = _json_request(f"{api_base}/api/kids/revise-script", method="POST", payload=payload, timeout=180)
     script = str(result.get("script") or copy["script"]).strip()
+    script = _expand_script_to_minimum(
+        studio_url,
+        script=script,
+        skill_text=skill_text,
+        query=query,
+        platform_label=platform_label,
+        min_chars=min_chars,
+        target_chars=target_chars,
+        package=package,
+    )
     copy["script"] = script
     if "description" in copy:
         copy["description"] = (
@@ -376,6 +470,9 @@ def main() -> int:
         args.query,
         platform_label="喜马拉雅",
         learning_goal="按人工意见修成可直接发布的喜马拉雅播客文案。",
+        package=package,
+        min_chars=900,
+        target_chars=1200,
     )
     videohao_copy = revise_copy_if_needed(
         args.studio_url,
@@ -385,6 +482,9 @@ def main() -> int:
         args.query,
         platform_label="视频号",
         learning_goal="按人工意见修成可直接发布的视频号真人出镜口播文案。",
+        package=package,
+        min_chars=450,
+        target_chars=650,
     )
     review_path = save_review_files(package, copy, videohao_copy)
     print(f"最终审核单：{review_path}")
