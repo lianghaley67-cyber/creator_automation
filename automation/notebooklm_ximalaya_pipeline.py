@@ -172,7 +172,46 @@ def generate_ximalaya_copy(studio_url: str, skill_text: str, package: dict[str, 
     return {"title": title, "description": description, "tags": tags, "script": script}
 
 
-def revise_copy_if_needed(studio_url: str, copy: dict[str, str], feedback: str, skill_text: str, query: str) -> dict[str, str]:
+def generate_videohao_copy(studio_url: str, skill_text: str, package: dict[str, Any], query: str) -> dict[str, str]:
+    api_base = _base_url(studio_url)
+    topic = (
+        "请基于 NotebookLM 最新 AI 资讯导入包，同时生成一条微信视频号真人出镜口播文案。"
+        f"主题要求：{query or package.get('title') or 'AI 最新实时信息'}。"
+        f"原始链接清单：{package.get('source_links_url')}"
+    )
+    prompt_hint = (
+        "请严格应用下面 Skill 的风格规则，生成视频号 60-90 秒真人口播文案。"
+        "必须符合：3秒黄金钩子、真实经历共情、3个可落地观点/方法、启发式金句结尾、评论区互动。"
+        "输出不要加角色标签，不要分镜说明，不要解释规则，只给可直接口播的正文。"
+        "\n\n【文案生成 Skill】\n"
+        f"{skill_text[:8000]}"
+    )
+    payload = {
+        "topic": topic,
+        "seconds": 60,
+        "prompt_hint": prompt_hint,
+        "content_mode": "ai_growth",
+        "learning_goal": "把 AI 最新资讯转成视频号真人出镜口播，面向普通学习者和职场妈妈。",
+        "script_provider": os.getenv("SCRIPT_AI_PROVIDER", "gemini_minimax"),
+    }
+    print("[3/6] 根据 Skill 同步生成视频号口播文案")
+    result = _json_request(f"{api_base}/api/kids/draft-review", method="POST", payload=payload, timeout=180)
+    script = str(result.get("script") or "").strip()
+    title = _clean_title((query or package.get("title") or "AI最新资讯") + "，普通人别只看热闹")
+    hashtags = "#AI #人工智能 #普通人学AI #职场妈妈 #效率工具 #视频号"
+    return {"title": title, "hashtags": hashtags, "script": script}
+
+
+def revise_copy_if_needed(
+    studio_url: str,
+    copy: dict[str, str],
+    feedback: str,
+    skill_text: str,
+    query: str,
+    *,
+    platform_label: str,
+    learning_goal: str,
+) -> dict[str, str]:
     if not feedback:
         return copy
     api_base = _base_url(studio_url)
@@ -181,29 +220,30 @@ def revise_copy_if_needed(studio_url: str, copy: dict[str, str], feedback: str, 
         "seconds": 60,
         "prompt_hint": f"继续遵守这个 Skill：\n{skill_text[:8000]}",
         "content_mode": "ai_growth",
-        "learning_goal": "按人工意见修成可直接发布的喜马拉雅播客文案。",
+        "learning_goal": learning_goal,
         "script_provider": os.getenv("SCRIPT_AI_PROVIDER", "gemini_minimax"),
         "draft_script": copy["script"],
-        "review": {"manual_stage": "ximalaya_publish_review"},
+        "review": {"manual_stage": f"{platform_label}_publish_review"},
         "human_feedback": feedback,
     }
-    print("[3.5/6] 根据人工意见二次修改文案")
+    print(f"[3.5/6] 根据人工意见二次修改{platform_label}文案")
     result = _json_request(f"{api_base}/api/kids/revise-script", method="POST", payload=payload, timeout=180)
     script = str(result.get("script") or copy["script"]).strip()
     copy["script"] = script
-    copy["description"] = (
-        "本期基于最新 AI 资讯和 NotebookLM 分析整理，聊聊 AI 对普通学习者、职场妈妈、内容创作者的真实影响。\n\n"
-        f"{script[:900]}"
-    ).strip()
+    if "description" in copy:
+        copy["description"] = (
+            "本期基于最新 AI 资讯和 NotebookLM 分析整理，聊聊 AI 对普通学习者、职场妈妈、内容创作者的真实影响。\n\n"
+            f"{script[:900]}"
+        ).strip()
     return copy
 
 
-def save_review_files(package: dict[str, Any], copy: dict[str, str]) -> Path:
+def save_review_files(package: dict[str, Any], ximalaya_copy: dict[str, str], videohao_copy: dict[str, str]) -> Path:
     RUN_DIR.mkdir(parents=True, exist_ok=True)
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = RUN_DIR / f"{run_id}_ximalaya_publish_review.md"
+    path = RUN_DIR / f"{run_id}_notebooklm_publish_review.md"
     links = "\n".join(f"- {item}" for item in package["source_urls"])
-    body = f"""# 喜马拉雅发布审核单 {run_id}
+    body = f"""# NotebookLM 多平台发布审核单 {run_id}
 
 ## NotebookLM 导入信息
 
@@ -214,21 +254,37 @@ def save_review_files(package: dict[str, Any], copy: dict[str, str]) -> Path:
 
 {links}
 
-## 喜马拉雅标题
+## 喜马拉雅发布内容
 
-{copy["title"]}
+### 标题
 
-## 喜马拉雅标签
+{ximalaya_copy["title"]}
 
-{copy["tags"]}
+### 标签
 
-## 喜马拉雅简介
+{ximalaya_copy["tags"]}
 
-{copy["description"]}
+### 简介
 
-## 口播文案
+{ximalaya_copy["description"]}
 
-{copy["script"]}
+### 播客口播文案
+
+{ximalaya_copy["script"]}
+
+## 视频号口播内容
+
+### 标题
+
+{videohao_copy["title"]}
+
+### 话题
+
+{videohao_copy["hashtags"]}
+
+### 真人出镜口播文案
+
+{videohao_copy["script"]}
 """
     path.write_text(body, encoding="utf-8")
     return path
@@ -309,10 +365,28 @@ def main() -> int:
     skill_text = _load_skill(Path(args.skill_path))
     package = collect_notebooklm_links(args.studio_url, args.query)
     copy = generate_ximalaya_copy(args.studio_url, skill_text, package, args.query)
-    review_path = save_review_files(package, copy)
+    videohao_copy = generate_videohao_copy(args.studio_url, skill_text, package, args.query)
+    review_path = save_review_files(package, copy, videohao_copy)
     feedback = _review_pause(review_path)
-    copy = revise_copy_if_needed(args.studio_url, copy, feedback, skill_text, args.query)
-    review_path = save_review_files(package, copy)
+    copy = revise_copy_if_needed(
+        args.studio_url,
+        copy,
+        feedback,
+        skill_text,
+        args.query,
+        platform_label="喜马拉雅",
+        learning_goal="按人工意见修成可直接发布的喜马拉雅播客文案。",
+    )
+    videohao_copy = revise_copy_if_needed(
+        args.studio_url,
+        videohao_copy,
+        feedback,
+        skill_text,
+        args.query,
+        platform_label="视频号",
+        learning_goal="按人工意见修成可直接发布的视频号真人出镜口播文案。",
+    )
+    review_path = save_review_files(package, copy, videohao_copy)
     print(f"最终审核单：{review_path}")
     if not args.no_browser:
         run_browser_flow(args, package, copy)
