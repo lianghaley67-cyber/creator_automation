@@ -809,8 +809,12 @@ onBeforeUnmount(() => {
       </div>
       <div class="wechat-entry-copy">
         <strong>扫码用微信语音提供素材</strong>
-        <p>关注 {{ wechatEntry?.account_name || "微信测试号/公众号" }} 后，直接按住说话；页面点击“刷新微信素材”即可加载。</p>
+        <p>关注 {{ wechatEntry?.account_name || "微信测试号/公众号" }} 后，直接按住说话：今天发生了什么、你的感想、剪辑心得。页面点击“刷新微信素材”即可加载。</p>
+        <p v-if="wechatEntry?.voice_fallback_enabled" class="meta">
+          兜底转写：{{ wechatEntry.voice_fallback_configured ? "已配置 AppID/AppSecret，微信不返回识别文本时会尝试下载语音转写。" : "未配置 AppID/AppSecret，只能依赖微信 Recognition 识别文本。" }}
+        </p>
         <p class="meta">回调地址：{{ wechatEntry?.callback_url || "/api/integrations/wechat/callback" }}</p>
+        <p v-if="!wechatQrImageUrl" class="error-text">请在 .env 配置 WECHAT_QR_IMAGE_URL 为微信测试号/公众号二维码图片地址，然后重启后端。</p>
       </div>
     </section>
 
@@ -928,21 +932,6 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="meta">微信发新消息后，点击“刷新微信素材”加载；页面不会自动轮询刷新。</div>
-      <div class="wechat-entry-card">
-        <div class="wechat-qr-box" :class="{ empty: !wechatQrImageUrl }">
-          <img v-if="wechatQrImageUrl" :src="wechatQrImageUrl" :alt="`${wechatEntry?.account_name || '微信素材入口'}二维码`" />
-          <span v-else>二维码未配置</span>
-        </div>
-        <div class="wechat-entry-copy">
-          <strong>扫码后直接用语音提供素材</strong>
-          <p>关注 {{ wechatEntry?.account_name || "微信测试号/公众号" }} 后，直接按住说话：今天发生了什么、你的感想、剪辑心得。开启微信语音识别后，系统会把识别文字自动放入素材箱。</p>
-          <p v-if="wechatEntry?.voice_fallback_enabled" class="meta">
-            兜底转写：{{ wechatEntry.voice_fallback_configured ? "已配置 AppID/AppSecret，微信不返回识别文本时会尝试下载语音转写。" : "未配置 AppID/AppSecret，只能依赖微信 Recognition 识别文本。" }}
-          </p>
-          <p class="meta">回调地址：{{ wechatEntry?.callback_url || "/api/integrations/wechat/callback" }}</p>
-          <p v-if="!wechatQrImageUrl" class="error-text">请在 .env 配置 WECHAT_QR_IMAGE_URL 为微信测试号/公众号二维码图片地址，然后重启后端。</p>
-        </div>
-      </div>
       <div v-if="!wechatMaterials.length" class="meta">
         还没有收到微信素材。你可以在微信测试号里发一句真实经历。
         <span v-if="latestWechatCallbackEvent">
