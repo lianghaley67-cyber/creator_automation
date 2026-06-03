@@ -48,6 +48,8 @@ def _json_request(url: str, *, method: str = "GET", payload: dict[str, Any] | No
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"{method} {url} failed: HTTP {exc.code} {body}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"{method} {url} failed: {exc.reason}") from exc
 
 
 def _text_request(url: str, *, timeout: int = 90) -> str:
@@ -125,6 +127,7 @@ def _expand_script_to_minimum(
 ) -> str:
     current = str(script or "").strip()
     api_base = _base_url(studio_url)
+    last_error = ""
     for attempt in range(1, max_retries + 1):
         current_chars = _content_chars(current)
         if current_chars >= min_chars:
@@ -158,10 +161,39 @@ def _expand_script_to_minimum(
                 "要有故事、有观点、有方法、有金句、有互动钩子，严格遵守 Skill。"
             ),
         }
-        result = _json_request(f"{api_base}/api/kids/revise-script", method="POST", payload=payload, timeout=180)
+        try:
+            result = _json_request(f"{api_base}/api/kids/revise-script", method="POST", payload=payload, timeout=180)
+        except RuntimeError as exc:
+            last_error = str(exc)
+            fallback_payload = {
+                "topic": (
+                    f"{query or str(package.get('title') or 'AI 最新实时信息')}。"
+                    f"请重新生成完整{platform_label}口播稿，不要沿用短稿。"
+                ),
+                "seconds": 60,
+                "prompt_hint": (
+                    f"上一次扩写失败：{last_error[:500]}\n"
+                    f"请直接生成完整{platform_label}成稿。\n"
+                    f"硬性长度：正文至少 {min_chars} 个中文字符，目标约 {target_chars} 个中文字符。\n"
+                    "必须应用 Skill：标题公式、三段递进、真实故事、数字、金句、互动钩子。\n"
+                    "不要解释规则，不要输出项目符号，只输出可口播正文。\n\n"
+                    f"【文案生成 Skill】\n{skill_text[:8000]}"
+                ),
+                "content_mode": "ai_growth",
+                "learning_goal": f"重新生成可直接发布的{platform_label}完整口播稿。",
+                "script_provider": os.getenv("SCRIPT_AI_PROVIDER", "gemini_minimax"),
+            }
+            result = _json_request(f"{api_base}/api/kids/draft-review", method="POST", payload=fallback_payload, timeout=180)
         revised = str(result.get("script") or "").strip()
         if revised:
             current = revised
+    if _content_chars(current) < min_chars and last_error:
+        warning = (
+            f"\n\n【自动扩写未达标提醒】\n"
+            f"{platform_label}文案仍低于 {min_chars} 字。最后一次扩写错误：{last_error[:800]}\n"
+            "请在人工审核时补充修改意见，或检查服务器文案模型配置。"
+        )
+        current = (current + warning).strip()
     return current
 
 
