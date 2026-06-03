@@ -68,6 +68,42 @@ from .storage import (
 )
 
 
+def _resolve_script_revision_provider(provider: str) -> str:
+    normalized = str(provider or "").strip().lower()
+    if normalized in {"gemini", "gemini_minimax", "gemini_deepseek_minimax"}:
+        return "gemini"
+    if normalized in {"minimax", "minimax_plan", "minimax_token_plan", "minimax_deepseek"}:
+        return "minimax"
+    return normalized or "unknown"
+
+
+def _script_ai_error_detail(
+    *,
+    requested_provider: str,
+    stage: str,
+    message: str,
+) -> dict[str, Any]:
+    safe_message = re.sub(r"(sk-[A-Za-z0-9_-]{8,})", "***hidden***", str(message or ""))
+    safe_message = re.sub(r"(key=)[^&\s]+", r"\1***hidden***", safe_message)
+    lower_message = safe_message.lower()
+    failed_provider = "unknown"
+    if "gemini" in lower_message or "google" in lower_message:
+        failed_provider = "gemini"
+    elif "minimax" in lower_message:
+        failed_provider = "minimax"
+    elif "deepseek" in lower_message:
+        failed_provider = "deepseek"
+    return {
+        "error": "script_ai_failed",
+        "stage": stage,
+        "failed_provider": failed_provider,
+        "requested_provider": requested_provider,
+        "resolved_revision_provider": _resolve_script_revision_provider(requested_provider),
+        "review_provider": "deepseek",
+        "message": safe_message[:1000],
+    }
+
+
 app = FastAPI(title="Creator Digital Studio", version="0.1.0")
 store = StudioStore()
 SADTALKER_RENDER_LOCK = threading.Lock()
@@ -1388,17 +1424,29 @@ def revise_kids_script(payload: KidsScriptReviseRequest) -> dict[str, Any]:
     if not draft_script:
         raise HTTPException(status_code=400, detail="初稿为空，无法二次修改。")
     seconds = clamp_kids_seconds(payload.seconds)
-    script_ai = revise_script_with_feedback(
-        revision_provider=payload.script_provider,
-        draft_script=draft_script,
-        review=payload.review,
-        human_feedback=payload.human_feedback,
-        topic=payload.topic,
-        seconds=seconds,
-        prompt_hint=payload.prompt_hint,
-        content_mode=normalize_content_mode(payload.content_mode),
-        learning_goal=payload.learning_goal,
-    )
+    try:
+        script_ai = revise_script_with_feedback(
+            revision_provider=payload.script_provider,
+            draft_script=draft_script,
+            review=payload.review,
+            human_feedback=payload.human_feedback,
+            topic=payload.topic,
+            seconds=seconds,
+            prompt_hint=payload.prompt_hint,
+            content_mode=normalize_content_mode(payload.content_mode),
+            learning_goal=payload.learning_goal,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=_script_ai_error_detail(
+                requested_provider=payload.script_provider,
+                stage="revision_or_final_review",
+                message=str(exc),
+            ),
+        ) from exc
     script = script_ai["script"]
     return {
         "topic": payload.topic,
