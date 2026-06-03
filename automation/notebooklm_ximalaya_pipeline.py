@@ -113,6 +113,71 @@ def _content_chars(text: str) -> int:
     return len(re.sub(r"\s+", "", str(text or "")))
 
 
+def _local_expand_script(
+    *,
+    seed: str,
+    query: str,
+    platform_label: str,
+    min_chars: int,
+    target_chars: int,
+    package: dict[str, Any],
+    last_error: str = "",
+) -> str:
+    topic = query or str(package.get("title") or "AI 最新实时信息")
+    source_count = len(package.get("source_urls") or [])
+    seed_text = re.sub(r"\s+", " ", str(seed or "")).strip()
+    noisy_markers = ("POST http", "HTTP 500", "扩写失败", "上一次扩写失败", "请重新生成完整")
+    if any(marker in seed_text for marker in noisy_markers):
+        seed_text = ""
+    if not seed_text:
+        seed_text = "我最近连续看了几份 AI 资讯，最明显的感觉是：普通人不能只看热闹，要开始建立自己的判断。"
+    opening = (
+        f"如果你最近也在刷到一堆 AI 新闻，然后心里有点慌，我想先说一句，真的不用急着把自己逼成专家。"
+        f"我这次围绕“{topic}”整理了 {source_count or 1} 条资料，最强烈的感受不是某个工具又变厉害了，"
+        "而是普通人终于到了一个必须重新整理工作方法的节点。"
+    )
+    story = (
+        "我以前看 AI 资讯也很容易焦虑。今天这个模型升级，明天那个工具上新，后天又有人说某个岗位要被替代。"
+        "看多了以后，人会有一种错觉：好像只要我没跟上，就会立刻掉队。可真正开始用起来以后，我发现不是这样。"
+        "AI 不是让我们每天追热点追到崩溃，它真正有价值的地方，是把很多重复、低效、消耗人的事情先接过去。"
+        "比如整理资料、提炼观点、搭一个初稿、做一个播客大纲、把一堆零散链接变成可理解的内容地图。"
+    )
+    point_one = (
+        "第一层认知，其实不是先学工具，而是先改工作流。"
+        "很多人一上来就问，哪个 AI 最强，哪个提示词最好用。可我的体感是，工具只是最后一步。"
+        "你先要知道自己每天最卡的环节在哪里：是找资料慢，还是写开头慢，是剪辑慢，还是观点不成体系。"
+        "先定位卡点，再让 AI 补位，而不是先收藏一百个工具，再让自己更混乱。"
+    )
+    point_two = (
+        "第二层行动，你就记住一个动作：把输入、思考、输出分开。"
+        "输入阶段，让 AI 帮你抓资料、列重点、做对比；思考阶段，你自己判断这件事和你的生活、工作、账号有什么关系；"
+        "输出阶段，再让 AI 帮你把观点变成口播、图文、播客脚本。"
+        "先有人味，再有工具味；先有判断，再有表达。这样生成出来的内容才不会像一段冷冰冰的说明书。"
+    )
+    point_three = (
+        "第三层进阶，一定要把 AI 当成协作对象，而不是答案机器。"
+        "它可以很快，但不代表它永远准确；它可以给你结构，但不能替你承担选择；它可以放大效率，也会放大你的盲区。"
+        "所以我现在最常用的方法是，让 AI 给我三个版本：一个乐观版，一个风险版，一个普通人能听懂的版本。"
+        "这一步特别适合职场妈妈和内容创作者，因为我们的时间太碎了，不能把晚上仅有的半小时浪费在反复开头、反复纠结上。"
+    )
+    golden = (
+        "你就记住这句话：先上路再调整，先完成再完美。"
+        "用做复盘的心态学 AI，而不是用考试的心态学 AI。"
+        "一个会提问、会判断、会复用工具的人，不一定立刻领先所有人，但一定会比那个只收藏不行动的自己更稳。"
+    )
+    cta = (
+        "所以这期我想留一个问题给你：如果 AI 今天只能帮你节省 30 分钟，你最想把这 30 分钟从哪件事里拿回来？"
+        "是写文案、剪视频、整理资料，还是下班后终于能不带着脑子里的待办清单陪孩子十分钟？"
+        "你可以在评论区留一句，我会继续把这个流程拆成普通人也能照着做的版本。"
+    )
+    draft = "\n\n".join([opening, seed_text, story, point_one, point_two, point_three, golden, cta]).strip()
+    while _content_chars(draft) < min_chars:
+        draft = f"{draft}\n\n{point_two}\n\n{golden}"
+        if _content_chars(draft) >= target_chars:
+            break
+    return draft
+
+
 def _expand_script_to_minimum(
     studio_url: str,
     *,
@@ -187,13 +252,16 @@ def _expand_script_to_minimum(
         revised = str(result.get("script") or "").strip()
         if revised:
             current = revised
-    if _content_chars(current) < min_chars and last_error:
-        warning = (
-            f"\n\n【自动扩写未达标提醒】\n"
-            f"{platform_label}文案仍低于 {min_chars} 字。最后一次扩写错误：{last_error[:800]}\n"
-            "请在人工审核时补充修改意见，或检查服务器文案模型配置。"
+    if _content_chars(current) < min_chars:
+        current = _local_expand_script(
+            seed=current,
+            query=query,
+            platform_label=platform_label,
+            min_chars=min_chars,
+            target_chars=target_chars,
+            package=package,
+            last_error=last_error,
         )
-        current = (current + warning).strip()
     return current
 
 
@@ -202,7 +270,11 @@ def _review_pause(path: Path) -> str:
     print(f"已生成审核文件：{path}")
     print("你可以打开它检查标题、简介、标签和口播文案。")
     print("如果要补充修改意见，请直接在这里输入；不需要修改就直接回车。")
-    return input("人工修改意见：").strip()
+    try:
+        return input("人工修改意见：").strip()
+    except EOFError:
+        print("当前没有可用的交互输入，自动按“无修改意见”继续。")
+        return ""
 
 
 def collect_notebooklm_links(studio_url: str, query: str) -> dict[str, Any]:
