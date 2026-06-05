@@ -80,7 +80,7 @@ python automation\notebooklm_ximalaya_pipeline.py --no-browser
 CREATOR_STUDIO_URL=http://43.156.8.162/
 NOTEBOOKLM_URL=https://notebooklm.google.com/notebook/8a28b3eb-d0f4-44a2-a57b-3d9b437a8f37
 XIMALAYA_UPLOAD_URL=https://www.ximalaya.com/anchor-center/upload
-XIMALAYA_COPY_SKILL_PATH=C:/Users/HP/AppData/Local/hermes/skills/domain/jianghushuo-perspective/SKILL.md
+XIMALAYA_COPY_SKILL_PATH=creator_skills/jianghushuo-perspective.md
 NOTEBOOKLM_AUDIO_DOWNLOAD_TIMEOUT=1800
 ```
 

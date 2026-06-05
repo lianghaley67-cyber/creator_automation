@@ -129,7 +129,6 @@ def _load_creator_skills() -> str:
     raw_files = [
         os.getenv("CREATOR_PRIMARY_SKILL_PATH", "").strip(),
         os.getenv("JIANGHUSHUO_SKILL_PATH", "").strip(),
-        "C:/Users/HP/AppData/Local/hermes/skills/domain/jianghushuo-perspective/SKILL.md",
     ]
     raw_dirs = [
         os.getenv("CREATOR_SKILLS_DIR", "creator_skills").strip() or "creator_skills",
