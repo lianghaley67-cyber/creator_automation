@@ -126,12 +126,37 @@ def _target_lines(seconds: int) -> int:
 
 def _load_creator_skills() -> str:
     blocks: list[str] = []
+    raw_files = [
+        os.getenv("CREATOR_PRIMARY_SKILL_PATH", "").strip(),
+        os.getenv("JIANGHUSHUO_SKILL_PATH", "").strip(),
+        "C:/Users/HP/AppData/Local/hermes/skills/domain/jianghushuo-perspective/SKILL.md",
+    ]
     raw_dirs = [
         os.getenv("CREATOR_SKILLS_DIR", "creator_skills").strip() or "creator_skills",
         os.getenv("OBSIDIAN_SKILLS_DIR", "").strip(),
         "D:/obsMD/Obsidian/vault/CreatorStudioSkills",
         "~/obsidian/CreatorStudioSkills",
     ]
+    seen_files: set[Path] = set()
+    for raw_file in raw_files:
+        if not raw_file:
+            continue
+        skill_file = Path(raw_file).expanduser()
+        if not skill_file.is_absolute():
+            skill_file = ROOT_DIR / skill_file
+        try:
+            resolved_file = skill_file.resolve()
+        except OSError:
+            resolved_file = skill_file
+        if resolved_file in seen_files or not skill_file.exists() or not skill_file.is_file():
+            continue
+        seen_files.add(resolved_file)
+        try:
+            text = skill_file.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            continue
+        if text:
+            blocks.append(f"## {skill_file.parent.name}/{skill_file.stem}\n{text}")
     seen_dirs: set[Path] = set()
     for raw_dir in raw_dirs:
         if not raw_dir:

@@ -20,7 +20,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_STUDIO_URL = "http://43.156.8.162/"
 DEFAULT_NOTEBOOKLM_URL = "https://notebooklm.google.com/notebook/8a28b3eb-d0f4-44a2-a57b-3d9b437a8f37"
 DEFAULT_XIMALAYA_UPLOAD_URL = "https://www.ximalaya.com/anchor-center/upload"
-DEFAULT_SKILL_PATH = Path("D:/obsMD/Obsidian/vault/CreatorStudioSkills/文案生成Skill.md")
+DEFAULT_SKILL_PATH = Path("C:/Users/HP/AppData/Local/hermes/skills/domain/jianghushuo-perspective/SKILL.md")
 RUN_DIR = ROOT_DIR / "studio_runtime" / "notebooklm_ximalaya"
 PROFILE_DIR = ROOT_DIR / "studio_runtime" / "browser_profiles" / "notebooklm_ximalaya"
 
