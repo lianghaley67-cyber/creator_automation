@@ -629,13 +629,28 @@ async function refreshAiTrends(force = false) {
 
 function generateTrendQuestions(trend) {
   if (!trend) return;
+  if (Array.isArray(trend.suggested_questions) && trend.suggested_questions.length) {
+    trendQuestions.value = trend.suggested_questions.slice(0, 6);
+    return;
+  }
+  const items = Array.isArray(trend.items) ? trend.items : [];
+  const pickTitle = (index, fallback) => {
+    const title = (items[index]?.title || trend.title || fallback || "今天的 AI 资讯").trim();
+    return title.length > 28 ? `${title.slice(0, 27)}…` : title;
+  };
+  const focusText = `${trend.query || ""} ${trend.summary || ""} ${items.map((item) => item.title || "").join(" ")}`.toLowerCase();
+  const focus = focusText.includes("video") || focusText.includes("creator") || focusText.includes("短视频")
+    ? "短视频创作和内容生产"
+    : focusText.includes("work") || focusText.includes("效率") || focusText.includes("职场")
+      ? "普通人的工作效率和时间管理"
+      : "普通人的生活、工作和学习方式";
   trendQuestions.value = [
-    "AI 对普通人有什么影响？",
-    "AI 未来会带来哪些好的改变和坏的风险？",
-    "AI 是不是完全准确？它和人的判断有什么区别？",
-    "普通学习者现在应该先学会哪 3 个 AI 用法？",
-    "AI 会不会取代我们的工作，哪些能力反而更值钱？",
-    "怎么把今天的 AI 资讯转成短视频选题和口播文案？"
+    `从「${pickTitle(0)}」看，AI 正在解决普通人生活工作里的哪个具体问题？`,
+    `如果把今天的资讯落到${focus}，最值得普通人立刻尝试的一个动作是什么？`,
+    `「${pickTitle(1)}」可能带来哪些机会和风险，哪些地方必须保留人的判断？`,
+    "这些 AI 工具是不是完全准确？普通人怎么判断接口数据、模型输出和真实经验的边界？",
+    "如果用访谈方式深挖：这条资讯最触动我的一个焦虑、期待或真实经历是什么？",
+    `怎么把「${pickTitle(2)}」转成一条有钩子、有观点、有行动建议的视频号口播文案？`
   ];
 }
 
@@ -885,8 +900,8 @@ onBeforeUnmount(() => {
 
       <section v-if="aiTrends.length > 0" class="panel">
         <div class="panel-header">
-          <h2>普通学习者最关心的 6 个问题</h2>
-          <span class="eyebrow">点击任意问题可生成口播文案</span>
+          <h2>基于今天资讯生成的 6 个追问</h2>
+          <span class="eyebrow">参考访谈式深挖：从事实、影响、边界、情绪和行动建议生成口播文案</span>
         </div>
         <div class="questions-grid">
           <div v-for="(question, index) in trendQuestions" :key="index" class="question-card">

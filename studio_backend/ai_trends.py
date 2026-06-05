@@ -51,6 +51,52 @@ def _compact(value: str, limit: int = 220) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def _question_subject(text: str, *, fallback: str = "今天这条 AI 资讯", limit: int = 28) -> str:
+    subject = re.sub(r"https?://\S+", "", str(text or ""))
+    subject = re.sub(r"[\[\]【】#*_`|<>]+", "", subject)
+    subject = re.sub(r"\s+", " ", subject).strip(" -_—:：。，,")
+    if not subject:
+        subject = fallback
+    return subject if len(subject) <= limit else subject[: limit - 1] + "…"
+
+
+def _infer_life_work_focus(items: list[dict[str, Any]], query: str) -> str:
+    corpus = " ".join(
+        [
+            query,
+            *[str(item.get("title") or "") for item in items[:8]],
+            *[str(item.get("summary") or "") for item in items[:8]],
+        ]
+    ).lower()
+    if any(token in corpus for token in ("video", "creator", "短视频", "剪辑", "content", "filmmaking", "生成视频")):
+        return "短视频创作和内容生产"
+    if any(token in corpus for token in ("work", "productivity", "workflow", "效率", "办公", "职场", "time management")):
+        return "普通人的工作效率和时间管理"
+    if any(token in corpus for token in ("mom", "mother", "family", "妈妈", "育儿", "家庭", "带娃")):
+        return "职场妈妈的生活安排和精力分配"
+    if any(token in corpus for token in ("model", "gpt", "gemini", "claude", "accuracy", "模型", "准确", "幻觉")):
+        return "AI 模型能力、误差和人的判断"
+    return "普通人的生活、工作和学习方式"
+
+
+def build_trend_questions(report: dict[str, Any]) -> list[str]:
+    items = list(report.get("items") or [])
+    query = str(report.get("query") or "").strip()
+    title = _question_subject(report.get("title") or query, fallback="今天的 AI 最新趋势")
+    first = _question_subject(items[0].get("title") if items else "", fallback=title)
+    second = _question_subject(items[1].get("title") if len(items) > 1 else "", fallback=title)
+    third = _question_subject(items[2].get("title") if len(items) > 2 else "", fallback=title)
+    focus = _infer_life_work_focus(items, query)
+    return [
+        f"从「{first}」看，AI 正在解决普通人生活工作里的哪个具体问题？",
+        f"如果把今天的资讯落到{focus}，最值得普通人立刻尝试的一个动作是什么？",
+        f"「{second}」可能带来哪些机会和风险，哪些地方必须保留人的判断？",
+        f"这些 AI 工具是不是完全准确？普通人怎么判断接口数据、模型输出和真实经验的边界？",
+        f"如果用访谈方式深挖：这条资讯最触动我的一个焦虑、期待或真实经历是什么？",
+        f"怎么把「{third}」转成一条有钩子、有观点、有行动建议的视频号口播文案？",
+    ]
+
+
 def _normalize_query(query: str | None) -> str:
     return re.sub(r"\s+", " ", str(query or "")).strip()
 
@@ -138,6 +184,7 @@ def collect_ai_trends(query: str | None = None) -> dict[str, Any]:
             "用普通人的学习感悟解释技术变化，降低新技术焦虑。",
         ],
     }
+    report["suggested_questions"] = build_trend_questions(report)
     archive_dir = STUDIO_DIR / "ai_trends"
     archive_dir.mkdir(parents=True, exist_ok=True)
     (archive_dir / f"{now[:10]}.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
