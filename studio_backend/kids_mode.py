@@ -257,6 +257,9 @@ def _arc_lines(
     safe_topic = _clean_child_topic(safe_topic)
     profile = _profile_for(content_mode)
     goal = _short_child_phrase(learning_goal, profile["goal"], limit=22)
+    if normalize_content_mode(content_mode) == "ai_growth":
+        hint_text = sanitize_hint(hint, limit=100)
+        return _ai_growth_arc_lines(safe_topic, hint_text, goal)
     hint_text = _short_child_phrase(hint, "", limit=22)
     step_a, step_b, step_c, step_d = profile["steps"]
     hint_line = f"我的补充角度：{hint_text}。" if hint_text else f"我先讲{step_a}，再拆{step_b}。"
@@ -270,6 +273,38 @@ def _arc_lines(
         f"第三步，我只保留今天最重要的一件事，其他都交给流程。",
         f"你有没有类似的瞬间？评论区留一句，我帮你拆一个工作流。",
     ]
+
+
+def _ai_growth_arc_lines(topic: str, hint_text: str, goal: str) -> list[str]:
+    """
+    Generate a local fallback script for AI trend and learning questions.
+
+    This is used only when the third-party script model is unavailable or returns
+    unusable text. It must not reuse the personal grievance template, otherwise
+    abstract questions like "AI 对普通人有什么影响" become incoherent stories.
+    """
+    question = topic.rstrip("？?。.")
+    hint_text = re.sub(r"^必须基于接口抓取到的\s*AI\s*最新资讯回答[:：]?", "", hint_text or "").strip()
+    hint_text = re.split(r"[。；;]", hint_text, maxsplit=1)[0].strip()
+    focus = goal if goal and goal != "降低新技术焦虑，建立普通女性的 AI 行动力" else question
+    if len(focus) > 26 or "结合最新" in focus or "回答普通学习者" in focus:
+        focus = question
+    source_line = (
+        f"我今天看到的 AI 资讯，核心不是热闹，而是：{hint_text}。"
+        if hint_text
+        else "我今天看 AI 资讯，先不追工具名，先看它改变了什么动作。"
+    )
+    return [
+        f"{question}？我的判断很简单：它不是来替你思考的，是来放大你的工作方式的。",
+        source_line,
+        "第一，不要把 AI 当答案机器。它根据模型和数据接口生成内容，不等于人的判断，也不保证完全准确。",
+        "第二，先找一个最小动作。比如搜资料、列大纲、改标题、整理口播稿，先让它帮你省下十分钟。",
+        "第三，把省下来的时间拿来做判断。普通人真正值钱的，不是会点哪个按钮，而是知道什么东西对别人有用。",
+        f"所以这件事的重点不是焦虑，而是围绕“{focus}”建立一个每天都能重复的小系统。",
+        "我的建议是：今天就选一个场景试一次。不要收藏十个工具，先跑通一个动作。",
+        "你最想让 AI 帮你省掉哪一步？评论区留一句，我帮你拆成一个可执行流程。",
+    ]
+
 
 
 def _trim_preserving_review(lines: list[str], keep_count: int) -> list[str]:
@@ -399,16 +434,25 @@ def _kids_voice_settings(edge_voice: str) -> dict[str, str]:
 def _expand_lines_for_duration(lines: list[str], target_seconds: int, *, content_mode: str, learning_goal: str) -> list[str]:
     profile = _profile_for(content_mode)
     goal = _short_child_phrase(learning_goal, profile["goal"], limit=22)
-    extras = [
-        "真的，家人们，我以前也以为只能硬扛。",
-        "后来我才明白，情绪不是问题，没有流程才是问题。",
-        f"这件事的关键，和{goal}有关。",
-        "我先把脑子里的混乱倒出来，再让 AI 帮我分类。",
-        "能自动化的，不要用意志力硬撑。",
-        "能模板化的，不要每次从零开始。",
-        "这不是偷懒，这是把精力留给真正重要的人和事。",
-        "你也可以从今天的一句话开始，先把它交给流程。",
-    ]
+    if normalize_content_mode(content_mode) == "ai_growth":
+        extras = [
+            "不是工具越多越好，是你能不能把一个工具用进每天的动作里。",
+            "AI 真正改变普通人的地方，是把低价值重复劳动压缩掉。",
+            "但是判断、取舍、共情和责任，还是要人自己来做。",
+            "先从一个固定场景开始，别一上来就想掌握所有 AI。",
+            "每天重复一个小动作，才会变成你的个人系统。",
+        ]
+    else:
+        extras = [
+            "真的，家人们，我以前也以为只能硬扛。",
+            "后来我才明白，情绪不是问题，没有流程才是问题。",
+            f"这件事的关键，和{goal}有关。",
+            "我先把脑子里的混乱倒出来，再让 AI 帮我分类。",
+            "能自动化的，不要用意志力硬撑。",
+            "能模板化的，不要每次从零开始。",
+            "这不是偷懒，这是把精力留给真正重要的人和事。",
+            "你也可以从今天的一句话开始，先把它交给流程。",
+        ]
     target_line_count = 6 if target_seconds <= 35 else 9 if target_seconds <= 45 else 12
     result = list(lines)
     insert_at = max(1, len(result) - 1)
