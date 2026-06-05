@@ -17,6 +17,8 @@ from .storage import STUDIO_DIR
 TREND_QUERIES = [
     "AI tools for creators latest news",
     "AI video generation latest model updates",
+    "AI coding tools software development latest news",
+    "developer productivity AI agents GitHub latest updates",
     "AI productivity for working mothers time management",
     "China AI video generation tools latest news",
 ]
@@ -24,6 +26,7 @@ TREND_QUERIES = [
 RSS_FEEDS = [
     "https://openai.com/news/rss.xml",
     "https://blog.google/technology/ai/rss/",
+    "https://github.blog/changelog/feed/",
     "https://huggingface.co/blog/feed.xml",
 ]
 
@@ -68,6 +71,8 @@ def _infer_life_work_focus(items: list[dict[str, Any]], query: str) -> str:
             *[str(item.get("summary") or "") for item in items[:8]],
         ]
     ).lower()
+    if any(token in corpus for token in ("coding", "developer", "github", "software", "programming", "code", "ide", "开发", "编程", "代码", "工程", "程序员")):
+        return "软件开发、工程效率和职业竞争力"
     if any(token in corpus for token in ("video", "creator", "短视频", "剪辑", "content", "filmmaking", "生成视频")):
         return "短视频创作和内容生产"
     if any(token in corpus for token in ("work", "productivity", "workflow", "效率", "办公", "职场", "time management")):
@@ -94,6 +99,41 @@ def build_trend_questions(report: dict[str, Any]) -> list[str]:
         f"这些 AI 工具是不是完全准确？普通人怎么判断接口数据、模型输出和真实经验的边界？",
         f"如果用访谈方式深挖：这条资讯最触动我的一个焦虑、期待或真实经历是什么？",
         f"怎么把「{third}」转成一条有钩子、有观点、有行动建议的视频号口播文案？",
+    ]
+
+
+def build_trend_interview_followups(
+    report: dict[str, Any],
+    *,
+    question: str,
+    answer: str = "",
+    depth: int = 1,
+) -> list[str]:
+    items = list(report.get("items") or [])
+    query = str(report.get("query") or "").strip()
+    first = _question_subject(items[0].get("title") if items else "", fallback=str(report.get("title") or "今天的 AI 资讯"))
+    focus = _infer_life_work_focus(items, query)
+    answer_text = _question_subject(answer, fallback="你刚才的回答", limit=42)
+    depth = max(1, min(5, int(depth or 1)))
+    if answer.strip():
+        return [
+            f"你提到「{answer_text}」，它背后真正担心的是时间、能力、收入，还是被技术替代？",
+            f"如果围绕{focus}继续拆，你现在最想先解决的一个小场景是什么？",
+            f"从「{first}」这条资讯看，你的判断有没有可能被接口数据或平台宣传带偏？",
+            f"如果把你的回答写成视频号开头，哪一句最能让普通人立刻共鸣？",
+        ]
+    if depth <= 1:
+        return [
+            f"这个问题和你自己的工作/生活最贴近的场景是什么？",
+            f"你看到「{first}」时，第一反应是兴奋、焦虑，还是怀疑？为什么？",
+            f"如果只允许今天做一个小实验，你会把 AI 用在哪个动作上？",
+            f"这件事里哪些判断必须由人来做，不能完全交给 AI？",
+        ]
+    return [
+        f"继续往深处问：这件事会怎样改变普通人的{focus}？",
+        "有没有一个你亲身经历过的瞬间，可以证明这个变化已经发生了？",
+        "如果这个趋势判断错了，最可能错在哪里？",
+        "最终写成文案时，你希望观众看完采取什么行动？",
     ]
 
 

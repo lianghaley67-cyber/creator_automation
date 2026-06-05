@@ -22,7 +22,12 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .analysis import analyze_media_file, detect_media_kind, transcribe_audio
-from .ai_trends import archive_markdown_to_obsidian, build_notebooklm_import_package, collect_ai_trends
+from .ai_trends import (
+    archive_markdown_to_obsidian,
+    build_notebooklm_import_package,
+    build_trend_interview_followups,
+    collect_ai_trends,
+)
 from .avatar import detect_sadtalker_status, normalize_sadtalker_config
 from .generation import render_job
 from .kids_mode import (
@@ -1356,6 +1361,32 @@ def create_notebooklm_package() -> dict[str, Any]:
     }
     store.add_record("obsidian_archives", record)
     return {"status": "ok", **record}
+
+
+@app.post("/api/ai-trends/interview/followups")
+async def create_ai_trend_interview_followups(request: Request) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    try:
+        raw_payload = await request.json()
+        if isinstance(raw_payload, dict):
+            payload = raw_payload
+    except Exception:  # noqa: BLE001
+        payload = {}
+    latest = _sorted(store.list_section("ai_trends"))[:1]
+    report = latest[0] if latest else collect_ai_trends()
+    question = str(payload.get("question") or "").strip()
+    answer = str(payload.get("answer") or "").strip()
+    depth = int(payload.get("depth") or 1)
+    if not question:
+        raise HTTPException(status_code=400, detail="请先选择一个想继续探讨的问题。")
+    followups = build_trend_interview_followups(report, question=question, answer=answer, depth=depth)
+    return {
+        "status": "ok",
+        "base_question": question,
+        "answer": answer,
+        "depth": depth,
+        "followups": followups,
+    }
 
 
 @app.post("/api/archive/obsidian")

@@ -41,6 +41,10 @@ const activeTab = ref("trends"); // trends | materials
 const trendQuestions = ref([]);
 const trendScripts = ref({});
 const generatingTrendScript = ref(false);
+const selectedTrendQuestion = ref("");
+const trendInterviewAnswer = ref("");
+const trendInterviewTurns = ref([]);
+const trendFollowups = ref([]);
 const referenceStyleContract = ref(null);
 const visualPipeline = ref(null);
 const scriptAi = ref(null);
@@ -66,6 +70,7 @@ const busy = reactive({
   refreshWechat: false,
   clearWechatDiagnostics: false,
   refreshTrends: false,
+  trendInterview: false,
   notebooklm: false,
   archive: "",
   cleanup: false,
@@ -654,6 +659,58 @@ function generateTrendQuestions(trend) {
   ];
 }
 
+function startTrendInterview(question) {
+  selectedTrendQuestion.value = question;
+  trendInterviewAnswer.value = "";
+  trendFollowups.value = [];
+  trendInterviewTurns.value = [
+    {
+      role: "system",
+      text: "先不用急着写稿，我们像访谈一样把这个问题问清楚：它和你的生活、工作、学习有什么真实关系？"
+    },
+    { role: "question", text: question }
+  ];
+}
+
+async function continueTrendInterview(question = selectedTrendQuestion.value) {
+  if (!question) {
+    setError("请先选择一个想继续探讨的问题。");
+    return;
+  }
+  busy.trendInterview = true;
+  try {
+    const answer = trendInterviewAnswer.value.trim();
+    const depth = trendInterviewTurns.value.filter((turn) => turn.role === "answer").length + 1;
+    const result = await requestApi("/api/ai-trends/interview/followups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ question, answer, depth })
+    }, 60000);
+    if (answer) {
+      trendInterviewTurns.value.push({ role: "answer", text: answer });
+    }
+    const followups = Array.isArray(result.followups) ? result.followups : [];
+    trendFollowups.value = followups;
+    trendInterviewTurns.value.push({
+      role: "question",
+      text: followups[0] || "这个问题继续往下看，你最想确认的边界是什么？"
+    });
+    trendInterviewAnswer.value = "";
+    setNotice("已生成下一轮访谈追问。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "生成访谈追问失败。"));
+  } finally {
+    busy.trendInterview = false;
+  }
+}
+
+function chooseFollowupQuestion(question) {
+  selectedTrendQuestion.value = question;
+  trendInterviewTurns.value.push({ role: "question", text: question });
+  trendFollowups.value = [];
+  trendInterviewAnswer.value = "";
+}
+
 async function generateScriptFromTrend(question, trend) {
   if (!trend) {
     setError("请先获取 AI 最新资讯");
@@ -912,6 +969,9 @@ onBeforeUnmount(() => {
             <button class="btn primary small" :disabled="generatingTrendScript" @click="generateScriptFromTrend(question, aiTrends[0])">
               {{ generatingTrendScript ? "生成中..." : "生成文案" }}
             </button>
+            <button class="btn secondary small" type="button" @click="startTrendInterview(question)">
+              开始探讨
+            </button>
             <!-- 生成的文案 -->
             <div v-if="trendScripts[question]" class="script-preview-card">
               <div class="script-preview-head">
@@ -924,6 +984,48 @@ onBeforeUnmount(() => {
                 <span>{{ trendScripts[question].quality.line_count }} 段 · {{ trendScripts[question].quality.char_count }} 字</span>
               </div>
             </div>
+          </div>
+        </div>
+        <div v-if="selectedTrendQuestion" class="interview-panel">
+          <div class="script-preview-head">
+            <strong>访谈式深挖</strong>
+            <span>像 ainterview 一样：先回答，再追问，再沉淀成文案</span>
+          </div>
+          <div class="interview-thread">
+            <div
+              v-for="(turn, index) in trendInterviewTurns"
+              :key="`${turn.role}-${index}`"
+              class="interview-turn"
+              :class="turn.role"
+            >
+              <span>{{ turn.role === "answer" ? "我的回答" : turn.role === "system" ? "访谈引导" : "追问" }}</span>
+              <p>{{ turn.text }}</p>
+            </div>
+          </div>
+          <textarea
+            v-model="trendInterviewAnswer"
+            class="interview-input"
+            placeholder="写下你的真实想法：它和你的工作、生活、软件开发经历、自媒体计划有什么关系？"
+          />
+          <div class="top-actions">
+            <button class="btn primary" :disabled="busy.trendInterview" @click="continueTrendInterview()">
+              {{ busy.trendInterview ? "追问中..." : "继续追问" }}
+            </button>
+            <button class="btn accent" :disabled="generatingTrendScript" @click="generateScriptFromTrend(selectedTrendQuestion, aiTrends[0])">
+              基于当前问题生成文案
+            </button>
+          </div>
+          <div v-if="trendFollowups.length" class="followup-list">
+            <strong>也可以选择一个方向继续问</strong>
+            <button
+              v-for="followup in trendFollowups"
+              :key="followup"
+              class="followup-btn"
+              type="button"
+              @click="chooseFollowupQuestion(followup)"
+            >
+              {{ followup }}
+            </button>
           </div>
         </div>
       </section>
@@ -1356,6 +1458,87 @@ onBeforeUnmount(() => {
   margin: 0;
   color: #1f3045;
   line-height: 1.4;
+}
+
+.question-card > .btn + .btn {
+  margin-left: 8px;
+}
+
+.interview-panel {
+  margin-top: 18px;
+  border: 1px solid #b9d6ff;
+  border-radius: 8px;
+  background: #f7fbff;
+  padding: 16px;
+}
+
+.interview-thread {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.interview-turn {
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  background: white;
+  padding: 12px;
+}
+
+.interview-turn span {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #59708c;
+}
+
+.interview-turn p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.interview-turn.answer {
+  background: #ecfff6;
+  border-color: #a9e7c9;
+}
+
+.interview-turn.question {
+  background: #fffdf2;
+  border-color: #f0df9b;
+}
+
+.interview-input {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  padding: 12px;
+  font: inherit;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.followup-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.followup-btn {
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  background: white;
+  color: #1f3045;
+  text-align: left;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.followup-btn:hover {
+  border-color: #246bfe;
+  background: #f0f6ff;
 }
 
 .app-shell {
