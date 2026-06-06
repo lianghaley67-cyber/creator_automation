@@ -18,6 +18,12 @@ const apiCandidates = Array.from(
   )
 );
 
+const brandName = "灵感工坊 AI Studio";
+const brandTagline = "AI 洞察 · 软件开发 · 职场成长 · 内容创作";
+if (typeof document !== "undefined") {
+  document.title = brandName;
+}
+
 const activeApiBase = ref(configuredApiBase || browserApiBase || "http://127.0.0.1:8000");
 const notice = ref("");
 const errorMessage = ref("");
@@ -49,6 +55,14 @@ const trendInterviewRecording = ref(false);
 const trendInterviewVoiceNote = ref("");
 let trendInterviewRecorder = null;
 let trendInterviewChunks = [];
+let trendInterviewStream = null;
+let trendInterviewCancelRecording = false;
+const canRecordTrendVoice = computed(() => (
+  typeof window !== "undefined"
+  && window.isSecureContext
+  && Boolean(navigator.mediaDevices?.getUserMedia)
+  && typeof MediaRecorder !== "undefined"
+));
 const referenceStyleContract = ref(null);
 const visualPipeline = ref(null);
 const scriptAi = ref(null);
@@ -747,12 +761,18 @@ async function transcribeTrendInterviewAudioBlob(blob, filename = "interview_voi
 }
 
 async function startTrendVoiceRecording() {
-  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-    setError("当前浏览器不支持直接录音。可以先用手机录音，再上传音频文件转写。");
+  if (!canRecordTrendVoice.value) {
+    const reason = window.isSecureContext
+      ? "当前浏览器不支持直接录音。"
+      : "当前页面是公网 http，浏览器会禁止麦克风录音。";
+    trendInterviewVoiceNote.value = `${reason}请改用“上传音频转文字”，或通过微信语音发送素材。`;
+    setError(trendInterviewVoiceNote.value);
     return;
   }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    trendInterviewStream = stream;
+    trendInterviewCancelRecording = false;
     trendInterviewChunks = [];
     trendInterviewRecorder = new MediaRecorder(stream);
     trendInterviewRecorder.ondataavailable = (event) => {
@@ -760,6 +780,14 @@ async function startTrendVoiceRecording() {
     };
     trendInterviewRecorder.onstop = async () => {
       stream.getTracks().forEach((track) => track.stop());
+      trendInterviewStream = null;
+      if (trendInterviewCancelRecording) {
+        trendInterviewRecorder = null;
+        trendInterviewRecording.value = false;
+        trendInterviewVoiceNote.value = "录音已取消。";
+        trendInterviewCancelRecording = false;
+        return;
+      }
       const blob = new Blob(trendInterviewChunks, { type: trendInterviewRecorder?.mimeType || "audio/webm" });
       trendInterviewRecorder = null;
       trendInterviewRecording.value = false;
@@ -775,7 +803,20 @@ async function startTrendVoiceRecording() {
 
 function stopTrendVoiceRecording() {
   if (trendInterviewRecorder && trendInterviewRecorder.state !== "inactive") {
+    trendInterviewVoiceNote.value = "录音结束，正在准备转写...";
     trendInterviewRecorder.stop();
+  }
+}
+
+function cancelTrendVoiceRecording() {
+  trendInterviewCancelRecording = true;
+  if (trendInterviewRecorder && trendInterviewRecorder.state !== "inactive") {
+    trendInterviewRecorder.stop();
+  } else if (trendInterviewStream) {
+    trendInterviewStream.getTracks().forEach((track) => track.stop());
+    trendInterviewStream = null;
+    trendInterviewRecording.value = false;
+    trendInterviewVoiceNote.value = "录音已取消。";
   }
 }
 
@@ -924,10 +965,28 @@ onBeforeUnmount(() => {
 <template>
   <div class="app-shell">
     <section class="hero">
-      <div>
-        <span class="eyebrow">职场妈妈 · AI 提效 · 视频号 IP 工作台</span>
-        <h1>职场精英妈妈 AI 视频流水线</h1>
-        <p>输入今天的憋屈或剪辑心得，一键切换真人出镜/嘉宾访谈，并保留声音蒸馏与 3D 渲染能力。</p>
+      <div class="brand-block">
+        <div class="brand-lockup">
+          <div class="brand-logo" aria-hidden="true">
+            <svg viewBox="0 0 64 64" role="img">
+              <defs>
+                <linearGradient id="logoGradient" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#246BFE" />
+                  <stop offset="0.52" stop-color="#22B58C" />
+                  <stop offset="1" stop-color="#FF7A3D" />
+                </linearGradient>
+              </defs>
+              <path d="M32 6c10 0 18 5 22 13 4 9 2 19-5 26L34 60c-1 1-3 1-4 0L15 45C8 38 6 28 10 19 14 11 22 6 32 6Z" fill="url(#logoGradient)" />
+              <path d="M22 24h20c4 0 7 3 7 7s-3 7-7 7H30l-8 8v-8c-4 0-7-3-7-7s3-7 7-7Z" fill="white" opacity="0.95" />
+              <path d="M25 31h15M25 36h9" stroke="#1F3045" stroke-width="3" stroke-linecap="round" />
+            </svg>
+          </div>
+          <div>
+            <span class="eyebrow">{{ brandTagline }}</span>
+            <h1>{{ brandName }}</h1>
+          </div>
+        </div>
+        <p>把每日 AI 与软件开发资讯、微信语音素材和你的真实经历，访谈式深挖成视频号口播、播客和可归档的商业内容资产。</p>
         <div class="meta">当前 API：{{ activeApiBase }}</div>
       </div>
       <div class="hero-actions">
@@ -1083,10 +1142,10 @@ onBeforeUnmount(() => {
               v-if="!trendInterviewRecording"
               class="btn secondary"
               type="button"
-              :disabled="busy.trendVoice"
+              :disabled="busy.trendVoice || !canRecordTrendVoice"
               @click="startTrendVoiceRecording"
             >
-              语音回答
+              {{ canRecordTrendVoice ? "语音回答" : "网页录音不可用" }}
             </button>
             <button
               v-else
@@ -1097,11 +1156,21 @@ onBeforeUnmount(() => {
             >
               停止并转写
             </button>
+            <button
+              v-if="trendInterviewRecording"
+              class="btn secondary"
+              type="button"
+              :disabled="busy.trendVoice"
+              @click="cancelTrendVoiceRecording"
+            >
+              取消录音
+            </button>
             <label class="upload-audio-label">
               上传音频转文字
               <input type="file" accept="audio/*,video/mp4" :disabled="busy.trendVoice" @change="uploadTrendInterviewVoice" />
             </label>
             <span v-if="trendInterviewVoiceNote" class="meta">{{ trendInterviewVoiceNote }}</span>
+            <span v-else-if="!canRecordTrendVoice" class="meta">公网 HTTP 页面通常无法直接调用麦克风，可先用手机录音后上传。</span>
           </div>
           <div class="top-actions">
             <button class="btn primary" :disabled="busy.trendInterview" @click="continueTrendInterview()">
@@ -1733,6 +1802,32 @@ onBeforeUnmount(() => {
     linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.9)),
     radial-gradient(circle at 18% 18%, #fff4bf, transparent 28%),
     linear-gradient(145deg, #dff5ff 0%, #cdebd0 55%, #ffe0a8 100%);
+}
+
+.brand-block {
+  min-width: 0;
+}
+
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand-logo {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 auto;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(31, 48, 69, 0.16);
+  padding: 7px;
+}
+
+.brand-logo svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .panel {
