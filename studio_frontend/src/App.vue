@@ -45,6 +45,10 @@ const selectedTrendQuestion = ref("");
 const trendInterviewAnswer = ref("");
 const trendInterviewTurns = ref([]);
 const trendFollowups = ref([]);
+const trendInterviewRecording = ref(false);
+const trendInterviewVoiceNote = ref("");
+let trendInterviewRecorder = null;
+let trendInterviewChunks = [];
 const referenceStyleContract = ref(null);
 const visualPipeline = ref(null);
 const scriptAi = ref(null);
@@ -71,6 +75,7 @@ const busy = reactive({
   clearWechatDiagnostics: false,
   refreshTrends: false,
   trendInterview: false,
+  trendVoice: false,
   notebooklm: false,
   archive: "",
   cleanup: false,
@@ -711,6 +716,76 @@ function chooseFollowupQuestion(question) {
   trendInterviewAnswer.value = "";
 }
 
+async function transcribeTrendInterviewAudioBlob(blob, filename = "interview_voice.webm") {
+  if (!blob || blob.size <= 0) {
+    setError("没有录到有效语音，请重新录制。");
+    return;
+  }
+  busy.trendVoice = true;
+  trendInterviewVoiceNote.value = "正在转写语音...";
+  try {
+    const form = new FormData();
+    form.append("file", blob, filename);
+    const result = await requestApi("/api/ai-trends/interview/transcribe", {
+      method: "POST",
+      body: form
+    }, 120000);
+    if (result.transcript) {
+      trendInterviewAnswer.value = [trendInterviewAnswer.value.trim(), result.transcript].filter(Boolean).join("\n");
+      trendInterviewVoiceNote.value = `语音已转成文字：${result.note || "完成"}`;
+      setNotice("语音已填入访谈回答框。");
+    } else {
+      trendInterviewVoiceNote.value = result.note || "语音已上传，但没有识别到文字。";
+      setError(trendInterviewVoiceNote.value);
+    }
+  } catch (error) {
+    trendInterviewVoiceNote.value = normalizeErrorMessage(error, "语音转写失败。");
+    setError(trendInterviewVoiceNote.value);
+  } finally {
+    busy.trendVoice = false;
+  }
+}
+
+async function startTrendVoiceRecording() {
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    setError("当前浏览器不支持直接录音。可以先用手机录音，再上传音频文件转写。");
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    trendInterviewChunks = [];
+    trendInterviewRecorder = new MediaRecorder(stream);
+    trendInterviewRecorder.ondataavailable = (event) => {
+      if (event.data?.size > 0) trendInterviewChunks.push(event.data);
+    };
+    trendInterviewRecorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      const blob = new Blob(trendInterviewChunks, { type: trendInterviewRecorder?.mimeType || "audio/webm" });
+      trendInterviewRecorder = null;
+      trendInterviewRecording.value = false;
+      await transcribeTrendInterviewAudioBlob(blob);
+    };
+    trendInterviewRecorder.start();
+    trendInterviewRecording.value = true;
+    trendInterviewVoiceNote.value = "正在录音，说完后点击“停止并转写”。";
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "无法启动录音。服务器页面如果是 http 公网地址，浏览器可能会禁止麦克风，请改用上传音频。"));
+  }
+}
+
+function stopTrendVoiceRecording() {
+  if (trendInterviewRecorder && trendInterviewRecorder.state !== "inactive") {
+    trendInterviewRecorder.stop();
+  }
+}
+
+async function uploadTrendInterviewVoice(event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  await transcribeTrendInterviewAudioBlob(file, file.name || "interview_voice.webm");
+  event.target.value = "";
+}
+
 async function generateScriptFromTrend(question, trend) {
   if (!trend) {
     setError("请先获取 AI 最新资讯");
@@ -840,6 +915,9 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (pollTimer) window.clearInterval(pollTimer);
+  if (trendInterviewRecorder && trendInterviewRecorder.state !== "inactive") {
+    trendInterviewRecorder.stop();
+  }
 });
 </script>
 
@@ -1007,6 +1085,31 @@ onBeforeUnmount(() => {
             class="interview-input"
             placeholder="写下你的真实想法：它和你的工作、生活、软件开发经历、自媒体计划有什么关系？"
           />
+          <div class="voice-input-row">
+            <button
+              v-if="!trendInterviewRecording"
+              class="btn secondary"
+              type="button"
+              :disabled="busy.trendVoice"
+              @click="startTrendVoiceRecording"
+            >
+              语音回答
+            </button>
+            <button
+              v-else
+              class="btn accent"
+              type="button"
+              :disabled="busy.trendVoice"
+              @click="stopTrendVoiceRecording"
+            >
+              停止并转写
+            </button>
+            <label class="upload-audio-label">
+              上传音频转文字
+              <input type="file" accept="audio/*,video/mp4" :disabled="busy.trendVoice" @change="uploadTrendInterviewVoice" />
+            </label>
+            <span v-if="trendInterviewVoiceNote" class="meta">{{ trendInterviewVoiceNote }}</span>
+          </div>
           <div class="top-actions">
             <button class="btn primary" :disabled="busy.trendInterview" @click="continueTrendInterview()">
               {{ busy.trendInterview ? "追问中..." : "继续追问" }}
@@ -1518,6 +1621,33 @@ onBeforeUnmount(() => {
   font: inherit;
   line-height: 1.6;
   margin-bottom: 12px;
+}
+
+.voice-input-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: -2px 0 12px;
+}
+
+.upload-audio-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  background: #f6f9ff;
+  color: #40546e;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.upload-audio-label input {
+  display: none;
 }
 
 .followup-list {

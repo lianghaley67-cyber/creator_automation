@@ -1389,6 +1389,37 @@ async def create_ai_trend_interview_followups(request: Request) -> dict[str, Any
     }
 
 
+@app.post("/api/ai-trends/interview/transcribe")
+async def transcribe_ai_trend_interview_voice(file: UploadFile = File(...)) -> dict[str, Any]:
+    content_type = str(file.content_type or "").lower()
+    filename = str(file.filename or "").strip() or "interview_voice.webm"
+    suffix = Path(filename).suffix.lower() or ".webm"
+    if suffix not in {".webm", ".wav", ".mp3", ".m4a", ".ogg", ".oga", ".aac", ".mp4"}:
+        raise HTTPException(status_code=400, detail="请上传常见音频格式：webm、wav、mp3、m4a、ogg。")
+    if content_type and not (content_type.startswith("audio/") or content_type.startswith("video/") or content_type == "application/octet-stream"):
+        raise HTTPException(status_code=400, detail="上传文件不是音频。")
+
+    voice_dir = STUDIO_DIR / "interview_voice"
+    voice_dir.mkdir(parents=True, exist_ok=True)
+    target = voice_dir / f"{make_id('interview_voice')}{suffix}"
+    try:
+        with target.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    finally:
+        await file.close()
+
+    transcript, note = transcribe_audio(target, model_name=os.getenv("INTERVIEW_VOICE_WHISPER_MODEL", WECHAT_VOICE_WHISPER_MODEL))
+    transcript = _normalize_chinese_text(re.sub(r"\s+", " ", transcript).strip())
+    status = "ok" if transcript else "transcribe_failed"
+    return {
+        "status": status,
+        "transcript": transcript,
+        "note": note,
+        "path": str(target),
+        "url": to_media_url(target),
+    }
+
+
 @app.post("/api/archive/obsidian")
 def archive_copy_to_obsidian(payload: dict[str, Any]) -> dict[str, Any]:
     title = str(payload.get("title") or "Creator Studio 文案").strip()
