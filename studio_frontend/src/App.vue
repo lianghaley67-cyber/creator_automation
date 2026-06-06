@@ -1039,30 +1039,23 @@ onBeforeUnmount(() => {
           <span class="eyebrow">参考访谈式深挖：从事实、影响、边界、情绪和行动建议生成口播文案</span>
         </div>
         <div class="questions-grid">
-          <div v-for="(question, index) in trendQuestions" :key="index" class="question-card">
+          <button
+            v-for="(question, index) in trendQuestions"
+            :key="index"
+            class="question-card"
+            :class="{ selected: selectedTrendQuestion === question }"
+            type="button"
+            @click="startTrendInterview(question)"
+          >
             <div class="question-header">
               <span class="question-number">{{ index + 1 }}</span>
               <h3>{{ question }}</h3>
             </div>
-            <button class="btn primary small" :disabled="generatingTrendScript" @click="generateScriptFromTrend(question, aiTrends[0])">
-              {{ generatingTrendScript ? "生成中..." : "生成文案" }}
-            </button>
-            <button class="btn secondary small" type="button" @click="startTrendInterview(question)">
-              开始探讨
-            </button>
-            <!-- 生成的文案 -->
-            <div v-if="trendScripts[question]" class="script-preview-card">
-              <div class="script-preview-head">
-                <strong>已生成文案</strong>
-                <button class="btn secondary small inline" @click="copyText(trendScripts[question].script, '文案已复制')">复制</button>
-              </div>
-              <pre>{{ trendScripts[question].script }}</pre>
-              <div v-if="trendScripts[question].quality" class="quality" :class="{ pass: trendScripts[question].quality.passed }">
-                <strong>{{ trendScripts[question].quality.profile_label }} · {{ trendScripts[question].quality.passed ? "通过基础检查" : "需要优化" }}</strong>
-                <span>{{ trendScripts[question].quality.line_count }} 段 · {{ trendScripts[question].quality.char_count }} 字</span>
-              </div>
+            <div class="question-footer">
+              <span>{{ selectedTrendQuestion === question ? "正在探讨" : "点击进入访谈" }}</span>
+              <span v-if="trendScripts[question]">已生成文案</span>
             </div>
-          </div>
+          </button>
         </div>
         <div v-if="selectedTrendQuestion" class="interview-panel">
           <div class="script-preview-head">
@@ -1129,6 +1122,17 @@ onBeforeUnmount(() => {
             >
               {{ followup }}
             </button>
+          </div>
+          <div v-if="trendScripts[selectedTrendQuestion]" class="script-preview-card interview-script">
+            <div class="script-preview-head">
+              <strong>已生成文案</strong>
+              <button class="btn secondary small inline" @click="copyText(trendScripts[selectedTrendQuestion].script, '文案已复制')">复制</button>
+            </div>
+            <pre>{{ trendScripts[selectedTrendQuestion].script }}</pre>
+            <div v-if="trendScripts[selectedTrendQuestion].quality" class="quality" :class="{ pass: trendScripts[selectedTrendQuestion].quality.passed }">
+              <strong>{{ trendScripts[selectedTrendQuestion].quality.profile_label }} · {{ trendScripts[selectedTrendQuestion].quality.passed ? "通过基础检查" : "需要优化" }}</strong>
+              <span>{{ trendScripts[selectedTrendQuestion].quality.line_count }} 段 · {{ trendScripts[selectedTrendQuestion].quality.char_count }} 字</span>
+            </div>
           </div>
         </div>
       </section>
@@ -1534,6 +1538,21 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   padding: 16px;
   background: #fdfdff;
+  color: #1f3045;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.question-card:hover {
+  border-color: #8db8ff;
+  background: #f6faff;
+  box-shadow: 0 8px 18px rgba(36, 107, 254, 0.08);
+}
+
+.question-card.selected {
+  border-color: #246bfe;
+  background: #f0f6ff;
 }
 
 .question-header {
@@ -1563,8 +1582,20 @@ onBeforeUnmount(() => {
   line-height: 1.4;
 }
 
-.question-card > .btn + .btn {
-  margin-left: 8px;
+.question-footer {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.question-footer span {
+  border-radius: 999px;
+  background: #eef5ff;
+  color: #40546e;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .interview-panel {
@@ -1669,6 +1700,10 @@ onBeforeUnmount(() => {
 .followup-btn:hover {
   border-color: #246bfe;
   background: #f0f6ff;
+}
+
+.interview-script {
+  margin-top: 14px;
 }
 
 .app-shell {
