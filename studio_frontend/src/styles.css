@@ -1,15 +1,15 @@
 :root {
-  --ink: #10212c;
-  --ink-soft: #45606d;
-  --paper: #f5efe4;
-  --paper-strong: #fff9f0;
-  --card: rgba(255, 249, 240, 0.78);
-  --line: rgba(16, 33, 44, 0.1);
-  --teal: #167c80;
+  --ink: #132238;
+  --ink-soft: #52677f;
+  --paper: #f4f8fc;
+  --paper-strong: #ffffff;
+  --card: rgba(255, 255, 255, 0.88);
+  --line: rgba(33, 57, 91, 0.12);
+  --teal: #0f8f9f;
   --teal-soft: #d8f0ee;
-  --orange: #cf6c2b;
+  --orange: #f97316;
   --orange-soft: #ffe0c9;
-  --shadow: 0 24px 80px rgba(16, 33, 44, 0.12);
+  --shadow: 0 22px 70px rgba(15, 23, 42, 0.12);
 }
 
 * {
@@ -26,9 +26,9 @@ body {
   margin: 0;
   color: var(--ink);
   background:
-    radial-gradient(circle at top left, rgba(22, 124, 128, 0.22), transparent 28%),
-    radial-gradient(circle at top right, rgba(207, 108, 43, 0.18), transparent 24%),
-    linear-gradient(180deg, #fbf6ee 0%, #f0e6d8 100%);
+    radial-gradient(circle at 12% 4%, rgba(56, 189, 248, 0.18), transparent 30%),
+    radial-gradient(circle at 88% 0%, rgba(249, 115, 22, 0.13), transparent 26%),
+    linear-gradient(180deg, #eef5f9 0%, #f8fbff 48%, #f3efe8 100%);
   font-family: "Bahnschrift", "Segoe UI Variable", "Microsoft YaHei UI", sans-serif;
 }
 
