@@ -1031,6 +1031,9 @@ def api_upsert_stock_watchlist(payload: dict[str, Any]) -> dict[str, Any]:
         "shares": payload.get("shares") or "",
         "alert_high": payload.get("alert_high") or "",
         "alert_low": payload.get("alert_low") or "",
+        "risk_level": str(payload.get("risk_level") or "balanced").strip() or "balanced",
+        "holding_period": str(payload.get("holding_period") or "swing").strip() or "swing",
+        "max_position_percent": payload.get("max_position_percent") or "20",
         "notes": str(payload.get("notes") or "").strip(),
         "created_at": now,
         "updated_at": now,
@@ -1085,6 +1088,9 @@ def _stock_position_snapshot(item: dict[str, Any], quote: dict[str, Any]) -> dic
         "market_value": round(market_value, 2) if market_value is not None else None,
         "profit": round(profit, 2) if profit is not None else None,
         "profit_percent": round(profit_percent, 2) if profit_percent is not None else None,
+        "risk_level": str(item.get("risk_level") or "balanced"),
+        "holding_period": str(item.get("holding_period") or "swing"),
+        "max_position_percent": _float_or_none(item.get("max_position_percent")),
         "alerts": alerts,
     }
 

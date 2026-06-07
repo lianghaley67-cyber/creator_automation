@@ -156,6 +156,7 @@ def analyze_stock(symbol: str, *, question: str = "") -> dict[str, Any]:
     score, stance, risks, opportunities = _score_stock(quote, indicators)
     conclusion = _clear_conclusion(quote, indicators, score, stance)
     upside_targets = _upside_targets(quote, indicators)
+    plain_answer = _plain_language_answer(quote, indicators, score, stance, conclusion, risks, opportunities)
     report = _build_report(
         quote,
         indicators,
@@ -166,6 +167,7 @@ def analyze_stock(symbol: str, *, question: str = "") -> dict[str, Any]:
         question=question,
         conclusion=conclusion,
         upside_targets=upside_targets,
+        plain_answer=plain_answer,
     )
     return {
         "quote": quote,
@@ -174,6 +176,7 @@ def analyze_stock(symbol: str, *, question: str = "") -> dict[str, Any]:
         "score": score,
         "stance": stance,
         "conclusion": conclusion,
+        "plain_answer": plain_answer,
         "upside_targets": upside_targets,
         "opportunities": opportunities,
         "risks": risks,
@@ -301,9 +304,15 @@ def _build_report(
     question: str,
     conclusion: dict[str, Any],
     upside_targets: list[dict[str, Any]],
+    plain_answer: dict[str, Any],
 ) -> str:
     lines = [
         f"## {quote.get('name')}（{quote.get('symbol')}）AI 辅助分析",
+        "",
+        f"### 大白话：{plain_answer.get('headline')}",
+        f"- {plain_answer.get('summary')}",
+        f"- 今天先做：{plain_answer.get('action')}",
+        f"- 看错就改：{plain_answer.get('invalidation')}",
         "",
         f"### 明确结论：{conclusion.get('label')}",
         f"- {conclusion.get('summary')}",
@@ -338,6 +347,63 @@ def _build_report(
     if question:
         lines.extend(["", "### 你的问题", f"- {question}"])
     return "\n".join(lines)
+
+
+def _plain_language_answer(
+    quote: dict[str, Any],
+    indicators: dict[str, Any],
+    score: int,
+    stance: str,
+    conclusion: dict[str, Any],
+    risks: list[str],
+    opportunities: list[str],
+) -> dict[str, Any]:
+    price = quote.get("price") or indicators.get("latest")
+    support = indicators.get("support")
+    resistance = indicators.get("resistance")
+    trend = indicators.get("trend")
+    change_percent = _num(quote.get("change_percent")) or 0
+    rsi = indicators.get("rsi14")
+
+    if score >= 70:
+        headline = "这票现在偏强，但别追着买"
+        action = f"有仓可以继续拿，重点看能不能放量突破 {resistance}；没仓就等回踩或突破确认。"
+        invalidation = f"如果跌回 {support} 附近还没有资金承接，就别硬扛。"
+    elif score >= 55:
+        headline = "有点转好，但还没到放心加仓"
+        action = f"先看价格能不能站稳 MA20，并且靠近 {resistance} 时不是缩量冲高。"
+        invalidation = f"如果跌破 {support} 或反弹没量，先按观望处理。"
+    elif score >= 40:
+        headline = "现在更适合等，不适合上头操作"
+        action = f"围绕 {price} 观察，先确认 {support} 能不能守住，再考虑下一步。"
+        invalidation = "如果大盘也弱、个股又破位，就先保护本金。"
+    else:
+        headline = "偏弱，先别急着补仓"
+        action = f"重点不是猜底，而是看 {support} 附近能不能止跌；不能止跌就先降风险。"
+        invalidation = "只有重新放量站回关键均线，才算情况变好。"
+
+    notes = []
+    if trend:
+        notes.append(f"趋势是「{trend}」。")
+    if change_percent <= -3:
+        notes.append("今天跌得比较明显，先查有没有公告、财报或行业利空。")
+    elif change_percent >= 3:
+        notes.append("今天涨得比较快，追高的性价比会变差。")
+    if rsi is not None and rsi >= 75:
+        notes.append("RSI 已偏热，短线要防回撤。")
+    elif rsi is not None and rsi <= 30:
+        notes.append("RSI 偏低，可能有反弹，但不等于反转。")
+    if opportunities:
+        notes.append(f"好处是：{opportunities[0]}")
+    if risks:
+        notes.append(f"风险是：{risks[0]}")
+    summary = "".join(notes) or f"综合看是「{stance}」，先按计划观察，不要被单日涨跌带节奏。"
+    return {
+        "headline": headline,
+        "summary": summary,
+        "action": action,
+        "invalidation": invalidation,
+    }
 
 
 def _suggest_alerts(quote: dict[str, Any], indicators: dict[str, Any]) -> list[dict[str, Any]]:

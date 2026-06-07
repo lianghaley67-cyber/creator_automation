@@ -9,11 +9,11 @@ const apiCandidates = Array.from(
   new Set(
     [
       configuredApiBase,
-      browserApiBase,
       "http://127.0.0.1:8000",
-      "http://localhost:8000",
       "http://127.0.0.1:8011",
-      "http://localhost:8011"
+      "http://localhost:8000",
+      "http://localhost:8011",
+      browserApiBase
     ].filter(Boolean)
   )
 );
@@ -31,7 +31,7 @@ if (typeof document !== "undefined") {
   document.head.appendChild(icon);
 }
 
-const activeApiBase = ref(configuredApiBase || browserApiBase || "http://127.0.0.1:8000");
+const activeApiBase = ref(configuredApiBase || "http://127.0.0.1:8000");
 const notice = ref("");
 const errorMessage = ref("");
 const jobs = ref([]);
@@ -98,6 +98,9 @@ const stockForm = reactive({
   shares: "",
   alert_high: "",
   alert_low: "",
+  risk_level: "balanced",
+  holding_period: "swing",
+  max_position_percent: "20",
   notes: ""
 });
 const stockQuestion = ref("请从趋势、量能、风险和适合我的观察动作分析这只股票。");
@@ -165,7 +168,12 @@ function setError(message) {
 function normalizeErrorMessage(error, fallback = "请求失败。") {
   if (!error) return fallback;
   if (typeof error === "string") return error || fallback;
-  if (error instanceof Error) return error.message || fallback;
+  if (error instanceof Error) {
+    if (/failed to fetch/i.test(error.message || "")) {
+      return "后端没连上：请确认后台服务已启动，或者刷新页面后重试。";
+    }
+    return error.message || fallback;
+  }
   return String(error || fallback);
 }
 
@@ -1105,7 +1113,7 @@ async function runStockSkill(skillId = selectedStockSkill.value, symbol = stockF
     setError("请先选择一个股票 Skill。");
     return;
   }
-  const needsSymbol = !["watchlist_review", "condition_screening"].includes(selected);
+  const needsSymbol = !["watchlist_review", "condition_screening", "personal_strategy_plan"].includes(selected);
   const value = String(symbol || "").trim();
   if (needsSymbol && !value) {
     setError("这个 Skill 需要先输入股票代码。");
@@ -1167,6 +1175,66 @@ function stockKlinePoints(points = []) {
     const y = height - ((value - min) / span) * height;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(" ");
+}
+
+function stockDecisionGuide(analysis) {
+  const plain = analysis?.plain_answer || null;
+  if (plain?.headline || plain?.action) return plain;
+  const score = Number(analysis?.score);
+  const indicators = analysis?.indicators || {};
+  const quote = analysis?.quote || {};
+  const price = quote.price ?? indicators.latest ?? "--";
+  const support = indicators.support ?? indicators.low20 ?? "--";
+  const resistance = indicators.resistance ?? indicators.high20 ?? "--";
+  const trend = indicators.trend || analysis?.stance || "趋势不明确";
+  const rsi = Number(indicators.rsi14);
+  const volatility = Number(indicators.volatility20);
+  const risks = Array.isArray(analysis?.risks) ? analysis.risks : [];
+  let headline = "先等，不要急着动手";
+  let action = `下一步：先看 ${support} 能不能守住；守不住就别补仓，先控制风险。`;
+  let invalidation = `如果放量突破 ${resistance}，再重新评估能不能加关注。`;
+
+  if (Number.isFinite(score) && score >= 70) {
+    headline = "偏强，但别追高";
+    action = `下一步：有仓先拿着，盯住 ${resistance} 能不能放量突破；没仓等回踩再说。`;
+    invalidation = `如果跌回 ${support} 附近还没有承接，就把它当作走弱处理。`;
+  } else if (Number.isFinite(score) && score >= 55) {
+    headline = "有点转好，但还不够稳";
+    action = `下一步：先观察能不能站稳关键均线，再看 ${resistance} 附近有没有量。`;
+    invalidation = `如果跌破 ${support}，先别加仓。`;
+  } else if (Number.isFinite(score) && score < 40) {
+    headline = "偏弱，先别补仓";
+    action = `下一步：重点不是猜底，是看 ${support} 附近能不能止跌；止不住就减风险。`;
+    invalidation = "只有重新放量站回关键均线，才算情况变好。";
+  }
+
+  const notes = [`现在价格大约 ${price}，趋势是「${trend}」。`];
+  if (Number.isFinite(rsi) && rsi <= 30) notes.push("RSI 很低，可能有反弹，但这不等于反转。");
+  if (Number.isFinite(rsi) && rsi >= 75) notes.push("RSI 偏热，短线要防回落。");
+  if (Number.isFinite(volatility) && volatility >= 45) notes.push("波动很大，仓位要比平时更轻。");
+  if (risks[0]) notes.push(`最大的风险：${risks[0]}`);
+  return {
+    headline,
+    summary: notes.join(""),
+    action,
+    invalidation
+  };
+}
+
+function stockReadableReport(analysis) {
+  if (!analysis) return "";
+  const guide = stockDecisionGuide(analysis);
+  const report = String(analysis.report || "");
+  if (report.includes("大白话") || report.includes("下一步：")) return report;
+  return [
+    `## 大白话：${guide.headline}`,
+    "",
+    `- ${guide.summary}`,
+    `- ${guide.action}`,
+    `- ${guide.invalidation}`,
+    "",
+    report
+  ].join("\n").trim();
 }
 
 function jobProgress(job) {
@@ -1494,7 +1562,7 @@ onBeforeUnmount(() => {
           <h1>{{ modulePageMeta.title }}</h1>
           <p>{{ modulePageMeta.desc }}</p>
         </div>
-        <div v-if="activeTab !== 'stocks'" class="hero-actions">
+        <div v-if="activeTab === 'materials'" class="hero-actions">
           <button class="btn primary" :disabled="busy.previewScript" @click="generateDraftAndReview">
             {{ busy.previewScript ? "生成中..." : "初稿 + DeepSeek 审核" }}
           </button>
@@ -2103,6 +2171,26 @@ onBeforeUnmount(() => {
                 <input v-model="stockForm.alert_low" inputmode="decimal" placeholder="止损提醒" />
               </label>
               <label class="field">
+                <span>风险偏好</span>
+                <select v-model="stockForm.risk_level">
+                  <option value="conservative">保守</option>
+                  <option value="balanced">平衡</option>
+                  <option value="aggressive">进取</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>持有周期</span>
+                <select v-model="stockForm.holding_period">
+                  <option value="short">短线</option>
+                  <option value="swing">波段</option>
+                  <option value="long">中长线</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>单票仓位上限%</span>
+                <input v-model="stockForm.max_position_percent" inputmode="decimal" placeholder="例如 20" />
+              </label>
+              <label class="field">
                 <span>关注理由</span>
                 <input v-model="stockForm.notes" placeholder="财报、行业、策略..." />
               </label>
@@ -2178,6 +2266,9 @@ onBeforeUnmount(() => {
             <button class="btn secondary" type="button" :disabled="busy.stockSkillRun" @click="runStockSkill('condition_screening', '')">
               按问题筛选自选
             </button>
+            <button class="btn secondary" type="button" :disabled="busy.stockSkillRun" @click="runStockSkill('personal_strategy_plan', '')">
+              生成我的交易计划
+            </button>
           </div>
           <div v-if="stockSkillResult" class="stock-skill-result">
             <div class="stock-score-line">
@@ -2221,6 +2312,9 @@ onBeforeUnmount(() => {
                 <span>数量 {{ item.shares || "--" }}</span>
                 <span>市值 {{ item.position?.market_value ?? "--" }}</span>
                 <span :class="stockChangeClass(item.position?.profit_percent)">盈亏 {{ formatStockNumber(item.position?.profit_percent) }}%</span>
+                <span>风险 {{ item.risk_level === "conservative" ? "保守" : item.risk_level === "aggressive" ? "进取" : "平衡" }}</span>
+                <span>周期 {{ item.holding_period === "short" ? "短线" : item.holding_period === "long" ? "中长线" : "波段" }}</span>
+                <span>上限 {{ item.max_position_percent || item.position?.max_position_percent || "--" }}%</span>
               </div>
               <div v-if="item.position?.alerts?.length" class="stock-alerts">
                 <span v-for="alert in item.position.alerts" :key="alert">{{ alert }}</span>
@@ -2228,6 +2322,7 @@ onBeforeUnmount(() => {
               <p v-if="item.notes">{{ item.notes }}</p>
               <div class="stock-row-actions">
                 <button class="btn secondary small" type="button" @click="analyzeStock(item.symbol)">分析</button>
+                <button class="btn secondary small" type="button" @click="runStockSkill('personal_strategy_plan', item.symbol)">策略</button>
                 <button class="btn secondary small danger-action" type="button" @click="deleteStockFromWatchlist(item.symbol)">移除</button>
               </div>
             </article>
@@ -2235,15 +2330,21 @@ onBeforeUnmount(() => {
 
           <section class="stock-analysis-panel">
             <div class="stock-section-head">
-              <strong>AI 辅助分析报告</strong>
-              <button class="btn secondary small" type="button" :disabled="!stockAnalysis?.report" @click="copyText(stockAnalysis?.report, '股票分析报告已复制。')">复制报告</button>
+              <strong>下一步怎么做</strong>
+              <button class="btn secondary small" type="button" :disabled="!stockAnalysis?.report" @click="copyText(stockReadableReport(stockAnalysis), '股票分析报告已复制。')">复制报告</button>
             </div>
-            <div v-if="!stockAnalysis" class="stock-empty">输入股票代码后生成分析，会展示趋势、指标、风险、机会和预警线。</div>
+            <div v-if="!stockAnalysis" class="stock-empty">输入股票代码后生成分析，会先用大白话告诉你下一步该观察、持有、减仓还是先别动。</div>
             <div v-else class="stock-analysis-result">
               <div class="stock-score-line">
                 <span>{{ stockAnalysis.quote?.name }} · {{ stockAnalysis.quote?.symbol }}</span>
                 <strong>{{ stockAnalysis.score }}/100</strong>
                 <em>{{ stockAnalysis.stance }}</em>
+              </div>
+              <div class="stock-plain-answer">
+                <strong>{{ stockDecisionGuide(stockAnalysis).headline }}</strong>
+                <p>{{ stockDecisionGuide(stockAnalysis).summary }}</p>
+                <span>{{ stockDecisionGuide(stockAnalysis).action }}</span>
+                <small>{{ stockDecisionGuide(stockAnalysis).invalidation }}</small>
               </div>
               <div v-if="stockAnalysis.conclusion" class="stock-clear-conclusion">
                 <strong>明确结论：{{ stockAnalysis.conclusion.label }}</strong>
@@ -2289,7 +2390,7 @@ onBeforeUnmount(() => {
                   <p v-for="item in stockAnalysis.position_plan" :key="item.title">{{ item.title }}：{{ item.text }}</p>
                 </div>
               </div>
-              <pre class="stock-report">{{ stockAnalysis.report }}</pre>
+              <pre class="stock-report">{{ stockReadableReport(stockAnalysis) }}</pre>
               <small>{{ stockAnalysis.disclaimer }}</small>
             </div>
           </section>
@@ -4670,6 +4771,36 @@ textarea {
 .stock-clear-conclusion span {
   color: #bdf7ff;
   font-weight: 800;
+}
+
+.stock-plain-answer {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(255, 122, 61, 0.28);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(255, 122, 61, 0.09);
+}
+
+.stock-plain-answer strong {
+  color: #fff4ed;
+  font-size: 18px;
+}
+
+.stock-plain-answer p {
+  margin: 0;
+  color: #ffd9c6;
+  line-height: 1.6;
+}
+
+.stock-plain-answer span {
+  color: #ffb088;
+  font-weight: 900;
+}
+
+.stock-plain-answer small {
+  color: #a9bfda;
+  line-height: 1.5;
 }
 
 .stock-target-grid {

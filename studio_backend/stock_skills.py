@@ -44,6 +44,12 @@ STOCK_SKILLS: list[dict[str, Any]] = [
         "inputs": ["symbol", "question"],
     },
     {
+        "id": "personal_strategy_plan",
+        "name": "我的交易计划",
+        "description": "结合自选股成本、仓位、风险偏好和持有周期，生成观察/加减仓/止损纪律。",
+        "inputs": ["watchlist", "symbol", "question"],
+    },
+    {
         "id": "followup_qa",
         "name": "多轮追问",
         "description": "基于最近一次分析继续回答用户追问，保留数据边界和风险提示。",
@@ -77,6 +83,8 @@ def run_stock_skill(
         return _news_risk_scan(symbol, question)
     if normalized == "money_flow_sentiment":
         return _money_flow_sentiment(symbol, question)
+    if normalized == "personal_strategy_plan":
+        return _personal_strategy_plan(watchlist or [], symbol, question)
     if normalized == "followup_qa":
         return _followup_qa(symbol, question, latest_analysis)
     raise ValueError(f"unknown stock skill: {skill_id}")
@@ -247,6 +255,198 @@ def _money_flow_sentiment(symbol: str, question: str) -> dict[str, Any]:
         *_risk_footer(),
     ]
     return _skill_result("money_flow_sentiment", quote.get("symbol"), "资金情绪推断已完成", "\n".join(lines), analysis=analysis)
+
+
+def _personal_strategy_plan(watchlist: list[dict[str, Any]], symbol: str, question: str) -> dict[str, Any]:
+    normalized_symbol = str(symbol or "").strip().upper()
+    candidates = [
+        item for item in watchlist
+        if not normalized_symbol or str(item.get("symbol") or "").upper() == normalized_symbol
+    ]
+    if not candidates:
+        return _skill_result(
+            "personal_strategy_plan",
+            normalized_symbol,
+            "暂无可生成策略的持仓",
+            "请先把股票加入自选，并尽量填写成本价、持仓数量、风险偏好、持有周期和预警线。",
+            cards=[],
+        )
+
+    rows = []
+    for item in candidates[:8]:
+        quote = item.get("quote") or {}
+        if not quote:
+            continue
+        try:
+            analysis = analyze_stock(str(item.get("symbol") or quote.get("symbol") or ""), question=question)
+        except Exception:
+            analysis = {"score": None, "stance": "数据不足", "indicators": {}, "risks": [], "opportunities": []}
+        plan = _strategy_for_position(item, quote, analysis)
+        rows.append(plan)
+
+    if not rows:
+        return _skill_result(
+            "personal_strategy_plan",
+            normalized_symbol,
+            "策略生成失败",
+            "当前自选股没有可用行情。请稍后刷新行情，或检查股票代码是否正确。",
+            cards=[],
+        )
+    rows.sort(key=lambda item: item["priority"], reverse=True)
+    reports = ["## 我的交易计划", "", "这份计划只用你的自选股参数和行情规则生成，用来约束动作，不替代你自己的判断。"]
+    if question:
+        reports.extend(["", f"你的关注点：{question}"])
+    reports.append("")
+    for plan in rows:
+        reports.extend(_strategy_report_lines(plan))
+    cards = [
+        {"title": item["name"], "value": item["action"], "note": f"优先级 {item['priority']}/100"}
+        for item in rows[:4]
+    ]
+    reports.extend(_risk_footer())
+    return _skill_result(
+        "personal_strategy_plan",
+        normalized_symbol,
+        "我的交易计划已生成",
+        "\n".join(reports),
+        cards=cards,
+        items=rows,
+    )
+
+
+def _strategy_for_position(item: dict[str, Any], quote: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:
+    indicators = analysis.get("indicators") or {}
+    position = item.get("position") or {}
+    price = _num(quote.get("price") or indicators.get("latest"))
+    cost = _num(item.get("cost"))
+    shares = _num(item.get("shares"))
+    alert_high = _num(item.get("alert_high"))
+    alert_low = _num(item.get("alert_low"))
+    max_position_percent = _num(item.get("max_position_percent")) or 20
+    risk_level = _risk_level(item.get("risk_level"))
+    holding_period = _holding_period(item.get("holding_period"))
+    score = _num(analysis.get("score")) or 50
+    profit_percent = _num(position.get("profit_percent"))
+    trend = str(indicators.get("trend") or "震荡观察")
+    volatility = _num(indicators.get("volatility20")) or 30
+    support = _num(indicators.get("support") or alert_low)
+    resistance = _num(indicators.get("resistance") or alert_high)
+    stop_loss = _strategy_stop_loss(price, cost, support, risk_level, holding_period)
+    take_profit = _strategy_take_profit(price, cost, resistance, risk_level, holding_period)
+    action = "观察"
+    priority = 45
+    reasons: list[str] = []
+    if alert_low and price and price <= alert_low:
+        action = "先防守"
+        priority += 30
+        reasons.append("价格已触及你设置的下方预警。")
+    elif profit_percent is not None and profit_percent <= -8:
+        action = "复核止损"
+        priority += 24
+        reasons.append("持仓浮亏已超过 8%，需要检查买入逻辑是否仍成立。")
+    elif score >= 70 and trend in {"多头排列", "短线强于中期"}:
+        action = "持有跟踪"
+        priority += 18
+        reasons.append("趋势评分较强，优先按移动止盈和突破确认执行。")
+    elif score < 40 or trend == "空头排列":
+        action = "降低暴露"
+        priority += 20
+        reasons.append("趋势偏弱，先保护本金和减少情绪化补仓。")
+    if alert_high and price and price >= alert_high:
+        action = "兑现/上移止盈"
+        priority += 18
+        reasons.append("价格已触及上方预警，适合检查是否分批兑现。")
+    if volatility >= 45:
+        priority += 10
+        reasons.append("20日波动率偏高，仓位应比平时更保守。")
+    if not reasons:
+        reasons.append("暂无强触发信号，按观察位和预警线执行。")
+    return {
+        "symbol": item.get("symbol") or quote.get("symbol"),
+        "name": item.get("name") or quote.get("name") or item.get("symbol"),
+        "price": price,
+        "cost": cost,
+        "shares": shares,
+        "profit_percent": profit_percent,
+        "risk_level": risk_level,
+        "holding_period": holding_period,
+        "max_position_percent": max_position_percent,
+        "score": int(score),
+        "stance": analysis.get("stance") or "中性观望",
+        "trend": trend,
+        "action": action,
+        "priority": max(0, min(100, int(priority))),
+        "stop_loss": stop_loss,
+        "take_profit": take_profit,
+        "support": support,
+        "resistance": resistance,
+        "reasons": reasons[:4],
+        "next_steps": _strategy_next_steps(action, risk_level, holding_period),
+    }
+
+
+def _strategy_report_lines(plan: dict[str, Any]) -> list[str]:
+    lines = [
+        f"### {plan['name']}（{plan['symbol']}）",
+        f"- 当前动作：{plan['action']}，优先级 {plan['priority']}/100，技术评分 {plan['score']}/100（{plan['stance']}）。",
+        f"- 你的参数：风险偏好 {plan['risk_level']}，持有周期 {plan['holding_period']}，单票仓位上限 {plan['max_position_percent']}%。",
+        f"- 价格/成本/盈亏：{plan.get('price') or '--'} / {plan.get('cost') or '--'} / {plan.get('profit_percent') if plan.get('profit_percent') is not None else '--'}%。",
+        f"- 策略线：防守 {plan.get('stop_loss') or '--'}，止盈观察 {plan.get('take_profit') or '--'}，支撑/压力 {plan.get('support') or '--'} / {plan.get('resistance') or '--'}。",
+        "- 触发原因：" + "；".join(plan["reasons"]),
+        "- 下一步：" + "；".join(plan["next_steps"]),
+        "",
+    ]
+    return lines
+
+
+def _strategy_stop_loss(price: float | None, cost: float | None, support: float | None, risk_level: str, holding_period: str) -> float | None:
+    if not price and not cost and not support:
+        return None
+    base = price or cost or support
+    risk_pct = {"保守": 0.04, "平衡": 0.07, "进取": 0.10}.get(risk_level, 0.07)
+    if holding_period == "中长线":
+        risk_pct += 0.02
+    candidates = [value for value in [support, cost * (1 - risk_pct) if cost else None, base * (1 - risk_pct)] if value]
+    return round(max(min(candidates), 0), 2) if candidates else None
+
+
+def _strategy_take_profit(price: float | None, cost: float | None, resistance: float | None, risk_level: str, holding_period: str) -> float | None:
+    if not price and not cost and not resistance:
+        return None
+    base = price or cost or resistance
+    profit_pct = {"保守": 0.08, "平衡": 0.14, "进取": 0.22}.get(risk_level, 0.14)
+    if holding_period == "短线":
+        profit_pct *= 0.75
+    candidates = [value for value in [resistance, cost * (1 + profit_pct) if cost else None, base * (1 + profit_pct)] if value]
+    return round(max(candidates), 2) if candidates else None
+
+
+def _strategy_next_steps(action: str, risk_level: str, holding_period: str) -> list[str]:
+    if action in {"先防守", "复核止损", "降低暴露"}:
+        return ["检查是否跌破防守线", "若买入理由失效，先减仓再复盘", "暂停补仓直到价格重新站回关键均线"]
+    if action == "兑现/上移止盈":
+        return ["分批兑现浮盈", "把止损线上移到成本或关键均线附近", "只在放量突破后保留进攻仓位"]
+    if risk_level == "保守" or holding_period == "短线":
+        return ["等待突破后再动作", "单次加仓不超过计划仓位的三分之一", "当天大涨不追高"]
+    return ["继续跟踪量价配合", "突破压力位后再考虑分批加仓", "每次动作后记录理由和失效条件"]
+
+
+def _risk_level(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"conservative", "保守", "low"}:
+        return "保守"
+    if text in {"aggressive", "进取", "high"}:
+        return "进取"
+    return "平衡"
+
+
+def _holding_period(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"short", "短线"}:
+        return "短线"
+    if text in {"long", "中长线", "长期"}:
+        return "中长线"
+    return "波段"
 
 
 def _followup_qa(symbol: str, question: str, latest_analysis: dict[str, Any] | None) -> dict[str, Any]:
