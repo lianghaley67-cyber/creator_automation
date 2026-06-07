@@ -212,11 +212,11 @@ async function requestApi(path, options = {}, timeoutMs = 20000) {
     const response = await fetch(`${base}${path}`, { ...options, signal: controller.signal });
     if (!response.ok) {
       let message = "请求失败";
+      const text = await response.text();
       try {
-        const payload = await response.json();
+        const payload = text ? JSON.parse(text) : null;
         message = payload.detail || payload.error || JSON.stringify(payload);
       } catch {
-        const text = await response.text();
         if (text) message = text;
       }
       throw new Error(message);
