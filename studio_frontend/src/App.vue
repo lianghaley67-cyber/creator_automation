@@ -20,8 +20,15 @@ const apiCandidates = Array.from(
 
 const brandName = "灵感工坊 AI Studio";
 const brandTagline = "AI 洞察 · 软件开发 · 职场成长 · 内容创作";
+const brandIconDataUrl = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%2300D5E8'/%3E%3Cpath d='M32 12v40M20 20c7.5 0 12 4.5 12 12M44 20c-7.5 0-12 4.5-12 12M20 44c7.5 0 12-4.5 12-12M44 44c-7.5 0-12-4.5-12-12' fill='none' stroke='%2306111C' stroke-width='4' stroke-linecap='round'/%3E%3Cpath d='M18 32h28' fill='none' stroke='%2306111C' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E";
 if (typeof document !== "undefined") {
   document.title = brandName;
+  document.querySelectorAll("link[rel~='icon']").forEach((link) => link.remove());
+  const icon = document.createElement("link");
+  icon.rel = "icon";
+  icon.type = "image/svg+xml";
+  icon.href = brandIconDataUrl;
+  document.head.appendChild(icon);
 }
 
 const activeApiBase = ref(configuredApiBase || browserApiBase || "http://127.0.0.1:8000");
@@ -1035,7 +1042,6 @@ const studioStats = computed(() => [
   { value: "3x", label: "周更产能提升", icon: "trend" }
 ]);
 const sidebarModules = [
-  { key: "overview", label: "核心模块", icon: "AI", tab: "overview", target: "" },
   { key: "trends", label: "实时信息获取", icon: "01", tab: "trends", target: "trends-panel" },
   { key: "materials", label: "素材生成视频", icon: "02", tab: "materials", target: "wechat-inbox" },
   { key: "stocks", label: "股票分析", icon: "03", tab: "stocks", target: "stock-panel" }
@@ -1092,7 +1098,7 @@ onBeforeUnmount(() => {
   <div class="studio-page" :class="{ 'module-mode': activeTab !== 'overview' }">
     <aside v-if="activeTab !== 'overview'" class="studio-sidebar" aria-label="功能模块侧边栏">
       <button class="sidebar-brand" type="button" @click="activeTab = 'overview'">
-        <span class="brand-mark" aria-hidden="true">AI</span>
+        <img class="brand-logo-img" src="/favicon.svg?v=2" alt="" aria-hidden="true" />
         <span>
           <strong>灵感工坊</strong>
           <small>AI STUDIO</small>
@@ -1115,17 +1121,12 @@ onBeforeUnmount(() => {
 
     <header class="studio-header">
       <button class="brand-mini" type="button" @click="activeTab = 'overview'">
-        <span class="brand-mark" aria-hidden="true">AI</span>
+        <img class="brand-logo-img" src="/favicon.svg?v=2" alt="" aria-hidden="true" />
         <span>
           <strong>灵感工坊</strong>
           <small>AI STUDIO</small>
         </span>
       </button>
-      <nav class="studio-nav" aria-label="主导航">
-        <button type="button" :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">核心模块</button>
-        <button type="button" :class="{ active: activeTab === 'materials' }" @click="openStudioModule('materials', 'wechat-inbox')">工作流</button>
-        <button type="button" :class="{ active: activeTab === 'trends' }" @click="openStudioModule('trends', 'trends-panel')">数据</button>
-      </nav>
       <div class="header-actions">
         <span>登录</span>
         <button class="btn accent header-cta" type="button" @click="openStudioModule('materials', 'script-panel')">进入工作台</button>
@@ -1857,7 +1858,7 @@ onBeforeUnmount(() => {
       {{ busy.generate ? "提交中..." : "生成视频" }}
     </button>
       <footer class="studio-footer">
-        <span><span class="brand-mark small" aria-hidden="true">AI</span> 灵感工坊 AI Studio · inspwk.site</span>
+        <span><img class="brand-logo-img small" src="/favicon.svg?v=2" alt="" aria-hidden="true" /> 灵感工坊 AI Studio · inspwk.site</span>
         <span>© 2026 · AI 洞察 · 软件开发 · 职场成长 · 内容创作</span>
       </footer>
     </main>
@@ -1968,7 +1969,7 @@ onBeforeUnmount(() => {
   top: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: 1fr auto;
   align-items: center;
   gap: 20px;
   min-height: 72px;
@@ -2024,6 +2025,20 @@ onBeforeUnmount(() => {
   height: 24px;
   border-radius: 6px;
   font-size: 10px;
+}
+
+.brand-logo-img {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  flex: 0 0 auto;
+}
+
+.brand-logo-img.small {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
 }
 
 .studio-nav {
@@ -3399,6 +3414,7 @@ textarea {
 .studio-header {
   min-height: 52px;
   padding: 0 32px;
+  grid-template-columns: 1fr auto;
 }
 
 .brand-mark {
@@ -3406,6 +3422,12 @@ textarea {
   height: 28px;
   border-radius: 8px;
   font-size: 10px;
+}
+
+.brand-logo-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
 }
 
 .brand-mini strong {
