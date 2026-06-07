@@ -1090,6 +1090,8 @@ async function analyzeStock(symbol = stockForm.symbol) {
     stockForm.name = result.quote?.name || stockForm.name;
     setNotice("股票分析已生成。");
     await refreshStockHistory(result.quote?.symbol || value);
+    await nextTick();
+    document.querySelector(".stock-analysis-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     setError(normalizeErrorMessage(error, "股票分析失败。"));
   } finally {
@@ -1126,6 +1128,8 @@ async function runStockSkill(skillId = selectedStockSkill.value, symbol = stockF
     if (result.symbol) stockForm.symbol = result.symbol;
     setNotice("股票 Skill 已运行。");
     await refreshStockSkills();
+    await nextTick();
+    document.querySelector(".stock-skill-result")?.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     setError(normalizeErrorMessage(error, "股票 Skill 运行失败。"));
   } finally {
