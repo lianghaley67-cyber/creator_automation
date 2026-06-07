@@ -146,7 +146,7 @@ def search_stocks(query: str) -> list[dict[str, Any]]:
     return items
 
 
-def analyze_stock(symbol: str, *, question: str = "") -> dict[str, Any]:
+def analyze_stock(symbol: str, *, question: str = "", position: dict[str, Any] | None = None) -> dict[str, Any]:
     chart = fetch_stock_chart(symbol)
     quote = stock_quote(chart["symbol"])
     points = chart["points"]
@@ -156,7 +156,7 @@ def analyze_stock(symbol: str, *, question: str = "") -> dict[str, Any]:
     score, stance, risks, opportunities = _score_stock(quote, indicators)
     conclusion = _clear_conclusion(quote, indicators, score, stance)
     upside_targets = _upside_targets(quote, indicators)
-    plain_answer = _plain_language_answer(quote, indicators, score, stance, conclusion, risks, opportunities)
+    plain_answer = _plain_language_answer(quote, indicators, score, stance, conclusion, risks, opportunities, question, position or {})
     report = _build_report(
         quote,
         indicators,
@@ -357,53 +357,219 @@ def _plain_language_answer(
     conclusion: dict[str, Any],
     risks: list[str],
     opportunities: list[str],
+    question: str = "",
+    position: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     price = quote.get("price") or indicators.get("latest")
     support = indicators.get("support")
     resistance = indicators.get("resistance")
+    ma20 = indicators.get("ma20")
     trend = indicators.get("trend")
     change_percent = _num(quote.get("change_percent")) or 0
     rsi = indicators.get("rsi14")
+    volatility = _num(indicators.get("volatility20")) or 0
+    low20 = indicators.get("low20") or support
+    high20 = indicators.get("high20") or resistance
+    text = str(question or "")
+    position = position or {}
+    cost = _num(position.get("cost"))
+    shares = _num(position.get("shares"))
+    profit_percent = ((price - cost) / cost * 100) if price and cost else None
+    has_position = bool(shares and shares > 0)
+    wants_position = any(word in text for word in ["减仓", "加仓", "仓位", "补仓", "持有", "卖", "买"])
+    wants_range = any(word in text for word in ["最高", "最低", "目标", "到多少", "预测", "空间"])
 
-    if score >= 70:
-        headline = "这票现在偏强，但别追着买"
-        action = f"有仓可以继续拿，重点看能不能放量突破 {resistance}；没仓就等回踩或突破确认。"
-        invalidation = f"如果跌回 {support} 附近还没有资金承接，就别硬扛。"
-    elif score >= 55:
-        headline = "有点转好，但还没到放心加仓"
-        action = f"先看价格能不能站稳 MA20，并且靠近 {resistance} 时不是缩量冲高。"
-        invalidation = f"如果跌破 {support} 或反弹没量，先按观望处理。"
-    elif score >= 40:
-        headline = "现在更适合等，不适合上头操作"
-        action = f"围绕 {price} 观察，先确认 {support} 能不能守住，再考虑下一步。"
-        invalidation = "如果大盘也弱、个股又破位，就先保护本金。"
-    else:
-        headline = "偏弱，先别急着补仓"
-        action = f"重点不是猜底，而是看 {support} 附近能不能止跌；不能止跌就先降风险。"
-        invalidation = "只有重新放量站回关键均线，才算情况变好。"
+    action = _direct_action(score, trend, rsi, volatility, change_percent)
+    headline = action["headline"]
+    action_text = action["action"]
+    invalidation = action["invalidation"].format(support=support, resistance=resistance, ma20=ma20)
 
-    notes = []
-    if trend:
-        notes.append(f"趋势是「{trend}」。")
+    if wants_position:
+        action_text = _position_answer(score, trend, rsi, volatility, change_percent, support, resistance, ma20)
+    if has_position and profit_percent is not None:
+        action_text = _owned_position_answer(
+            score,
+            trend,
+            rsi,
+            volatility,
+            price,
+            cost,
+            profit_percent,
+            support,
+            resistance,
+            ma20,
+        )
+        headline = _owned_position_headline(score, trend, profit_percent, volatility)
+    if wants_range:
+        invalidation = _range_answer(price, low20, high20, support, resistance, ma20, volatility, trend)
+
+    notes = [f"结论依据：评分 {score}/100，趋势「{trend}」。"]
+    if price is not None:
+        notes.append(f"现价约 {price}。")
+    if has_position and cost:
+        notes.append(f"你的成本约 {cost}，当前浮亏约 {round(profit_percent or 0, 2)}%。")
     if change_percent <= -3:
-        notes.append("今天跌得比较明显，先查有没有公告、财报或行业利空。")
+        notes.append("当天跌幅较大，说明短线资金不稳。")
     elif change_percent >= 3:
-        notes.append("今天涨得比较快，追高的性价比会变差。")
+        notes.append("当天涨得较快，追高性价比下降。")
     if rsi is not None and rsi >= 75:
-        notes.append("RSI 已偏热，短线要防回撤。")
+        notes.append("RSI 偏热，短线要防冲高回落。")
     elif rsi is not None and rsi <= 30:
-        notes.append("RSI 偏低，可能有反弹，但不等于反转。")
+        notes.append("RSI 偏低，可能有反弹，但还不能当反转。")
+    if volatility >= 45:
+        notes.append("20日波动率偏高，仓位必须更保守。")
     if opportunities:
-        notes.append(f"好处是：{opportunities[0]}")
+        notes.append(f"有利点：{opportunities[0]}")
     if risks:
-        notes.append(f"风险是：{risks[0]}")
+        notes.append(f"主要风险：{risks[0]}")
     summary = "".join(notes) or f"综合看是「{stance}」，先按计划观察，不要被单日涨跌带节奏。"
     return {
         "headline": headline,
         "summary": summary,
-        "action": action,
+        "action": action_text,
         "invalidation": invalidation,
     }
+
+
+def _direct_action(
+    score: int,
+    trend: str | None,
+    rsi: float | None,
+    volatility: float,
+    change_percent: float,
+) -> dict[str, str]:
+    if score < 40 or trend == "空头排列":
+        return {
+            "headline": "结论：偏弱，先防守，不要补仓",
+            "action": "下一步：已有仓位先降风险；没有仓位先别买，等重新站回 MA20 再看。",
+            "invalidation": "只有重新站回 MA20（{ma20}）并且放量突破 {resistance}，才算转强。",
+        }
+    if rsi is not None and rsi <= 30 and score < 55:
+        return {
+            "headline": "结论：可能反弹，但不是加仓信号",
+            "action": "下一步：可以观察止跌反弹，但不要因为 RSI 低就补仓；先等一根放量阳线或站回 MA20。",
+            "invalidation": "如果跌破 {support}，说明反弹失败，先减风险。",
+        }
+    if volatility >= 45 or change_percent <= -4:
+        return {
+            "headline": "结论：波动太大，仓位要轻",
+            "action": "下一步：已有仓位最多保留观察仓；想买也只适合小仓试，不适合一次性加满。",
+            "invalidation": "如果跌破 {support} 或收不回 MA20（{ma20}），继续按弱势处理。",
+        }
+    if score >= 70 and trend in {"多头排列", "短线强于中期"}:
+        return {
+            "headline": "结论：趋势偏强，持有比追高更合适",
+            "action": "下一步：已有仓位继续拿；没仓等回踩 MA20 或突破 {resistance} 后再小仓跟。",
+            "invalidation": "如果跌破 MA20（{ma20}）且不能快速收回，就先降低仓位。",
+        }
+    if score >= 55:
+        return {
+            "headline": "结论：略有转好，但还不能重仓",
+            "action": "下一步：先观察能否站稳 MA20；确认前不建议加仓，最多小仓试错。",
+            "invalidation": "如果跌破 {support}，先停止加仓，重新评估。",
+        }
+    return {
+        "headline": "结论：中性偏弱，先等信号",
+        "action": "下一步：不建议加仓；已有仓位看 MA20 和20日低点，守不住就减仓。",
+        "invalidation": "只有放量突破 {resistance}，才把它从观察改为进攻。",
+    }
+
+
+def _position_answer(
+    score: int,
+    trend: str | None,
+    rsi: float | None,
+    volatility: float,
+    change_percent: float,
+    support: float | None,
+    resistance: float | None,
+    ma20: float | None,
+) -> str:
+    if score < 40 or trend == "空头排列":
+        return f"仓位建议：减仓或只留小观察仓。不要加仓。防守线看 {support}，站回 MA20（{ma20}）之前不考虑加仓。"
+    if volatility >= 45:
+        return f"仓位建议：因为波动太大，只适合轻仓。已有仓位可减到让你睡得着的位置；想加仓也等站稳 MA20（{ma20}）后再分批。"
+    if rsi is not None and rsi <= 30:
+        return f"仓位建议：不是加仓点。RSI 低只说明可能反弹，先看 {support} 是否止跌，突破 {resistance} 才能提高仓位。"
+    if score >= 70 and trend in {"多头排列", "短线强于中期"}:
+        return f"仓位建议：已有仓位可以持有；不建议追高满仓。突破 {resistance} 后可小幅加，跌破 MA20（{ma20}）就减。"
+    if score >= 55:
+        return f"仓位建议：可以观察，不适合重仓。若站稳 MA20（{ma20}）且突破 {resistance}，再考虑小仓加；跌破 {support} 就减。"
+    if change_percent <= -3:
+        return f"仓位建议：今天弱，不加仓。已有仓位先看 {support}，跌破就减；反弹到 MA20（{ma20}）附近量不够也别追。"
+    return f"仓位建议：先不加仓，已有仓位可继续观察。上方看 {resistance}，下方看 {support}；方向没出来前不要扩大仓位。"
+
+
+def _owned_position_headline(score: int, trend: str | None, profit_percent: float, volatility: float) -> str:
+    if profit_percent <= -20 and (score < 55 or trend == "空头排列"):
+        return "结论：你已经深套，别补仓摊平，先降风险"
+    if profit_percent <= -8 and (score < 55 or volatility >= 45):
+        return "结论：亏损持仓偏危险，先别加仓"
+    if profit_percent >= 15 and score < 55:
+        return "结论：有利润就先保护利润"
+    if score >= 70 and trend in {"多头排列", "短线强于中期"}:
+        return "结论：持仓可以继续跟，但别追高加满"
+    return "结论：先按持仓纪律处理，不要凭感觉加仓"
+
+
+def _owned_position_answer(
+    score: int,
+    trend: str | None,
+    rsi: float | None,
+    volatility: float,
+    price: float | None,
+    cost: float,
+    profit_percent: float,
+    support: float | None,
+    resistance: float | None,
+    ma20: float | None,
+) -> str:
+    if profit_percent <= -20 and (score < 55 or trend == "空头排列"):
+        return (
+            f"仓位建议：不加仓，不补仓摊低成本。你成本 {cost}，现价 {price}，浮亏约 {round(profit_percent, 2)}%。"
+            f"如果还持有较重，建议先减到小观察仓；只有重新站回 MA20（{ma20}）并突破 {resistance}，才考虑加回。"
+        )
+    if profit_percent <= -8 and volatility >= 45:
+        return (
+            f"仓位建议：先减风险，不要扩大仓位。当前浮亏约 {round(profit_percent, 2)}%，且波动率高；"
+            f"跌破 {support} 继续减，站回 MA20（{ma20}）再观察。"
+        )
+    if profit_percent <= -8 and score < 55:
+        return (
+            f"仓位建议：先不要加仓。当前浮亏约 {round(profit_percent, 2)}%，趋势没有修复；"
+            f"守不住 {support} 就减仓，突破 {resistance} 后再谈加仓。"
+        )
+    if profit_percent >= 15 and score < 55:
+        return f"仓位建议：可以分批止盈或上移止损。评分不强，别让利润回吐；跌破 MA20（{ma20}）就减。"
+    if score >= 70 and trend in {"多头排列", "短线强于中期"}:
+        return f"仓位建议：已有仓位可持有；若突破 {resistance} 可小幅加，跌破 MA20（{ma20}）就减。"
+    if rsi is not None and rsi <= 30:
+        return f"仓位建议：先等反弹确认，不要立刻补仓。RSI 低可能反弹，但必须站回 MA20（{ma20}）才算修复。"
+    return f"仓位建议：维持或小幅降仓，不加仓。上方看 {resistance}，下方看 {support}；突破前不要扩大仓位。"
+
+
+def _range_answer(
+    price: float | None,
+    low20: float | None,
+    high20: float | None,
+    support: float | None,
+    resistance: float | None,
+    ma20: float | None,
+    volatility: float,
+    trend: str | None,
+) -> str:
+    if not price:
+        return "价格区间：当前行情数据不足，先不要做价格预测。"
+    daily_move = min(max((volatility or 30) / math.sqrt(252) / 100, 0.018), 0.055)
+    short_low = min([value for value in [low20, support, price * (1 - daily_move * 2)] if value])
+    short_high = max([value for value in [high20, resistance, price * (1 + daily_move * 2)] if value])
+    if trend == "空头排列":
+        short_high = min(short_high, max(price * 1.08, ma20 or price))
+    return (
+        f"价格区间：短线先看 {round(short_low, 2)} 到 {round(short_high, 2)}。"
+        f"跌破 {support} 偏弱，突破 {resistance} 才有继续上看的理由；"
+        f"MA20（{ma20}）是中间分水岭。"
+    )
 
 
 def _suggest_alerts(quote: dict[str, Any], indicators: dict[str, Any]) -> list[dict[str, Any]]:

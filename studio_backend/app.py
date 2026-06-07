@@ -1144,7 +1144,7 @@ def api_stock_analyze(payload: dict[str, Any]) -> dict[str, Any]:
     symbol = str(payload.get("symbol") or "").strip()
     if not symbol:
         raise HTTPException(status_code=400, detail="股票代码不能为空。")
-    result = analyze_stock(symbol, question=str(payload.get("question") or "").strip())
+    result = analyze_stock(symbol, question=str(payload.get("question") or "").strip(), position=payload)
     record = {
         "id": make_id("stock_analysis"),
         "created_at": now_iso(),
