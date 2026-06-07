@@ -1,16 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs>
-    <linearGradient id="g" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#38BDF8"/>
-      <stop offset="0.48" stop-color="#22C55E"/>
-      <stop offset="1" stop-color="#F97316"/>
-    </linearGradient>
-    <filter id="s" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#0B1220" flood-opacity="0.24"/>
-    </filter>
-  </defs>
-  <rect width="64" height="64" rx="16" fill="#0B1220"/>
-  <path filter="url(#s)" d="M32 7c9.7 0 17.5 4.8 21.4 12.7 4.2 8.5 2.3 18.9-4.8 26L34.4 59.5a3.4 3.4 0 0 1-4.8 0L15.4 45.7c-7.1-7.1-9-17.5-4.8-26C14.5 11.8 22.3 7 32 7Z" fill="url(#g)"/>
-  <path d="M22.5 24h19.2c4.5 0 7.8 3.1 7.8 7.2 0 4.2-3.3 7.3-7.8 7.3H31.2L22 47.2v-8.8c-4.3-.3-7.5-3.3-7.5-7.2 0-4.1 3.4-7.2 8-7.2Z" fill="#F8FAFC"/>
-  <path d="M25 31h15M25 36h9" stroke="#0B1220" stroke-width="3" stroke-linecap="round"/>
+  <rect width="64" height="64" rx="18" fill="#00D5E8"/>
+  <path d="M32 12v40M20 20c7.5 0 12 4.5 12 12M44 20c-7.5 0-12 4.5-12 12M20 44c7.5 0 12-4.5 12-12M44 44c-7.5 0-12-4.5-12-12" fill="none" stroke="#06111C" stroke-width="4" stroke-linecap="round"/>
+  <path d="M18 32h28" fill="none" stroke="#06111C" stroke-width="4" stroke-linecap="round"/>
 </svg>

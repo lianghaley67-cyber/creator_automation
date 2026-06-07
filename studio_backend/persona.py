@@ -6,6 +6,7 @@ from typing import Any
 from .storage import now_iso
 
 
+# 默认内容模式定义
 DEFAULT_CONTENT_MODES = [
     {
         "key": "insight",
@@ -31,6 +32,15 @@ DEFAULT_CONTENT_MODES = [
 
 
 def _build_prompt_block(persona: dict[str, Any]) -> str:
+    """
+    构建人设的提示词块，用于指导AI生成符合人设的内容
+    
+    Args:
+        persona: 完整的人设字典
+    
+    Returns:
+        格式化的提示词字符串，包含说话风格、视觉风格、表情能量等参数
+    """
     speech = persona["speech_profile"]
     visual = persona["visual_profile"]
     emotion = persona["emotion_profile"]
@@ -59,6 +69,15 @@ def _build_prompt_block(persona: dict[str, Any]) -> str:
 
 
 def _camera_distance(face_ratio: float) -> str:
+    """
+    根据人脸占比判断相机距离
+    
+    Args:
+        face_ratio: 人脸区域占画面总面积的比例
+    
+    Returns:
+        相机距离类型: "close_up" / "medium_close" / "medium"
+    """
     if face_ratio >= 0.18:
         return "close_up"
     if face_ratio >= 0.08:
@@ -67,6 +86,15 @@ def _camera_distance(face_ratio: float) -> str:
 
 
 def _lighting_style(brightness: float) -> str:
+    """
+    根据画面亮度判断光照风格
+    
+    Args:
+        brightness: 画面平均亮度值 (0-255)
+    
+    Returns:
+        光照风格: "bright_clean" / "balanced_soft" / "low_key"
+    """
     if brightness >= 160:
         return "bright_clean"
     if brightness >= 105:
@@ -75,6 +103,16 @@ def _lighting_style(brightness: float) -> str:
 
 
 def _expression_energy(motion: float, speaking_pace: float) -> str:
+    """
+    根据动作幅度和语速判断表情能量
+    
+    Args:
+        motion: 动作分数
+        speaking_pace: 语速 (字符/秒)
+    
+    Returns:
+        表情能量等级: "intense" / "balanced" / "calm"
+    """
     if motion >= 16 or speaking_pace >= 4.7:
         return "intense"
     if motion >= 8 or speaking_pace >= 3.8:
@@ -88,6 +126,18 @@ def _personality_traits(
     exclamation_ratio: float,
     short_sentence_ratio: float,
 ) -> list[str]:
+    """
+    根据语言特征提取人格特质
+    
+    Args:
+        speaking_pace: 语速 (字符/秒)
+        question_ratio: 问句比例
+        exclamation_ratio: 感叹句比例
+        short_sentence_ratio: 短句比例
+    
+    Returns:
+        人格特质列表
+    """
     traits: list[str] = []
     traits.append("practical" if speaking_pace >= 3.6 else "gentle")
     traits.append("direct" if short_sentence_ratio >= 0.5 else "reflective")
@@ -104,6 +154,18 @@ def _behavior_traits(
     short_sentence_ratio: float,
     pause_density: float,
 ) -> list[str]:
+    """
+    根据行为特征提取行为特质
+    
+    Args:
+        motion: 动作分数
+        face_center_drift: 人脸中心漂移度
+        short_sentence_ratio: 短句比例
+        pause_density: 停顿密度
+    
+    Returns:
+        行为特质列表
+    """
     traits: list[str] = ["action_oriented" if motion >= 10 else "steady_execution"]
     if short_sentence_ratio >= 0.45:
         traits.append("step_driven")
@@ -120,6 +182,18 @@ def _communication_traits(
     question_ratio: float,
     short_sentence_ratio: float,
 ) -> list[str]:
+    """
+    根据沟通特征提取沟通特质
+    
+    Args:
+        rhythm_style: 节奏风格
+        cta_style: 行动号召风格
+        question_ratio: 问句比例
+        short_sentence_ratio: 短句比例
+    
+    Returns:
+        沟通特质列表
+    """
     traits = ["hook_first", rhythm_style]
     traits.append("cta_close" if cta_style == "direct" else "soft_close")
     if question_ratio >= 0.18:
@@ -130,6 +204,17 @@ def _communication_traits(
 
 
 def _emotion_traits(expression_energy: str, delivery_temperature: str, emphasis_style: str) -> list[str]:
+    """
+    提取情感特质
+    
+    Args:
+        expression_energy: 表情能量
+        delivery_temperature: 传递温度
+        emphasis_style: 强调风格
+    
+    Returns:
+        情感特质列表
+    """
     traits = [expression_energy, delivery_temperature]
     if emphasis_style:
         traits.append(emphasis_style)
@@ -142,6 +227,18 @@ def _expression_traits(
     face_center_bias: str,
     lighting_style: str,
 ) -> list[str]:
+    """
+    提取表达特质
+    
+    Args:
+        camera_distance: 相机距离
+        camera_movement_style: 相机运动风格
+        face_center_bias: 人脸中心偏差
+        lighting_style: 光照风格
+    
+    Returns:
+        表达特质列表
+    """
     return [camera_distance, camera_movement_style, face_center_bias, lighting_style]
 
 
@@ -151,12 +248,34 @@ def _voice_traits(
     question_ratio: float,
     exclamation_ratio: float,
 ) -> list[str]:
+    """
+    提取声音特质
+    
+    Args:
+        speaking_pace: 语速 (字符/秒)
+        pause_style: 停顿风格
+        question_ratio: 问句比例
+        exclamation_ratio: 感叹句比例
+    
+    Returns:
+        声音特质列表
+    """
     pace_code = "fast_voice" if speaking_pace >= 4.6 else "balanced_voice" if speaking_pace >= 3.6 else "calm_voice"
     tone_code = "assertive_tone" if exclamation_ratio >= 0.18 else "conversational_tone" if question_ratio >= 0.18 else "steady_tone"
     return [pace_code, pause_style, tone_code]
 
 
 def _generation_profile(speech_profile: dict[str, Any], human_profile: dict[str, Any]) -> dict[str, Any]:
+    """
+    构建生成配置文件，指导内容生成
+    
+    Args:
+        speech_profile: 语音配置
+        human_profile: 人物配置
+    
+    Returns:
+        生成配置字典，包含支持的输入类型、脚本流程、声音锚点等
+    """
     return {
         "supported_inputs": ["topic", "title", "keywords", "story_memo", "custom_script"],
         "script_flow": ["hook_first", "point_then_method", "cta_close"],
@@ -167,6 +286,17 @@ def _generation_profile(speech_profile: dict[str, Any], human_profile: dict[str,
 
 
 def default_persona(name: str = "我的数字分身") -> dict[str, Any]:
+    """
+    创建默认人设
+    
+    Args:
+        name: 人设名称，默认"我的数字分身"
+    
+    Returns:
+        完整的默认人设字典，包含语音、视觉、情感、人物配置等
+    
+    该函数生成一个平衡风格的默认人设，适合大多数内容创作场景。
+    """
     timestamp = now_iso()
     hooks = [
         "你是不是也在这件事上反复卡住？",
@@ -224,6 +354,7 @@ def default_persona(name: str = "我的数字分身") -> dict[str, Any]:
         },
         "content_modes": DEFAULT_CONTENT_MODES,
     }
+    # 扁平化字段，便于外部访问
     persona["hook_candidates"] = hooks
     persona["cta_candidates"] = ctas
     persona["signature_terms"] = terms
@@ -239,9 +370,29 @@ def distill_persona(
     existing: dict[str, Any] | None = None,
     preferred_name: str | None = None,
 ) -> dict[str, Any]:
+    """
+    从分析记录中蒸馏人设（核心函数）
+    
+    Args:
+        analyses: 媒体分析记录列表，包含语音指标和视觉指标
+        existing: 现有的人设数据（可选），用于保留用户自定义的部分配置
+        preferred_name: 首选的人设名称（可选）
+    
+    Returns:
+        蒸馏后的完整人设字典
+    
+    该函数是人设系统的核心，通过分析上传的参考视频/图片，自动提取：
+    - 语音特征（语速、句式、停顿风格等）
+    - 视觉特征（人脸比例、亮度、运动幅度等）
+    - 情感特征（表情能量、传递温度等）
+    - 人物特质（人格、行为、沟通风格等）
+    
+    如果没有分析数据，返回默认人设。
+    """
     if not analyses:
         return default_persona(preferred_name or (existing or {}).get("name", "我的数字分身"))
 
+    # 初始化计数器和统计列表
     hook_counter: Counter[str] = Counter()
     cta_counter: Counter[str] = Counter()
     term_counter: Counter[str] = Counter()
@@ -258,6 +409,7 @@ def distill_persona(
     face_center_drifts: list[float] = []
     analysis_ids: list[str] = []
 
+    # 遍历所有分析记录，收集数据
     for analysis in analyses:
         analysis_ids.append(str(analysis.get("id", "")))
         speech = analysis.get("speech_metrics", {})
@@ -265,6 +417,7 @@ def distill_persona(
 
         has_speech_sample = float(speech.get("char_count", 0) or 0.0) > 0
         if has_speech_sample:
+            # 收集钩子和CTA候选
             hook = str(speech.get("hook_candidate", "")).strip()
             cta = str(speech.get("cta_candidate", "")).strip()
             if hook:
@@ -272,11 +425,13 @@ def distill_persona(
             if cta:
                 cta_counter[cta] += 1
 
+            # 收集关键词
             for term in speech.get("keywords", []) or []:
                 cleaned = str(term).strip()
                 if cleaned:
                     term_counter[cleaned] += 1
 
+            # 收集语音指标
             chars_60s_values.append(int(speech.get("recommended_chars_60s", 220) or 220))
             sentence_lengths.append(float(speech.get("avg_sentence_len", 22.0) or 22.0))
             speaking_paces.append(float(speech.get("speaking_pace_cps", 3.8) or 3.8))
@@ -284,17 +439,23 @@ def distill_persona(
             exclamation_ratios.append(float(speech.get("exclamation_ratio", 0.1) or 0.1))
             pause_densities.append(float(speech.get("comma_pause_density", 5.0) or 5.0))
             short_sentence_ratios.append(float(speech.get("short_sentence_ratio", 0.5) or 0.5))
+        
+        # 收集视觉指标（无论是否有语音样本）
         face_ratios.append(float(visual.get("face_ratio", 0.12) or 0.12))
         brightness_scores.append(float(visual.get("brightness_score", 120.0) or 120.0))
         motion_scores.append(float(visual.get("motion_score", 8.0) or 8.0))
         face_center_drifts.append(float(visual.get("face_center_drift", 0.04) or 0.04))
 
+    # 计算平均值和构建人设
     base_persona = default_persona()
     fallback_speech = dict((existing or {}).get("speech_profile") or base_persona["speech_profile"])
+    
+    # 获取最常见的钩子、CTA和关键词
     hooks = [value for value, _ in hook_counter.most_common(6)] or base_persona["hook_candidates"]
     ctas = [value for value, _ in cta_counter.most_common(6)] or base_persona["cta_candidates"]
     terms = [value for value, _ in term_counter.most_common(12)] or base_persona["signature_terms"]
 
+    # 计算平均语音指标
     speaking_pace = round(
         (sum(speaking_paces) / len(speaking_paces)) if speaking_paces else float(fallback_speech.get("speaking_pace_cps", 3.8)),
         2,
@@ -315,11 +476,14 @@ def distill_persona(
         (sum(short_sentence_ratios) / len(short_sentence_ratios)) if short_sentence_ratios else float(fallback_speech.get("short_sentence_ratio", 0.5)),
         2,
     )
+    
+    # 计算平均视觉指标
     face_ratio = round(sum(face_ratios) / max(len(face_ratios), 1), 3)
     brightness = round(sum(brightness_scores) / max(len(brightness_scores), 1), 2)
     motion = round(sum(motion_scores) / max(len(motion_scores), 1), 2)
     face_center_drift = round(sum(face_center_drifts) / max(len(face_center_drifts), 1), 3)
 
+    # 构建完整人设
     persona = {
         "id": (existing or {}).get("id", "persona_default"),
         "name": preferred_name or (existing or {}).get("name", "我的数字分身"),
@@ -407,6 +571,8 @@ def distill_persona(
         },
         "content_modes": (existing or {}).get("content_modes", DEFAULT_CONTENT_MODES),
     }
+    
+    # 添加扁平化字段和生成配置
     persona["hook_candidates"] = hooks
     persona["cta_candidates"] = ctas
     persona["signature_terms"] = terms

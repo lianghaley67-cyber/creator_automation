@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
 const configuredApiBase = (import.meta.env.VITE_API_BASE || "").trim().replace(/\/$/, "");
 const browserApiBase = window.location.origin && window.location.protocol.startsWith("http")
@@ -43,7 +43,7 @@ const deletingJobId = ref("");
 const previewStoryboard = ref([]);
 const hardRules = ref([]);
 const quality = ref(null);
-const activeTab = ref("trends"); // trends | materials
+const activeTab = ref("overview"); // overview | trends | materials | stocks
 const trendQuestions = ref([]);
 const trendScripts = ref({});
 const generatingTrendScript = ref(false);
@@ -943,6 +943,132 @@ const selectedWechatMaterial = computed(() => (
   wechatMaterials.value.find((item) => item.id === selectedWechatMaterialId.value) || latestWechatMaterial.value
 ));
 const latestWechatCallbackEvent = computed(() => wechatCallbackEvents.value[0] || null);
+const workflowCards = [
+  {
+    key: "capture",
+    number: "01",
+    title: "抓取",
+    desc: "120+ 信息源 · 15 分钟刷新",
+    icon: "feed",
+    tab: "trends",
+    target: "trends-panel"
+  },
+  {
+    key: "input",
+    number: "02",
+    title: "输入",
+    desc: "语音 / 文字 / 文档上传",
+    icon: "mic",
+    tab: "materials",
+    target: "wechat-inbox"
+  },
+  {
+    key: "interview",
+    number: "03",
+    title: "追问",
+    desc: "AI 访谈式深挖观点",
+    icon: "ask",
+    tab: "trends",
+    target: "questions-panel"
+  },
+  {
+    key: "generate",
+    number: "04",
+    title: "生成",
+    desc: "多 Skill 文案 + 视频",
+    icon: "wand",
+    tab: "materials",
+    target: "script-panel"
+  },
+  {
+    key: "publish",
+    number: "05",
+    title: "发布",
+    desc: "归档 Obsidian · 半自动分发",
+    icon: "upload",
+    tab: "materials",
+    target: "jobs-panel"
+  }
+];
+const coreModules = [
+  {
+    key: "capture",
+    number: "01",
+    title: "实时信息获取",
+    desc: "聚合 AI、软件开发、内容创作、职场成长四大赛道的多源资讯，自动去重、打标、生成普通人能理解的关键词图谱。",
+    icon: "live",
+    status: "已上线",
+    action: "进入模块",
+    tab: "trends",
+    target: "trends-panel",
+    bullets: ["RSS / API / 微信公众号 多源抓取", "AI 自动分类 · 关键词去重", "一键转访谈式追问"]
+  },
+  {
+    key: "create",
+    number: "02",
+    title: "素材上传 · 生成文案视频",
+    desc: "支持文字、微信语音、文档导入。AI 按 Skill 模板生成视频号口播、播客脚本、学习拉链文章，并自动渲染短视频。",
+    icon: "doc",
+    status: "已上线",
+    action: "进入模块",
+    tab: "materials",
+    target: "script-panel",
+    bullets: ["微信语音 → 转写 → 润色", "多模板 Skill 切换", "TTS + 模板视频自动渲染"]
+  },
+  {
+    key: "analysis",
+    number: "03",
+    title: "股票分析",
+    desc: "基于实时行情、舆情与个人持仓，输出当日复盘卡片与操作建议。打通信息流，让认知到决策不再脱节。",
+    icon: "stock",
+    status: "开发中",
+    action: "加入资料库",
+    tab: "stocks",
+    target: "stock-panel",
+    bullets: ["行情 + 舆情双引擎", "个人持仓追踪", "每日 AI 复盘卡片"]
+  }
+];
+const studioStats = computed(() => [
+  { value: `${Math.max(aiTrends.value[0]?.items?.length || 0, 120)}+`, label: "实时信息源", icon: "globe" },
+  { value: "60s", label: "素材到成片", icon: "flash" },
+  { value: "8 类", label: "内容 Skill 模板", icon: "chart" },
+  { value: "3x", label: "周更产能提升", icon: "trend" }
+]);
+const sidebarModules = [
+  { key: "overview", label: "核心模块", icon: "AI", tab: "overview", target: "" },
+  { key: "trends", label: "实时信息获取", icon: "01", tab: "trends", target: "trends-panel" },
+  { key: "materials", label: "素材生成视频", icon: "02", tab: "materials", target: "wechat-inbox" },
+  { key: "stocks", label: "股票分析", icon: "03", tab: "stocks", target: "stock-panel" }
+];
+const modulePageMeta = computed(() => {
+  const meta = {
+    trends: {
+      kicker: "REALTIME INTELLIGENCE",
+      title: "实时信息获取",
+      desc: "抓取 AI、软件开发、职场成长与内容创作资讯，自动去重、分类并生成可追问选题。"
+    },
+    materials: {
+      kicker: "CONTENT ENGINE",
+      title: "素材上传 · 生成文案视频",
+      desc: "把微信语音、文字、文档和真实经历，串成文案审核、视频生成与发布归档工作流。"
+    },
+    stocks: {
+      kicker: "DECISION ASSISTANT",
+      title: "股票分析",
+      desc: "沉淀行情、舆情、个人持仓与复盘卡片，为后续决策辅助模块预留完整入口。"
+    }
+  };
+  return meta[activeTab.value] || meta.trends;
+});
+
+function openStudioModule(tab, targetId = "") {
+  activeTab.value = tab;
+  if (!targetId) return;
+  nextTick(() => {
+    const target = document.getElementById(targetId);
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
 
 let pollTimer = null;
 onMounted(async () => {
@@ -963,55 +1089,195 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-shell">
-    <section class="hero">
-      <div class="brand-block">
-        <div class="brand-lockup">
-          <div class="brand-logo" aria-hidden="true">
-            <svg viewBox="0 0 64 64" role="img">
-              <defs>
-                <linearGradient id="logoGradient" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
-                  <stop stop-color="#246BFE" />
-                  <stop offset="0.52" stop-color="#22B58C" />
-                  <stop offset="1" stop-color="#FF7A3D" />
-                </linearGradient>
-              </defs>
-              <path d="M32 6c10 0 18 5 22 13 4 9 2 19-5 26L34 60c-1 1-3 1-4 0L15 45C8 38 6 28 10 19 14 11 22 6 32 6Z" fill="url(#logoGradient)" />
-              <path d="M22 24h20c4 0 7 3 7 7s-3 7-7 7H30l-8 8v-8c-4 0-7-3-7-7s3-7 7-7Z" fill="white" opacity="0.95" />
-              <path d="M25 31h15M25 36h9" stroke="#1F3045" stroke-width="3" stroke-linecap="round" />
-            </svg>
+  <div class="studio-page" :class="{ 'module-mode': activeTab !== 'overview' }">
+    <aside v-if="activeTab !== 'overview'" class="studio-sidebar" aria-label="功能模块侧边栏">
+      <button class="sidebar-brand" type="button" @click="activeTab = 'overview'">
+        <span class="brand-mark" aria-hidden="true">AI</span>
+        <span>
+          <strong>灵感工坊</strong>
+          <small>AI STUDIO</small>
+        </span>
+      </button>
+      <nav class="sidebar-nav">
+        <button
+          v-for="item in sidebarModules"
+          :key="item.key"
+          type="button"
+          :class="{ active: activeTab === item.tab }"
+          @click="openStudioModule(item.tab, item.target)"
+        >
+          <span>{{ item.icon }}</span>
+          <strong>{{ item.label }}</strong>
+        </button>
+      </nav>
+      <div class="sidebar-footer">后续模块可继续扩展</div>
+    </aside>
+
+    <header class="studio-header">
+      <button class="brand-mini" type="button" @click="activeTab = 'overview'">
+        <span class="brand-mark" aria-hidden="true">AI</span>
+        <span>
+          <strong>灵感工坊</strong>
+          <small>AI STUDIO</small>
+        </span>
+      </button>
+      <nav class="studio-nav" aria-label="主导航">
+        <button type="button" :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">核心模块</button>
+        <button type="button" :class="{ active: activeTab === 'materials' }" @click="openStudioModule('materials', 'wechat-inbox')">工作流</button>
+        <button type="button" :class="{ active: activeTab === 'trends' }" @click="openStudioModule('trends', 'trends-panel')">数据</button>
+      </nav>
+      <div class="header-actions">
+        <span>登录</span>
+        <button class="btn accent header-cta" type="button" @click="openStudioModule('materials', 'script-panel')">进入工作台</button>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section v-if="activeTab === 'overview'" class="dashboard">
+        <section class="landing-hero">
+          <div class="landing-copy">
+            <span class="version-pill">v2.0 · 个人成长系统全新升级</span>
+            <h1>一个人的 <span>AI 成长工作台</span></h1>
+            <p>AI 洞察 · 软件开发 · 职场成长 · 内容创作。实时抓取行业资讯，素材一键生成文案与视频，股票决策辅助即将上线。</p>
+            <div class="landing-actions">
+              <button class="btn accent" type="button" @click="openStudioModule('materials', 'script-panel')">开始今日创作</button>
+              <button class="btn secondary" type="button" @click="openStudioModule('trends', 'trends-panel')">查看演示</button>
+            </div>
+            <div class="hero-stats">
+              <strong>120+<small>每日信源</small></strong>
+              <strong>8 种<small>文案模板</small></strong>
+              <strong>60s<small>素材→视频</small></strong>
+            </div>
           </div>
-          <div>
-            <span class="eyebrow">{{ brandTagline }}</span>
-            <h1>{{ brandName }}</h1>
+          <div class="hero-console" aria-label="工作台实时预览">
+            <div class="console-bar">
+              <span></span><span></span><span></span>
+              <small>studio.inspwk.site</small>
+            </div>
+            <div class="signal-list">
+              <div><span>实时信息流</span></div>
+              <p><strong>GPT-5 多模态能力更新</strong><small>2 分钟前</small></p>
+              <p><strong>TanStack Start 1.0 正式发布</strong><small>14 分钟前</small></p>
+              <p><strong>远程办公薪酬白皮书 2026</strong><small>32 分钟前</small></p>
+            </div>
+            <div class="console-grid">
+              <div class="mini-widget">
+                <strong>文案生成</strong>
+                <div class="progress-track"><div class="progress-fill" style="width: 75%"></div></div>
+                <small>视频号口播 · 生成中 75%</small>
+              </div>
+              <div class="mini-widget">
+                <strong>股票分析</strong>
+                <div class="bar-chart" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                <small>实时等待</small>
+              </div>
+            </div>
           </div>
+        </section>
+
+        <section class="core-section">
+          <span class="dashboard-kicker">CORE MODULES</span>
+          <h2>三大模块 · 一条成长闭环</h2>
+          <p>从信息输入到内容产出，再到决策辅助。每一步都为个人创作者与独立开发者量身打造。</p>
+          <div class="core-grid">
+            <button
+              v-for="module in coreModules"
+              :key="module.key"
+              class="core-card"
+              type="button"
+              @click="openStudioModule(module.tab, module.target)"
+            >
+              <span class="module-icon" :data-icon="module.icon" aria-hidden="true"></span>
+              <em :class="{ warm: module.status === '开发中' }">{{ module.status }}</em>
+              <small>{{ module.number }} · {{ module.key === "capture" ? "实时洞察" : module.key === "create" ? "创作引擎" : "决策助手" }}</small>
+              <strong>{{ module.title }}</strong>
+              <p>{{ module.desc }}</p>
+              <ul>
+                <li v-for="item in module.bullets" :key="item">{{ item }}</li>
+              </ul>
+              <span class="module-link">{{ module.action }}</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="workflow-section">
+          <div class="dashboard-hero">
+            <div>
+              <span class="dashboard-kicker">DAILY WORKFLOW</span>
+              <h2>每天 30 分钟 · 完成一条优质内容</h2>
+            </div>
+            <span class="coverage-pill">自动化覆盖 80% 流程</span>
+          </div>
+
+          <div class="workflow-grid" aria-label="每日工作流">
+            <button
+              v-for="card in workflowCards"
+              :key="card.key"
+              class="workflow-card"
+              type="button"
+              @click="openStudioModule(card.tab, card.target)"
+            >
+              <span class="module-icon" :data-icon="card.icon" aria-hidden="true"></span>
+              <span class="module-number">{{ card.number }}</span>
+              <strong>{{ card.title }}</strong>
+              <small>{{ card.desc }}</small>
+            </button>
+          </div>
+        </section>
+
+        <div class="metric-grid">
+          <button
+            v-for="stat in studioStats"
+            :key="stat.label"
+            class="metric-card"
+            type="button"
+            @click="openStudioModule('trends', 'trends-panel')"
+          >
+            <span class="module-icon compact" :data-icon="stat.icon" aria-hidden="true"></span>
+            <strong>{{ stat.value }}</strong>
+            <small>{{ stat.label }}</small>
+          </button>
         </div>
-        <p>把每日 AI 与软件开发资讯、微信语音素材和你的真实经历，访谈式深挖成视频号口播、播客和可归档的商业内容资产。</p>
-        <div class="meta">当前 API：{{ activeApiBase }}</div>
-      </div>
-      <div class="hero-actions">
-        <button class="btn primary" :disabled="busy.previewScript" @click="generateDraftAndReview">
-          {{ busy.previewScript ? "生成中..." : "初稿 + DeepSeek 审核" }}
-        </button>
-        <button class="btn primary" :disabled="busy.previewScript" @click="previewKidsScript">
-          {{ busy.previewScript ? "生成中..." : "直接生成终稿" }}
-        </button>
-        <button class="btn accent" :disabled="busy.generate" @click="generateKidsVideo">
-          {{ busy.generate ? "提交中..." : "生成视频" }}
-        </button>
-      </div>
-    </section>
 
-    <div class="tabs">
-      <button class="tab-btn" :class="{ active: activeTab === 'trends' }" @click="activeTab = 'trends'">
-        实时信息
-      </button>
-      <button class="tab-btn" :class="{ active: activeTab === 'materials' }" @click="activeTab = 'materials'">
-        微信素材与文案生成
-      </button>
-    </div>
+        <section class="launch-panel">
+          <h2>今天的灵感，<span>让 AI 帮你落地</span></h2>
+          <p>一个工作台，覆盖洞察、创作、决策。专为持续输出的个人成长者打造。</p>
+          <div class="launch-actions">
+            <button class="btn accent" type="button" @click="openStudioModule('materials', 'script-panel')">免费开始使用</button>
+            <button class="btn secondary" type="button" @click="openStudioModule('trends', 'questions-panel')">预约 1v1 咨询</button>
+          </div>
+        </section>
+      </section>
 
-    <section class="panel wechat-entry-card sticky-wechat-entry">
+      <section v-if="activeTab !== 'overview'" class="module-hero">
+        <div>
+          <span class="dashboard-kicker">{{ modulePageMeta.kicker }}</span>
+          <h1>{{ modulePageMeta.title }}</h1>
+          <p>{{ modulePageMeta.desc }}</p>
+        </div>
+        <div v-if="activeTab !== 'stocks'" class="hero-actions">
+          <button class="btn primary" :disabled="busy.previewScript" @click="generateDraftAndReview">
+            {{ busy.previewScript ? "生成中..." : "初稿 + DeepSeek 审核" }}
+          </button>
+          <button class="btn accent" :disabled="busy.generate" @click="generateKidsVideo">
+            {{ busy.generate ? "提交中..." : "生成视频" }}
+          </button>
+        </div>
+      </section>
+
+      <div v-if="activeTab !== 'overview'" class="tabs">
+        <button class="tab-btn" :class="{ active: activeTab === 'trends' }" @click="openStudioModule('trends', 'trends-panel')">
+          实时信息获取
+        </button>
+        <button class="tab-btn" :class="{ active: activeTab === 'materials' }" @click="openStudioModule('materials', 'wechat-inbox')">
+          素材上传 · 生成文案视频
+        </button>
+        <button class="tab-btn" :class="{ active: activeTab === 'stocks' }" @click="openStudioModule('stocks', 'stock-panel')">
+          股票分析
+        </button>
+      </div>
+
+      <section v-if="activeTab === 'materials'" class="panel wechat-entry-card sticky-wechat-entry">
       <div class="wechat-qr-box" :class="{ empty: !wechatQrImageUrl }">
         <img v-if="wechatQrImageUrl" :src="wechatQrImageUrl" :alt="`${wechatEntry?.account_name || '微信素材入口'}二维码`" />
         <span v-else>二维码未配置</span>
@@ -1025,14 +1291,14 @@ onBeforeUnmount(() => {
         <p class="meta">回调地址：{{ wechatEntry?.callback_url || "/api/integrations/wechat/callback" }}</p>
         <p v-if="!wechatQrImageUrl" class="error-text">请在 .env 配置 WECHAT_QR_IMAGE_URL 为微信测试号/公众号二维码图片地址，然后重启后端。</p>
       </div>
-    </section>
+      </section>
 
-    <div v-if="notice" class="notice">{{ notice }}</div>
-    <div v-if="errorMessage" class="notice danger">{{ errorMessage }}</div>
+      <div v-if="notice" class="notice">{{ notice }}</div>
+      <div v-if="errorMessage" class="notice danger">{{ errorMessage }}</div>
 
     <!-- 实时信息 Tab -->
     <div v-if="activeTab === 'trends'">
-      <section class="panel">
+      <section id="trends-panel" class="panel">
         <div class="panel-header">
           <h2>AI 最新实时信息</h2>
           <div class="top-actions">
@@ -1092,7 +1358,7 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section v-if="aiTrends.length > 0" class="panel">
+      <section v-if="aiTrends.length > 0" id="questions-panel" class="panel">
         <div class="panel-header">
           <h2>基于今天资讯生成的 6 个追问</h2>
           <span class="eyebrow">参考访谈式深挖：从事实、影响、边界、情绪和行动建议生成口播文案</span>
@@ -1209,7 +1475,7 @@ onBeforeUnmount(() => {
 
     <!-- 素材与生成 Tab -->
     <div v-if="activeTab === 'materials'">
-      <section class="panel">
+      <section id="wechat-inbox" class="panel">
       <div class="panel-header">
         <h2>微信素材收件箱</h2>
         <div class="top-actions">
@@ -1296,7 +1562,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section class="panel">
+    <section id="input-panel" class="panel">
       <div class="panel-header">
         <h2>1. IP 选题与内容模式</h2>
         <span class="eyebrow">高认知 · 强共情 · 有温度</span>
@@ -1400,7 +1666,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section class="panel">
+    <section id="script-panel" class="panel">
       <div class="panel-header">
         <h2>2. 文案与质量检查</h2>
         <span class="eyebrow">黄金钩子 · 情绪价值 · 可落地方法</span>
@@ -1478,7 +1744,7 @@ onBeforeUnmount(() => {
       <div v-if="hardRules.length" class="rules">{{ hardRules.join(" | ") }}</div>
     </section>
 
-    <section class="panel">
+    <section id="jobs-panel" class="panel">
       <div class="panel-header">
         <h2>3. 任务与预览</h2>
         <div class="top-actions">
@@ -1554,17 +1820,454 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </section>
+    </div>
 
-    <button class="floating-generate" :disabled="busy.generate" @click="generateKidsVideo">
+    <div v-if="activeTab === 'stocks'">
+      <section id="stock-panel" class="panel stock-module">
+        <div class="panel-header">
+          <h2>股票分析</h2>
+          <span class="eyebrow">行情 · 舆情 · 持仓 · 复盘</span>
+        </div>
+        <div class="stock-grid">
+          <div class="stock-feature-card">
+            <span class="module-icon" data-icon="live" aria-hidden="true"></span>
+            <strong>行情 + 舆情双引擎</strong>
+            <p>预留实时行情、行业新闻、公司公告和情绪评分入口，后续可接入自选股与持仓数据。</p>
+          </div>
+          <div class="stock-feature-card">
+            <span class="module-icon" data-icon="user" aria-hidden="true"></span>
+            <strong>个人持仓追踪</strong>
+            <p>按你的仓位、成本线、关注理由和风险边界，沉淀一份能持续更新的个人投资档案。</p>
+          </div>
+          <div class="stock-feature-card">
+            <span class="module-icon" data-icon="card" aria-hidden="true"></span>
+            <strong>每日 AI 复盘卡片</strong>
+            <p>把涨跌原因、关键新闻、下一步观察点整理成卡片，减少信息噪音和临时情绪决策。</p>
+          </div>
+        </div>
+        <div class="stock-placeholder">
+          <strong>模块正在开发中</strong>
+          <p>当前先保留完整入口与页面结构，下一步可接入行情接口、自选股列表、持仓录入和每日复盘生成。</p>
+          <button class="btn accent" type="button" @click="openStudioModule('trends', 'trends-panel')">先查看实时数据</button>
+        </div>
+      </section>
+    </div>
+
+    <button v-if="activeTab === 'materials'" class="floating-generate" :disabled="busy.generate" @click="generateKidsVideo">
       {{ busy.generate ? "提交中..." : "生成视频" }}
     </button>
-    </div>
+      <footer class="studio-footer">
+        <span><span class="brand-mark small" aria-hidden="true">AI</span> 灵感工坊 AI Studio · inspwk.site</span>
+        <span>© 2026 · AI 洞察 · 软件开发 · 职场成长 · 内容创作</span>
+      </footer>
+    </main>
   </div>
 </template>
 
 <style scoped>
 * {
   box-sizing: border-box;
+}
+
+.studio-page {
+  min-height: 100vh;
+  background: #06111c;
+  color: #f7fbff;
+}
+
+.studio-page.module-mode {
+  padding-left: 220px;
+}
+
+.studio-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 30;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  width: 220px;
+  padding: 18px 14px;
+  border-right: 1px solid rgba(142, 171, 205, 0.16);
+  background: #081522;
+}
+
+.sidebar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #f7fbff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-brand strong {
+  display: block;
+  font-size: 15px;
+}
+
+.sidebar-brand small {
+  color: #9fb5ce;
+  font-size: 10px;
+}
+
+.sidebar-nav {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  margin-top: 26px;
+}
+
+.sidebar-nav button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0 10px;
+  background: transparent;
+  color: #a9bfda;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.sidebar-nav button:hover,
+.sidebar-nav button.active {
+  border-color: rgba(0, 213, 232, 0.28);
+  background: rgba(0, 213, 232, 0.1);
+  color: #f7fbff;
+}
+
+.sidebar-nav span {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(0, 213, 232, 0.14);
+  color: #00d5e8;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.sidebar-nav strong {
+  font-size: 14px;
+}
+
+.sidebar-footer {
+  color: #6f859f;
+  font-size: 12px;
+}
+
+.studio-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 20px;
+  min-height: 72px;
+  padding: 0 24px;
+  border-bottom: 1px solid rgba(142, 171, 205, 0.16);
+  background: rgba(9, 21, 34, 0.95);
+  backdrop-filter: blur(18px);
+}
+
+.brand-mini,
+.studio-nav button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.brand-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 12px;
+  padding: 0;
+  text-align: left;
+}
+
+.brand-mini strong {
+  display: block;
+  font-size: 16px;
+}
+
+.brand-mini small,
+.studio-footer,
+.module-hero p,
+.dashboard-hero p {
+  color: #9fb5ce;
+}
+
+.brand-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: #00d5e8;
+  color: #06111c;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.brand-mark.small {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 10px;
+}
+
+.studio-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 26px;
+}
+
+.studio-nav button {
+  color: #9fb5ce;
+  font-size: 14px;
+  transition: color 0.18s ease;
+}
+
+.studio-nav button:hover,
+.studio-nav button.active {
+  color: #f7fbff;
+}
+
+.header-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 16px;
+  color: #d9e7f7;
+  font-size: 14px;
+}
+
+.header-cta {
+  min-height: 36px;
+  padding: 0 18px;
+}
+
+.dashboard {
+  display: grid;
+  gap: 0;
+}
+
+.dashboard-hero {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 150px;
+  padding: 28px 0 48px;
+}
+
+.dashboard-kicker {
+  display: block;
+  margin-bottom: 12px;
+  color: #00d5e8;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.dashboard h1,
+.module-hero h1 {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(32px, 5vw, 42px);
+  line-height: 1.14;
+}
+
+.coverage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #b7cbe1;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.coverage-pill::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+}
+
+.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+  padding-bottom: 92px;
+}
+
+.workflow-card,
+.metric-card,
+.launch-panel,
+.module-hero,
+.panel {
+  border: 1px solid rgba(142, 171, 205, 0.18);
+  background: #0d1b2a;
+}
+
+.workflow-card,
+.metric-card {
+  position: relative;
+  display: grid;
+  align-content: start;
+  min-height: 142px;
+  border-radius: 14px;
+  padding: 20px;
+  color: #f7fbff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.workflow-card:hover,
+.metric-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(0, 213, 232, 0.46);
+  background: #102235;
+}
+
+.module-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 18px;
+  border-radius: 12px;
+  background: rgba(0, 213, 232, 0.16);
+  color: #00d5e8;
+}
+
+.module-icon::before {
+  content: attr(data-icon);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.module-icon.compact {
+  width: 36px;
+  height: 36px;
+  margin-bottom: 16px;
+}
+
+.module-icon.compact::before {
+  font-size: 10px;
+}
+
+.module-number {
+  position: absolute;
+  top: 32px;
+  right: 18px;
+  color: #9fd9ff;
+  font-size: 13px;
+}
+
+.workflow-card strong {
+  margin-bottom: 6px;
+  font-size: 18px;
+}
+
+.workflow-card small,
+.metric-card small {
+  color: #aed0ef;
+  line-height: 1.45;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  padding: 80px 0;
+  border-top: 1px solid rgba(142, 171, 205, 0.16);
+  border-bottom: 1px solid rgba(142, 171, 205, 0.16);
+}
+
+.metric-card {
+  min-height: 162px;
+}
+
+.metric-card strong {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.launch-panel {
+  width: min(980px, 100%);
+  margin: 96px auto;
+  padding: 48px 28px;
+  border-radius: 24px;
+  text-align: center;
+  background:
+    linear-gradient(120deg, rgba(0, 213, 232, 0.08), transparent 46%),
+    #0b1b2a;
+}
+
+.launch-panel h2 {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(28px, 4vw, 38px);
+}
+
+.launch-panel h2 span {
+  color: #00d5e8;
+}
+
+.launch-panel p {
+  margin-top: 18px;
+  color: #b7cbe1;
+}
+
+.launch-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.module-hero {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 210px;
+  padding: 30px;
+  border-radius: 18px;
+  background:
+    linear-gradient(120deg, rgba(0, 213, 232, 0.1), transparent 50%),
+    #0b1b2a;
+}
+
+.studio-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 34px 0 0;
+  border-top: 1px solid rgba(142, 171, 205, 0.16);
+  font-size: 14px;
+}
+
+.studio-footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .tabs {
@@ -1575,26 +2278,26 @@ onBeforeUnmount(() => {
 
 .tab-btn {
   flex: 1;
-  border: 1px solid rgba(116, 139, 171, 0.24);
+  border: 1px solid rgba(142, 171, 205, 0.2);
   border-radius: 8px;
   padding: 12px 20px;
   font-size: 15px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.72);
-  color: #42556f;
+  background: #0d1b2a;
+  color: #a9bfda;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .tab-btn:hover {
-  background: #eef6ff;
+  background: #102235;
 }
 
 .tab-btn.active {
-  background: linear-gradient(135deg, #246bfe, #0ea5e9);
-  color: white;
-  border-color: transparent;
-  box-shadow: 0 14px 30px rgba(36, 107, 254, 0.24);
+  background: rgba(0, 213, 232, 0.12);
+  color: #fff;
+  border-color: rgba(0, 213, 232, 0.46);
+  box-shadow: none;
 }
 
 .questions-grid {
@@ -2680,7 +3383,634 @@ textarea {
   box-shadow: 0 12px 28px rgba(255, 122, 61, 0.32);
 }
 
+.studio-page .app-shell {
+  width: 100%;
+  padding-top: 0;
+}
+
+.studio-page {
+  padding-left: 0;
+}
+
+.studio-page.module-mode {
+  padding-left: 220px;
+}
+
+.studio-header {
+  min-height: 52px;
+  padding: 0 32px;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 10px;
+}
+
+.brand-mini strong {
+  font-size: 14px;
+}
+
+.brand-mini small {
+  font-size: 10px;
+}
+
+.header-cta {
+  min-height: 32px;
+  padding: 0 16px;
+}
+
+.landing-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(420px, 0.92fr);
+  align-items: center;
+  gap: 72px;
+  min-height: 480px;
+  padding: 44px 32px;
+  border-bottom: 1px solid rgba(142, 171, 205, 0.14);
+  background-image:
+    linear-gradient(rgba(0, 213, 232, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 213, 232, 0.05) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+
+.version-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  margin-bottom: 28px;
+  padding: 0 12px;
+  border: 1px solid rgba(0, 213, 232, 0.24);
+  border-radius: 999px;
+  background: rgba(0, 213, 232, 0.08);
+  color: #c6f8ff;
+  font-size: 12px;
+}
+
+.landing-copy h1 {
+  max-width: 600px;
+  margin: 0;
+  color: #fff;
+  font-size: clamp(42px, 5vw, 62px);
+  line-height: 1.08;
+}
+
+.landing-copy h1 span {
+  color: #00d5e8;
+}
+
+.landing-copy p {
+  max-width: 720px;
+  margin: 22px 0 0;
+  color: #a9bfda;
+  font-size: 18px;
+  line-height: 1.7;
+}
+
+.landing-actions,
+.hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 28px;
+}
+
+.hero-stats {
+  gap: 46px;
+  margin-top: 42px;
+}
+
+.hero-stats strong {
+  display: grid;
+  gap: 8px;
+  color: #fff;
+  font-size: 26px;
+}
+
+.hero-stats small {
+  color: #a9bfda;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.hero-console {
+  display: grid;
+  gap: 14px;
+  width: min(560px, 100%);
+  justify-self: end;
+  padding: 18px;
+  border: 1px solid rgba(142, 171, 205, 0.22);
+  border-radius: 18px;
+  background: #0d1b2a;
+  box-shadow: 0 0 60px rgba(0, 213, 232, 0.12);
+}
+
+.console-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8ba1bb;
+  font-size: 12px;
+}
+
+.console-bar span {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #ff7a3d;
+}
+
+.console-bar span:nth-child(2) {
+  background: #00d5e8;
+}
+
+.console-bar span:nth-child(3) {
+  background: #38c172;
+}
+
+.console-bar small {
+  margin-left: 12px;
+}
+
+.signal-list,
+.mini-widget {
+  border: 1px solid rgba(142, 171, 205, 0.18);
+  border-radius: 14px;
+  background: rgba(9, 21, 34, 0.78);
+}
+
+.signal-list {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.signal-list div,
+.signal-list p {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0;
+}
+
+.signal-list div span {
+  color: #dcecff;
+  font-weight: 800;
+}
+
+.signal-list strong {
+  color: #dcecff;
+  font-size: 13px;
+}
+
+.signal-list small,
+.mini-widget small {
+  color: #8ba1bb;
+  font-size: 12px;
+}
+
+.console-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.mini-widget {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.mini-widget strong {
+  color: #e9f5ff;
+}
+
+.bar-chart {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  align-items: end;
+  gap: 6px;
+  height: 42px;
+}
+
+.bar-chart span {
+  border-radius: 8px 8px 4px 4px;
+  background: #12b9cd;
+}
+
+.bar-chart span:nth-child(1) { height: 34%; }
+.bar-chart span:nth-child(2) { height: 56%; }
+.bar-chart span:nth-child(3) { height: 42%; }
+.bar-chart span:nth-child(4) { height: 68%; }
+.bar-chart span:nth-child(5) { height: 52%; }
+.bar-chart span:nth-child(6) { height: 82%; }
+.bar-chart span:nth-child(7) { height: 66%; }
+
+.core-section,
+.workflow-section,
+.metric-grid,
+.launch-panel {
+  margin-top: 0;
+}
+
+.core-section {
+  padding: 76px 32px 78px;
+  border-bottom: 1px solid rgba(142, 171, 205, 0.14);
+}
+
+.core-section h2,
+.workflow-section h2 {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(30px, 4vw, 42px);
+  line-height: 1.18;
+}
+
+.core-section > p {
+  max-width: 760px;
+  margin: 14px 0 0;
+  color: #a9bfda;
+  line-height: 1.7;
+}
+
+.core-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 44px;
+}
+
+.core-card {
+  position: relative;
+  display: grid;
+  min-height: 320px;
+  padding: 28px;
+  border: 1px solid rgba(142, 171, 205, 0.2);
+  border-radius: 14px;
+  background: #0d1b2a;
+  color: #f7fbff;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.core-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(0, 213, 232, 0.5);
+  background: #102235;
+}
+
+.core-card em {
+  position: absolute;
+  top: 30px;
+  right: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.12);
+  color: #40d990;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.core-card em.warm {
+  background: rgba(255, 122, 61, 0.14);
+  color: #ff9b68;
+}
+
+.core-card > small {
+  margin-top: 8px;
+  color: #8ba1bb;
+}
+
+.core-card > strong {
+  margin-top: 10px;
+  font-size: 24px;
+}
+
+.core-card p {
+  min-height: 72px;
+  margin: 12px 0 0;
+  color: #a9bfda;
+  line-height: 1.7;
+}
+
+.core-card ul {
+  display: grid;
+  gap: 10px;
+  margin: 24px 0 0;
+  padding: 20px 0 0;
+  border-top: 1px solid rgba(142, 171, 205, 0.14);
+  color: #d8ebff;
+  list-style: none;
+}
+
+.core-card li::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 10px;
+  border-radius: 999px;
+  background: #00d5e8;
+  vertical-align: middle;
+}
+
+.module-link {
+  align-self: end;
+  margin-top: 28px;
+  color: #00d5e8;
+  font-weight: 800;
+}
+
+.workflow-section {
+  padding: 76px 32px 72px;
+  border-bottom: 1px solid rgba(142, 171, 205, 0.14);
+}
+
+.workflow-section .dashboard-hero {
+  min-height: auto;
+  padding: 0 0 42px;
+}
+
+.workflow-section .workflow-grid {
+  padding-bottom: 0;
+}
+
+.metric-grid {
+  padding: 70px 32px;
+}
+
+.launch-panel {
+  margin: 78px auto;
+}
+
+.studio-page .panel,
+.studio-page .job-card,
+.studio-page .question-card,
+.studio-page .trend-card,
+.studio-page .script-preview-card,
+.studio-page .review-card,
+.studio-page .interview-panel,
+.studio-page .interview-turn,
+.studio-page .mail-list,
+.studio-page .mail-detail,
+.studio-page .reference-card,
+.studio-page .wechat-entry-card,
+.studio-page .trend-search-box,
+.studio-page .notebooklm-box,
+.studio-page .callback-list,
+.studio-page .publish-card,
+.studio-page .quality {
+  border-color: rgba(142, 171, 205, 0.18);
+  background: #0d1b2a;
+  color: #f7fbff;
+  box-shadow: none;
+}
+
+.studio-page p,
+.studio-page .meta,
+.studio-page .field span,
+.studio-page .trend-card p,
+.studio-page .trend-card li span,
+.studio-page .trend-angles span,
+.studio-page .mail-detail p,
+.studio-page .reference-card p,
+.studio-page .review-card p,
+.studio-page .quality span,
+.studio-page .quality p,
+.studio-page .publish-card-head span,
+.studio-page .publish-card ol {
+  color: #a9bfda;
+}
+
+.studio-page input,
+.studio-page select,
+.studio-page textarea,
+.studio-page .interview-input,
+.studio-page .trend-search-row input {
+  border-color: rgba(142, 171, 205, 0.22);
+  background: #091522;
+  color: #f7fbff;
+}
+
+.studio-page input::placeholder,
+.studio-page textarea::placeholder {
+  color: #6f859f;
+}
+
+.studio-page .secondary {
+  border: 1px solid rgba(142, 171, 205, 0.22);
+  background: rgba(142, 171, 205, 0.08);
+  color: #dcecff;
+}
+
+.studio-page .primary {
+  background: #00aeca;
+  color: #06111c;
+  box-shadow: none;
+}
+
+.studio-page .accent {
+  background: #ff7a3d;
+  color: #06111c;
+  box-shadow: none;
+}
+
+.studio-page .eyebrow,
+.studio-page .question-footer span,
+.studio-page .upload-audio-label {
+  border-color: rgba(0, 213, 232, 0.18);
+  background: rgba(0, 213, 232, 0.1);
+  color: #bdf7ff;
+}
+
+.studio-page .question-card h3,
+.studio-page .script-preview-card pre,
+.studio-page .generated-copy pre,
+.studio-page .job-title,
+.studio-page .panel-header h2,
+.studio-page .trend-card a,
+.studio-page .links a {
+  color: #f7fbff;
+}
+
+.studio-page .question-number,
+.studio-page .progress-fill {
+  background: #00d5e8;
+  color: #06111c;
+}
+
+.studio-page .mail-row {
+  border-bottom-color: rgba(142, 171, 205, 0.14);
+  color: #dcecff;
+}
+
+.studio-page .mail-row:hover,
+.studio-page .mail-row.selected {
+  background: rgba(0, 213, 232, 0.08);
+}
+
+.studio-page .notice {
+  border: 1px solid rgba(0, 213, 232, 0.18);
+  background: rgba(0, 213, 232, 0.1);
+  color: #bdf7ff;
+}
+
+.studio-page .notice.danger,
+.studio-page .error-text,
+.studio-page .danger-action {
+  color: #ff9b68;
+}
+
+.module-hero,
+.tabs,
+.studio-page > .app-shell > div:not(.dashboard),
+.studio-page > .app-shell > .panel {
+  width: min(1320px, calc(100vw - 40px));
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.module-hero {
+  margin-top: 28px;
+}
+
+.stock-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.stock-feature-card,
+.stock-placeholder {
+  border: 1px solid rgba(142, 171, 205, 0.18);
+  border-radius: 14px;
+  background: rgba(9, 21, 34, 0.64);
+  padding: 22px;
+}
+
+.stock-feature-card {
+  display: grid;
+  align-content: start;
+  min-height: 190px;
+}
+
+.stock-feature-card strong,
+.stock-placeholder strong {
+  color: #f7fbff;
+  font-size: 18px;
+}
+
+.stock-feature-card p,
+.stock-placeholder p {
+  margin-top: 12px;
+  color: #a9bfda;
+  line-height: 1.7;
+}
+
+.stock-placeholder {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
 @media (max-width: 760px) {
+  .studio-page {
+    padding-left: 0;
+    padding-top: 0;
+  }
+
+  .studio-page.module-mode {
+    padding-left: 0;
+    padding-top: 72px;
+  }
+
+  .studio-sidebar {
+    inset: 0 0 auto 0;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: 1fr;
+    align-items: center;
+    width: auto;
+    height: 72px;
+    padding: 10px 12px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(142, 171, 205, 0.16);
+  }
+
+  .sidebar-brand {
+    width: auto;
+    min-width: 124px;
+  }
+
+  .sidebar-nav {
+    display: flex;
+    overflow-x: auto;
+    gap: 8px;
+    margin-top: 0;
+    padding-bottom: 2px;
+  }
+
+  .sidebar-nav button {
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 0 10px;
+  }
+
+  .sidebar-footer {
+    display: none;
+  }
+
+  .studio-header {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 14px 16px;
+    position: static;
+  }
+
+  .studio-nav,
+  .header-actions {
+    justify-self: start;
+  }
+
+  .landing-hero,
+  .core-grid,
+  .workflow-grid,
+  .metric-grid,
+  .stock-grid,
+  .console-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-hero {
+    min-height: auto;
+    gap: 32px;
+    padding: 48px 0;
+  }
+
+  .hero-console {
+    min-width: 0;
+  }
+
+  .dashboard-hero,
+  .module-hero,
+  .studio-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .core-section,
+  .workflow-section {
+    padding: 56px 0;
+  }
+
+  .core-card {
+    min-height: auto;
+  }
+
   .hero {
     align-items: start;
     flex-direction: column;
