@@ -48,6 +48,8 @@ from .kids_mode import (
 from .persona import default_persona, distill_persona
 from .scheduler import StudioScheduler
 from .script_ai import generate_kids_script_with_ai, generate_reviewed_draft, revise_script_with_feedback
+from .stock_skills import list_stock_skills, run_stock_skill
+from .stocks import analyze_stock, normalize_stock_symbol, search_stocks, stock_quote
 from .schemas import (
     DistillRequest,
     DouyinPublishAssistantRequest,
@@ -984,6 +986,217 @@ def on_shutdown() -> None:
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/stocks/search")
+def api_stock_search(q: str = Query("")) -> dict[str, Any]:
+    return {"items": search_stocks(q)}
+
+
+@app.get("/api/stocks/skills")
+def api_stock_skills() -> dict[str, Any]:
+    return {"items": list_stock_skills()}
+
+
+@app.get("/api/stocks/watchlist")
+def api_stock_watchlist() -> dict[str, Any]:
+    return {"items": _stock_watchlist_with_quotes()}
+
+
+def _stock_watchlist_with_quotes() -> list[dict[str, Any]]:
+    items = _sorted(store.list_section("stock_watchlist"), key="updated_at")
+    quotes: list[dict[str, Any]] = []
+    for item in items:
+        symbol = str(item.get("symbol") or "")
+        try:
+            quote = stock_quote(symbol)
+            quotes.append({**item, "quote": quote, "position": _stock_position_snapshot(item, quote), "error": ""})
+        except Exception as exc:
+            quotes.append({**item, "quote": None, "position": {}, "error": str(exc)[:240]})
+    return quotes
+
+
+@app.post("/api/stocks/watchlist")
+def api_upsert_stock_watchlist(payload: dict[str, Any]) -> dict[str, Any]:
+    symbol = normalize_stock_symbol(str(payload.get("symbol") or ""), str(payload.get("market") or ""))
+    if not symbol:
+        raise HTTPException(status_code=400, detail="股票代码不能为空。")
+    now = now_iso()
+    record = {
+        "id": symbol,
+        "symbol": symbol,
+        "name": str(payload.get("name") or symbol).strip(),
+        "market": str(payload.get("market") or "").strip() or "",
+        "cost": payload.get("cost") or "",
+        "shares": payload.get("shares") or "",
+        "alert_high": payload.get("alert_high") or "",
+        "alert_low": payload.get("alert_low") or "",
+        "notes": str(payload.get("notes") or "").strip(),
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        items = list(state.get("stock_watchlist", []))
+        for index, item in enumerate(items):
+            if str(item.get("symbol")) == symbol:
+                record["created_at"] = item.get("created_at") or now
+                items[index] = {**item, **record}
+                state["stock_watchlist"] = items
+                return items[index]
+        items.append(record)
+        state["stock_watchlist"] = items
+        return record
+
+    return store.mutate(updater)
+
+
+@app.delete("/api/stocks/watchlist/{symbol}")
+def api_delete_stock_watchlist(symbol: str) -> dict[str, Any]:
+    normalized = normalize_stock_symbol(symbol)
+
+    def updater(state: dict[str, Any]) -> int:
+        items = list(state.get("stock_watchlist", []))
+        before = len(items)
+        state["stock_watchlist"] = [item for item in items if str(item.get("symbol")) != normalized]
+        return before - len(state["stock_watchlist"])
+
+    return {"deleted": normalized, "removed": store.mutate(updater)}
+
+
+def _stock_position_snapshot(item: dict[str, Any], quote: dict[str, Any]) -> dict[str, Any]:
+    price = _float_or_none(quote.get("price"))
+    cost = _float_or_none(item.get("cost"))
+    shares = _float_or_none(item.get("shares"))
+    alert_high = _float_or_none(item.get("alert_high"))
+    alert_low = _float_or_none(item.get("alert_low"))
+    market_value = price * shares if price is not None and shares is not None else None
+    cost_value = cost * shares if cost is not None and shares is not None else None
+    profit = market_value - cost_value if market_value is not None and cost_value is not None else None
+    profit_percent = (profit / cost_value * 100) if profit is not None and cost_value else None
+    alerts: list[str] = []
+    if price is not None and alert_high is not None and price >= alert_high:
+        alerts.append(f"已触及上方预警 {alert_high}")
+    if price is not None and alert_low is not None and price <= alert_low:
+        alerts.append(f"已触及下方预警 {alert_low}")
+    if profit_percent is not None and profit_percent <= -8:
+        alerts.append("持仓浮亏超过 8%，建议复核止损纪律")
+    return {
+        "market_value": round(market_value, 2) if market_value is not None else None,
+        "profit": round(profit, 2) if profit is not None else None,
+        "profit_percent": round(profit_percent, 2) if profit_percent is not None else None,
+        "alerts": alerts,
+    }
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        if value in {"", None}:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+@app.get("/api/stocks/quote")
+def api_stock_quote(symbol: str = Query("")) -> dict[str, Any]:
+    if not symbol:
+        raise HTTPException(status_code=400, detail="股票代码不能为空。")
+    return stock_quote(symbol)
+
+
+@app.get("/api/stocks/market")
+def api_stock_market_overview() -> dict[str, Any]:
+    indexes = [
+        {"symbol": "^GSPC", "name": "标普500"},
+        {"symbol": "^IXIC", "name": "纳斯达克"},
+        {"symbol": "^DJI", "name": "道琼斯"},
+        {"symbol": "000001.SS", "name": "上证指数"},
+        {"symbol": "399001.SZ", "name": "深证成指"},
+        {"symbol": "^HSI", "name": "恒生指数"},
+    ]
+    items: list[dict[str, Any]] = []
+    for item in indexes:
+        try:
+            quote = stock_quote(item["symbol"])
+            items.append({**item, **quote, "error": ""})
+        except Exception as exc:
+            items.append({**item, "error": str(exc)[:180]})
+    valid_changes = [float(item.get("change_percent") or 0) for item in items if not item.get("error")]
+    average_change = sum(valid_changes) / len(valid_changes) if valid_changes else 0
+    if average_change >= 0.6:
+        mood = "偏积极"
+    elif average_change <= -0.6:
+        mood = "偏谨慎"
+    else:
+        mood = "中性分化"
+    return {"items": items, "mood": mood, "average_change": round(average_change, 2), "fetched_at": now_iso()}
+
+
+@app.post("/api/stocks/analyze")
+def api_stock_analyze(payload: dict[str, Any]) -> dict[str, Any]:
+    symbol = str(payload.get("symbol") or "").strip()
+    if not symbol:
+        raise HTTPException(status_code=400, detail="股票代码不能为空。")
+    result = analyze_stock(symbol, question=str(payload.get("question") or "").strip())
+    record = {
+        "id": make_id("stock_analysis"),
+        "created_at": now_iso(),
+        "symbol": result["quote"]["symbol"],
+        "name": result["quote"]["name"],
+        "score": result["score"],
+        "stance": result["stance"],
+        "report": result["report"],
+    }
+    store.add_record("stock_analysis_history", record)
+    return result
+
+
+@app.post("/api/stocks/skills/run")
+def api_run_stock_skill(payload: dict[str, Any]) -> dict[str, Any]:
+    skill_id = str(payload.get("skill_id") or "").strip()
+    if not skill_id:
+        raise HTTPException(status_code=400, detail="Stock Skill 不能为空。")
+    symbol = str(payload.get("symbol") or "").strip()
+    question = str(payload.get("question") or "").strip()
+    latest_analysis = payload.get("latest_analysis") if isinstance(payload.get("latest_analysis"), dict) else None
+    watchlist = _stock_watchlist_with_quotes()
+    try:
+        result = run_stock_skill(
+            skill_id,
+            symbol=symbol,
+            question=question,
+            watchlist=watchlist,
+            latest_analysis=latest_analysis,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    record = {
+        "id": make_id("stock_skill"),
+        "created_at": now_iso(),
+        "skill_id": result.get("skill_id"),
+        "symbol": result.get("symbol") or symbol,
+        "title": result.get("title"),
+        "report": result.get("report"),
+        "cards": result.get("cards") or [],
+        "items": result.get("items") or [],
+    }
+    store.add_record("stock_skill_runs", record)
+    return {**result, "run_id": record["id"], "created_at": record["created_at"]}
+
+
+@app.get("/api/stocks/analysis-history")
+def api_stock_analysis_history(symbol: str = Query("")) -> dict[str, Any]:
+    normalized = normalize_stock_symbol(symbol) if symbol else ""
+    items = _sorted(store.list_section("stock_analysis_history"))
+    if normalized:
+        items = [item for item in items if str(item.get("symbol")) == normalized]
+    return {"items": items[:50]}
+
+
+@app.get("/api/stocks/skill-runs")
+def api_stock_skill_runs() -> dict[str, Any]:
+    return {"items": _sorted(store.list_section("stock_skill_runs"))[:50]}
 
 
 @app.get("/api/dashboard")

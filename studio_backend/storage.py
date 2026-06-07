@@ -32,6 +32,9 @@ DEFAULT_STATE: dict[str, Any] = {
     "wechat_callback_events": [], # 微信回调事件
     "ai_trends": [],            # AI趋势数据
     "obsidian_archives": [],    # Obsidian归档
+    "stock_watchlist": [],      # 股票自选与预警
+    "stock_analysis_history": [], # 股票AI分析历史
+    "stock_skill_runs": [],     # 股票Skill运行历史
     "avatar_settings": {},      # 数字人设置
 }
 

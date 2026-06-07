@@ -81,6 +81,26 @@ const referenceImageUrl = ref("");
 const maodouVoiceUrl = ref("");
 const peanutVoiceUrl = ref("");
 const publishDrafts = reactive({});
+const stockWatchlist = ref([]);
+const stockAnalysis = ref(null);
+const stockSearchResults = ref([]);
+const stockMarket = ref(null);
+const stockHistory = ref([]);
+const stockSkills = ref([]);
+const stockSkillResult = ref(null);
+const stockSkillRuns = ref([]);
+const selectedStockSkill = ref("single_stock_diagnosis");
+const stockForm = reactive({
+  symbol: "AAPL",
+  market: "US",
+  name: "",
+  cost: "",
+  shares: "",
+  alert_high: "",
+  alert_low: "",
+  notes: ""
+});
+const stockQuestion = ref("请从趋势、量能、风险和适合我的观察动作分析这只股票。");
 
 const voicePresets = [
   { label: "温暖真人女声（推荐）", value: "zh-CN-XiaoxiaoNeural" },
@@ -105,7 +125,15 @@ const busy = reactive({
   previewScript: false,
   reviseScript: false,
   generate: false,
-  publish: ""
+  publish: "",
+  stockRefresh: false,
+  stockSearch: false,
+  stockSave: false,
+  stockAnalyze: false,
+  stockMarket: false,
+  stockHistory: false,
+  stockSkills: false,
+  stockSkillRun: false
 });
 
 const kidsForm = reactive({
@@ -935,6 +963,208 @@ async function archiveCurrentScript() {
   }
 }
 
+async function refreshStockWatchlist() {
+  busy.stockRefresh = true;
+  try {
+    const result = await requestApi("/api/stocks/watchlist", {}, 30000);
+    stockWatchlist.value = Array.isArray(result.items) ? result.items : [];
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "刷新股票自选失败。"));
+  } finally {
+    busy.stockRefresh = false;
+  }
+}
+
+async function refreshStockMarket() {
+  busy.stockMarket = true;
+  try {
+    stockMarket.value = await requestApi("/api/stocks/market", {}, 45000);
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "刷新市场概览失败。"));
+  } finally {
+    busy.stockMarket = false;
+  }
+}
+
+async function refreshStockHistory(symbol = "") {
+  busy.stockHistory = true;
+  try {
+    const query = symbol ? `?symbol=${encodeURIComponent(symbol)}` : "";
+    const result = await requestApi(`/api/stocks/analysis-history${query}`, {}, 30000);
+    stockHistory.value = Array.isArray(result.items) ? result.items : [];
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "刷新分析历史失败。"));
+  } finally {
+    busy.stockHistory = false;
+  }
+}
+
+async function refreshStockSkills() {
+  busy.stockSkills = true;
+  try {
+    const [skills, runs] = await Promise.all([
+      requestApi("/api/stocks/skills", {}, 30000),
+      requestApi("/api/stocks/skill-runs", {}, 30000)
+    ]);
+    stockSkills.value = Array.isArray(skills.items) ? skills.items : [];
+    stockSkillRuns.value = Array.isArray(runs.items) ? runs.items : [];
+    if (!stockSkills.value.some((item) => item.id === selectedStockSkill.value)) {
+      selectedStockSkill.value = stockSkills.value[0]?.id || "single_stock_diagnosis";
+    }
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "刷新股票 Skill 失败。"));
+  } finally {
+    busy.stockSkills = false;
+  }
+}
+
+async function searchStockSymbols() {
+  const query = stockForm.symbol.trim();
+  if (!query) return;
+  busy.stockSearch = true;
+  try {
+    const result = await requestApi(`/api/stocks/search?q=${encodeURIComponent(query)}`, {}, 30000);
+    stockSearchResults.value = Array.isArray(result.items) ? result.items : [];
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "搜索股票失败。"));
+  } finally {
+    busy.stockSearch = false;
+  }
+}
+
+function chooseStockSearchResult(item) {
+  if (!item?.symbol) return;
+  stockForm.symbol = item.symbol;
+  stockForm.name = item.name || item.symbol;
+  stockForm.market = item.market || stockForm.market;
+  stockSearchResults.value = [];
+}
+
+async function saveStockToWatchlist() {
+  if (!stockForm.symbol.trim()) {
+    setError("请先输入股票代码。");
+    return;
+  }
+  busy.stockSave = true;
+  try {
+    await requestApi("/api/stocks/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify(stockForm)
+    }, 30000);
+    setNotice("已加入股票自选。");
+    await refreshStockWatchlist();
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "保存股票自选失败。"));
+  } finally {
+    busy.stockSave = false;
+  }
+}
+
+async function deleteStockFromWatchlist(symbol) {
+  if (!symbol) return;
+  try {
+    await requestApi(`/api/stocks/watchlist/${encodeURIComponent(symbol)}`, { method: "DELETE" }, 30000);
+    setNotice("已移除自选股票。");
+    await refreshStockWatchlist();
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "移除股票失败。"));
+  }
+}
+
+async function analyzeStock(symbol = stockForm.symbol) {
+  const value = String(symbol || "").trim();
+  if (!value) {
+    setError("请先输入或选择股票代码。");
+    return;
+  }
+  busy.stockAnalyze = true;
+  try {
+    const result = await requestApi("/api/stocks/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ symbol: value, question: stockQuestion.value })
+    }, 45000);
+    stockAnalysis.value = result;
+    stockForm.symbol = result.quote?.symbol || value;
+    stockForm.name = result.quote?.name || stockForm.name;
+    setNotice("股票分析已生成。");
+    await refreshStockHistory(result.quote?.symbol || value);
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "股票分析失败。"));
+  } finally {
+    busy.stockAnalyze = false;
+  }
+}
+
+async function runStockSkill(skillId = selectedStockSkill.value, symbol = stockForm.symbol) {
+  const selected = String(skillId || "").trim();
+  if (!selected) {
+    setError("请先选择一个股票 Skill。");
+    return;
+  }
+  const needsSymbol = !["watchlist_review", "condition_screening"].includes(selected);
+  const value = String(symbol || "").trim();
+  if (needsSymbol && !value) {
+    setError("这个 Skill 需要先输入股票代码。");
+    return;
+  }
+  busy.stockSkillRun = true;
+  try {
+    const result = await requestApi("/api/stocks/skills/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({
+        skill_id: selected,
+        symbol: value,
+        question: stockQuestion.value,
+        latest_analysis: stockAnalysis.value || null
+      })
+    }, 90000);
+    stockSkillResult.value = result;
+    if (result.analysis) stockAnalysis.value = result.analysis;
+    if (result.symbol) stockForm.symbol = result.symbol;
+    setNotice("股票 Skill 已运行。");
+    await refreshStockSkills();
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "股票 Skill 运行失败。"));
+  } finally {
+    busy.stockSkillRun = false;
+  }
+}
+
+function stockSkillName(skillId) {
+  return stockSkills.value.find((item) => item.id === skillId)?.name || skillId || "Stock Skill";
+}
+
+function formatStockNumber(value, digits = 2) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--";
+  return number.toFixed(digits);
+}
+
+function stockChangeClass(value) {
+  const number = Number(value);
+  if (number > 0) return "up";
+  if (number < 0) return "down";
+  return "";
+}
+
+function stockKlinePoints(points = []) {
+  const values = (Array.isArray(points) ? points : []).slice(-42).map((item) => Number(item.close)).filter(Number.isFinite);
+  if (!values.length) return "";
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const width = 320;
+  const height = 88;
+  const span = max - min || 1;
+  return values.map((value, index) => {
+    const x = values.length === 1 ? width : (index / (values.length - 1)) * width;
+    const y = height - ((value - min) / span) * height;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+}
+
 function jobProgress(job) {
   const raw = Number(job?.progress_percent);
   if (Number.isFinite(raw)) return Math.min(100, Math.max(0, Math.round(raw)));
@@ -1026,13 +1256,13 @@ const coreModules = [
     key: "analysis",
     number: "03",
     title: "股票分析",
-    desc: "基于实时行情、舆情与个人持仓，输出当日复盘卡片与操作建议。打通信息流，让认知到决策不再脱节。",
+    desc: "基于实时行情、技术指标、市场温度与个人持仓，输出复盘卡片、风险提示和下一步观察动作。",
     icon: "stock",
-    status: "开发中",
-    action: "加入资料库",
+    status: "已上线",
+    action: "进入模块",
     tab: "stocks",
     target: "stock-panel",
-    bullets: ["行情 + 舆情双引擎", "个人持仓追踪", "每日 AI 复盘卡片"]
+    bullets: ["A/HK/US 行情分析", "个人持仓与预警", "AI 辅助复盘报告"]
   }
 ];
 const studioStats = computed(() => [
@@ -1081,6 +1311,10 @@ onMounted(async () => {
   await refreshJobs();
   await refreshWechatMaterials();
   await refreshAiTrends();
+  await refreshStockWatchlist();
+  await refreshStockMarket();
+  await refreshStockHistory();
+  await refreshStockSkills();
   pollTimer = window.setInterval(() => {
     if (runningKidsJobs.value.length) refreshJobs();
   }, 3000);
@@ -1139,7 +1373,7 @@ onBeforeUnmount(() => {
           <div class="landing-copy">
             <span class="version-pill">v2.0 · 个人成长系统全新升级</span>
             <h1>一个人的 <span>AI 成长工作台</span></h1>
-            <p>AI 洞察 · 软件开发 · 职场成长 · 内容创作。实时抓取行业资讯，素材一键生成文案与视频，股票决策辅助即将上线。</p>
+            <p>AI 洞察 · 软件开发 · 职场成长 · 内容创作。实时抓取行业资讯，素材一键生成文案与视频，股票决策辅助已接入工作台。</p>
             <div class="landing-actions">
               <button class="btn accent" type="button" @click="openStudioModule('materials', 'script-panel')">开始今日创作</button>
               <button class="btn secondary" type="button" @click="openStudioModule('trends', 'trends-panel')">查看演示</button>
@@ -1827,30 +2061,256 @@ onBeforeUnmount(() => {
       <section id="stock-panel" class="panel stock-module">
         <div class="panel-header">
           <h2>股票分析</h2>
-          <span class="eyebrow">行情 · 舆情 · 持仓 · 复盘</span>
+          <span class="eyebrow">行情 · 技术指标 · 持仓 · 预警 · 复盘</span>
         </div>
-        <div class="stock-grid">
-          <div class="stock-feature-card">
-            <span class="module-icon" data-icon="live" aria-hidden="true"></span>
-            <strong>行情 + 舆情双引擎</strong>
-            <p>预留实时行情、行业新闻、公司公告和情绪评分入口，后续可接入自选股与持仓数据。</p>
+        <div class="stock-workbench">
+          <div class="stock-control-panel">
+            <div class="field-grid">
+              <label class="field">
+                <span>股票代码 / 名称</span>
+                <input v-model="stockForm.symbol" placeholder="AAPL / 00700 / 600519" @keyup.enter="searchStockSymbols" />
+              </label>
+              <label class="field">
+                <span>市场</span>
+                <select v-model="stockForm.market">
+                  <option value="US">美股</option>
+                  <option value="HK">港股</option>
+                  <option value="CN">A股</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>显示名称</span>
+                <input v-model="stockForm.name" placeholder="可选" />
+              </label>
+              <label class="field">
+                <span>成本价</span>
+                <input v-model="stockForm.cost" inputmode="decimal" placeholder="可选" />
+              </label>
+              <label class="field">
+                <span>持仓数量</span>
+                <input v-model="stockForm.shares" inputmode="decimal" placeholder="可选" />
+              </label>
+              <label class="field">
+                <span>上方预警</span>
+                <input v-model="stockForm.alert_high" inputmode="decimal" placeholder="突破提醒" />
+              </label>
+              <label class="field">
+                <span>下方预警</span>
+                <input v-model="stockForm.alert_low" inputmode="decimal" placeholder="止损提醒" />
+              </label>
+              <label class="field">
+                <span>关注理由</span>
+                <input v-model="stockForm.notes" placeholder="财报、行业、策略..." />
+              </label>
+            </div>
+            <textarea v-model="stockQuestion" class="stock-question" rows="3"></textarea>
+            <div class="stock-actions">
+              <button class="btn secondary" type="button" :disabled="busy.stockSearch" @click="searchStockSymbols">
+                {{ busy.stockSearch ? "搜索中..." : "搜索标的" }}
+              </button>
+              <button class="btn secondary" type="button" :disabled="busy.stockSave" @click="saveStockToWatchlist">
+                {{ busy.stockSave ? "保存中..." : "加入/更新自选" }}
+              </button>
+              <button class="btn accent" type="button" :disabled="busy.stockAnalyze" @click="analyzeStock()">
+                {{ busy.stockAnalyze ? "分析中..." : "生成 AI 辅助分析" }}
+              </button>
+            </div>
+            <div v-if="stockSearchResults.length" class="stock-search-results">
+              <button v-for="item in stockSearchResults" :key="item.symbol" type="button" @click="chooseStockSearchResult(item)">
+                <strong>{{ item.symbol }}</strong>
+                <span>{{ item.name }} · {{ item.exchange || item.market }}</span>
+              </button>
+            </div>
           </div>
-          <div class="stock-feature-card">
-            <span class="module-icon" data-icon="user" aria-hidden="true"></span>
-            <strong>个人持仓追踪</strong>
-            <p>按你的仓位、成本线、关注理由和风险边界，沉淀一份能持续更新的个人投资档案。</p>
-          </div>
-          <div class="stock-feature-card">
-            <span class="module-icon" data-icon="card" aria-hidden="true"></span>
-            <strong>每日 AI 复盘卡片</strong>
-            <p>把涨跌原因、关键新闻、下一步观察点整理成卡片，减少信息噪音和临时情绪决策。</p>
+
+          <div class="stock-market-card">
+            <div class="stock-section-head">
+              <strong>全球市场温度</strong>
+              <button class="btn secondary small" type="button" :disabled="busy.stockMarket" @click="refreshStockMarket">
+                {{ busy.stockMarket ? "刷新中" : "刷新" }}
+              </button>
+            </div>
+            <div class="market-mood">
+              <span>{{ stockMarket?.mood || "待刷新" }}</span>
+              <strong :class="stockChangeClass(stockMarket?.average_change)">{{ formatStockNumber(stockMarket?.average_change) }}%</strong>
+            </div>
+            <div class="market-index-list">
+              <div v-for="item in stockMarket?.items || []" :key="item.symbol" class="market-index-row">
+                <span>{{ item.name }}</span>
+                <strong>{{ item.price || "--" }}</strong>
+                <em :class="stockChangeClass(item.change_percent)">{{ formatStockNumber(item.change_percent) }}%</em>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="stock-placeholder">
-          <strong>模块正在开发中</strong>
-          <p>当前先保留完整入口与页面结构，下一步可接入行情接口、自选股列表、持仓录入和每日复盘生成。</p>
-          <button class="btn accent" type="button" @click="openStudioModule('trends', 'trends-panel')">先查看实时数据</button>
+
+        <section class="stock-skill-panel">
+          <div class="stock-section-head">
+            <strong>Stock Skills</strong>
+            <button class="btn secondary small" type="button" :disabled="busy.stockSkills" @click="refreshStockSkills">
+              {{ busy.stockSkills ? "刷新中" : "刷新 Skills" }}
+            </button>
+          </div>
+          <div class="stock-skill-grid">
+            <button
+              v-for="skill in stockSkills"
+              :key="skill.id"
+              type="button"
+              class="stock-skill-card"
+              :class="{ active: selectedStockSkill === skill.id }"
+              @click="selectedStockSkill = skill.id"
+            >
+              <strong>{{ skill.name }}</strong>
+              <span>{{ skill.description }}</span>
+            </button>
+          </div>
+          <div class="stock-actions">
+            <button class="btn accent" type="button" :disabled="busy.stockSkillRun" @click="runStockSkill()">
+              {{ busy.stockSkillRun ? "运行中..." : `运行 ${stockSkillName(selectedStockSkill)}` }}
+            </button>
+            <button class="btn secondary" type="button" :disabled="busy.stockSkillRun" @click="runStockSkill('watchlist_review', '')">
+              自选股一键复盘
+            </button>
+            <button class="btn secondary" type="button" :disabled="busy.stockSkillRun" @click="runStockSkill('condition_screening', '')">
+              按问题筛选自选
+            </button>
+          </div>
+          <div v-if="stockSkillResult" class="stock-skill-result">
+            <div class="stock-score-line">
+              <span>{{ stockSkillResult.title }}</span>
+              <em>{{ stockSkillName(stockSkillResult.skill_id) }}</em>
+            </div>
+            <div v-if="stockSkillResult.cards?.length" class="indicator-grid">
+              <span v-for="card in stockSkillResult.cards" :key="card.title">
+                {{ card.title }}
+                <strong>{{ card.value }}</strong>
+                <small>{{ card.note }}</small>
+              </span>
+            </div>
+            <pre class="stock-report">{{ stockSkillResult.report }}</pre>
+            <small>{{ stockSkillResult.disclaimer }}</small>
+          </div>
+        </section>
+
+        <div class="stock-dashboard-grid">
+          <section class="stock-list-panel">
+            <div class="stock-section-head">
+              <strong>自选与持仓</strong>
+              <button class="btn secondary small" type="button" :disabled="busy.stockRefresh" @click="refreshStockWatchlist">
+                {{ busy.stockRefresh ? "刷新中" : "刷新行情" }}
+              </button>
+            </div>
+            <div v-if="!stockWatchlist.length" class="stock-empty">还没有自选股，先搜索代码并加入。</div>
+            <article v-for="item in stockWatchlist" :key="item.symbol" class="stock-watch-card">
+              <div class="stock-watch-main">
+                <div>
+                  <strong>{{ item.name || item.symbol }}</strong>
+                  <span>{{ item.symbol }} · {{ item.quote?.market || item.market }}</span>
+                </div>
+                <div class="stock-price">
+                  <strong>{{ item.quote?.price ?? "--" }}</strong>
+                  <em :class="stockChangeClass(item.quote?.change_percent)">{{ formatStockNumber(item.quote?.change_percent) }}%</em>
+                </div>
+              </div>
+              <div class="stock-mini-meta">
+                <span>成本 {{ item.cost || "--" }}</span>
+                <span>数量 {{ item.shares || "--" }}</span>
+                <span>市值 {{ item.position?.market_value ?? "--" }}</span>
+                <span :class="stockChangeClass(item.position?.profit_percent)">盈亏 {{ formatStockNumber(item.position?.profit_percent) }}%</span>
+              </div>
+              <div v-if="item.position?.alerts?.length" class="stock-alerts">
+                <span v-for="alert in item.position.alerts" :key="alert">{{ alert }}</span>
+              </div>
+              <p v-if="item.notes">{{ item.notes }}</p>
+              <div class="stock-row-actions">
+                <button class="btn secondary small" type="button" @click="analyzeStock(item.symbol)">分析</button>
+                <button class="btn secondary small danger-action" type="button" @click="deleteStockFromWatchlist(item.symbol)">移除</button>
+              </div>
+            </article>
+          </section>
+
+          <section class="stock-analysis-panel">
+            <div class="stock-section-head">
+              <strong>AI 辅助分析报告</strong>
+              <button class="btn secondary small" type="button" :disabled="!stockAnalysis?.report" @click="copyText(stockAnalysis?.report, '股票分析报告已复制。')">复制报告</button>
+            </div>
+            <div v-if="!stockAnalysis" class="stock-empty">输入股票代码后生成分析，会展示趋势、指标、风险、机会和预警线。</div>
+            <div v-else class="stock-analysis-result">
+              <div class="stock-score-line">
+                <span>{{ stockAnalysis.quote?.name }} · {{ stockAnalysis.quote?.symbol }}</span>
+                <strong>{{ stockAnalysis.score }}/100</strong>
+                <em>{{ stockAnalysis.stance }}</em>
+              </div>
+              <svg class="stock-sparkline" viewBox="0 0 320 88" preserveAspectRatio="none" aria-hidden="true">
+                <polyline :points="stockKlinePoints(stockAnalysis.kline)" fill="none" stroke="#00d5e8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
+              </svg>
+              <div class="indicator-grid">
+                <span>趋势 <strong>{{ stockAnalysis.indicators?.trend }}</strong></span>
+                <span>RSI <strong>{{ stockAnalysis.indicators?.rsi14 ?? "--" }}</strong></span>
+                <span>MACD <strong>{{ stockAnalysis.indicators?.macd?.signal }}</strong></span>
+                <span>BOLL <strong>{{ stockAnalysis.indicators?.boll?.position }}</strong></span>
+                <span>5日收益 <strong>{{ stockAnalysis.indicators?.return5 ?? "--" }}%</strong></span>
+                <span>20日波动 <strong>{{ stockAnalysis.indicators?.volatility20 ?? "--" }}%</strong></span>
+              </div>
+              <div class="stock-signal-columns">
+                <div>
+                  <strong>机会</strong>
+                  <p v-for="item in stockAnalysis.opportunities" :key="item">{{ item }}</p>
+                </div>
+                <div>
+                  <strong>风险</strong>
+                  <p v-for="item in stockAnalysis.risks" :key="item">{{ item }}</p>
+                </div>
+              </div>
+              <div class="stock-signal-columns">
+                <div>
+                  <strong>预警线</strong>
+                  <p v-for="item in stockAnalysis.alerts" :key="item.label">{{ item.label }}：{{ item.price || item.percent + '%' }}</p>
+                </div>
+                <div>
+                  <strong>持仓动作</strong>
+                  <p v-for="item in stockAnalysis.position_plan" :key="item.title">{{ item.title }}：{{ item.text }}</p>
+                </div>
+              </div>
+              <pre class="stock-report">{{ stockAnalysis.report }}</pre>
+              <small>{{ stockAnalysis.disclaimer }}</small>
+            </div>
+          </section>
         </div>
+
+        <section class="stock-history-panel">
+          <div class="stock-section-head">
+            <strong>分析历史</strong>
+            <button class="btn secondary small" type="button" :disabled="busy.stockHistory" @click="refreshStockHistory">
+              {{ busy.stockHistory ? "刷新中" : "查看全部" }}
+            </button>
+          </div>
+          <div v-if="!stockHistory.length" class="stock-empty">暂无历史报告。</div>
+          <div v-else class="stock-history-list">
+            <button v-for="item in stockHistory" :key="item.id" type="button" @click="stockAnalysis = { ...stockAnalysis, report: item.report, score: item.score, stance: item.stance, quote: { symbol: item.symbol, name: item.name } }">
+              <span>{{ item.created_at }}</span>
+              <strong>{{ item.name }} · {{ item.symbol }}</strong>
+              <em>{{ item.score }}/100 · {{ item.stance }}</em>
+            </button>
+          </div>
+        </section>
+
+        <section class="stock-history-panel">
+          <div class="stock-section-head">
+            <strong>Stock Skill 运行历史</strong>
+            <button class="btn secondary small" type="button" :disabled="busy.stockSkills" @click="refreshStockSkills">
+              {{ busy.stockSkills ? "刷新中" : "刷新" }}
+            </button>
+          </div>
+          <div v-if="!stockSkillRuns.length" class="stock-empty">暂无 Skill 运行记录。</div>
+          <div v-else class="stock-history-list">
+            <button v-for="item in stockSkillRuns" :key="item.id" type="button" @click="stockSkillResult = item">
+              <span>{{ item.created_at }}</span>
+              <strong>{{ item.title }}</strong>
+              <em>{{ stockSkillName(item.skill_id) }} · {{ item.symbol || "自选股" }}</em>
+            </button>
+          </div>
+        </section>
       </section>
     </div>
 
@@ -3940,6 +4400,347 @@ textarea {
   margin-top: 18px;
 }
 
+.stock-workbench,
+.stock-dashboard-grid {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.stock-workbench {
+  grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.8fr);
+}
+
+.stock-dashboard-grid {
+  grid-template-columns: minmax(300px, 0.92fr) minmax(0, 1.35fr);
+}
+
+.stock-control-panel,
+.stock-market-card,
+.stock-list-panel,
+.stock-analysis-panel,
+.stock-history-panel,
+.stock-skill-panel {
+  border: 1px solid rgba(142, 171, 205, 0.18);
+  border-radius: 8px;
+  background: rgba(9, 21, 34, 0.64);
+  padding: 16px;
+}
+
+.stock-question {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.stock-actions,
+.stock-row-actions,
+.stock-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stock-actions {
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+
+.stock-search-results,
+.market-index-list,
+.stock-history-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.stock-search-results button,
+.stock-history-list button {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 4px 12px;
+  width: 100%;
+  border: 1px solid rgba(142, 171, 205, 0.18);
+  border-radius: 8px;
+  padding: 10px;
+  color: #dcecff;
+  text-align: left;
+  background: rgba(142, 171, 205, 0.08);
+  cursor: pointer;
+}
+
+.stock-search-results button span,
+.stock-history-list button span,
+.stock-history-list button em {
+  color: #a9bfda;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.stock-history-list button strong {
+  color: #f7fbff;
+}
+
+.market-mood {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 8px;
+  background: rgba(0, 213, 232, 0.08);
+}
+
+.market-mood span {
+  color: #bdf7ff;
+  font-weight: 800;
+}
+
+.market-mood strong {
+  font-size: 28px;
+}
+
+.market-index-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(142, 171, 205, 0.12);
+}
+
+.market-index-row:last-child {
+  border-bottom: 0;
+}
+
+.market-index-row span,
+.market-index-row em {
+  color: #a9bfda;
+  font-style: normal;
+}
+
+.stock-empty {
+  margin-top: 12px;
+  border: 1px dashed rgba(142, 171, 205, 0.24);
+  border-radius: 8px;
+  padding: 16px;
+  color: #a9bfda;
+  background: rgba(142, 171, 205, 0.05);
+}
+
+.stock-watch-card {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  border: 1px solid rgba(142, 171, 205, 0.16);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(13, 27, 42, 0.78);
+}
+
+.stock-watch-main,
+.stock-mini-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stock-watch-main strong,
+.stock-section-head strong {
+  color: #f7fbff;
+}
+
+.stock-watch-main span,
+.stock-mini-meta span,
+.stock-watch-card p,
+.stock-analysis-result small {
+  color: #a9bfda;
+}
+
+.stock-price {
+  display: grid;
+  gap: 2px;
+  justify-items: end;
+}
+
+.stock-price em,
+.market-index-row em,
+.stock-mini-meta .up,
+.stock-mini-meta .down,
+.market-mood .up,
+.market-mood .down {
+  font-style: normal;
+  font-weight: 900;
+}
+
+.up {
+  color: #ff7a3d !important;
+}
+
+.down {
+  color: #40d990 !important;
+}
+
+.stock-alerts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stock-alerts span {
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #ffcfb7;
+  background: rgba(255, 122, 61, 0.12);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.stock-analysis-result {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.stock-score-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.stock-score-line span {
+  color: #a9bfda;
+}
+
+.stock-score-line strong {
+  color: #00d5e8;
+  font-size: 28px;
+}
+
+.stock-score-line em {
+  border-radius: 999px;
+  padding: 5px 10px;
+  color: #06111c;
+  background: #00d5e8;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.stock-sparkline {
+  width: 100%;
+  height: 96px;
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(0, 213, 232, 0.06);
+}
+
+.indicator-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.indicator-grid span {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(142, 171, 205, 0.16);
+  border-radius: 8px;
+  padding: 10px;
+  color: #a9bfda;
+  background: rgba(142, 171, 205, 0.06);
+}
+
+.indicator-grid strong {
+  color: #f7fbff;
+}
+
+.stock-signal-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stock-signal-columns > div {
+  border: 1px solid rgba(142, 171, 205, 0.16);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(142, 171, 205, 0.05);
+}
+
+.stock-signal-columns p {
+  margin: 8px 0 0;
+  color: #a9bfda;
+  line-height: 1.55;
+}
+
+.stock-report {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid rgba(142, 171, 205, 0.16);
+  border-radius: 8px;
+  padding: 12px;
+  color: #dcecff;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #091522;
+}
+
+.stock-history-panel {
+  margin-top: 18px;
+}
+
+.stock-skill-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.stock-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stock-skill-card {
+  display: grid;
+  gap: 8px;
+  min-height: 116px;
+  border: 1px solid rgba(142, 171, 205, 0.18);
+  border-radius: 8px;
+  padding: 12px;
+  color: #dcecff;
+  text-align: left;
+  background: rgba(142, 171, 205, 0.06);
+  cursor: pointer;
+}
+
+.stock-skill-card:hover,
+.stock-skill-card.active {
+  border-color: rgba(0, 213, 232, 0.48);
+  background: rgba(0, 213, 232, 0.1);
+}
+
+.stock-skill-card strong {
+  color: #f7fbff;
+}
+
+.stock-skill-card span,
+.stock-skill-result small,
+.indicator-grid small {
+  color: #a9bfda;
+  line-height: 1.5;
+}
+
+.stock-skill-result {
+  display: grid;
+  gap: 12px;
+}
+
 @media (max-width: 760px) {
   .studio-page {
     padding-left: 0;
@@ -4003,6 +4804,11 @@ textarea {
   .workflow-grid,
   .metric-grid,
   .stock-grid,
+  .stock-workbench,
+  .stock-dashboard-grid,
+  .stock-signal-columns,
+  .indicator-grid,
+  .stock-skill-grid,
   .console-grid {
     grid-template-columns: 1fr;
   }
