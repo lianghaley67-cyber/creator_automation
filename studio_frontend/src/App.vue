@@ -1404,7 +1404,7 @@ onBeforeUnmount(() => {
   <div class="studio-page" :class="{ 'module-mode': activeTab !== 'overview' }">
     <aside v-if="activeTab !== 'overview'" class="studio-sidebar" aria-label="功能模块侧边栏">
       <button class="sidebar-brand" type="button" @click="activeTab = 'overview'">
-        <img class="brand-logo-img" src="/favicon.svg?v=2" alt="" aria-hidden="true" />
+        <img class="brand-logo-img" :src="brandIconDataUrl" alt="" aria-hidden="true" />
         <span>
           <strong>灵感工坊</strong>
           <small>AI STUDIO</small>
@@ -1427,7 +1427,7 @@ onBeforeUnmount(() => {
 
     <header class="studio-header">
       <button class="brand-mini" type="button" @click="activeTab = 'overview'">
-        <img class="brand-logo-img" src="/favicon.svg?v=2" alt="" aria-hidden="true" />
+        <img class="brand-logo-img" :src="brandIconDataUrl" alt="" aria-hidden="true" />
         <span>
           <strong>灵感工坊</strong>
           <small>AI STUDIO</small>
@@ -2436,7 +2436,7 @@ onBeforeUnmount(() => {
       {{ busy.generate ? "提交中..." : "生成视频" }}
     </button>
       <footer class="studio-footer">
-        <span><img class="brand-logo-img small" src="/favicon.svg?v=2" alt="" aria-hidden="true" /> 灵感工坊 AI Studio · inspwk.site</span>
+        <span><img class="brand-logo-img small" :src="brandIconDataUrl" alt="" aria-hidden="true" /> 灵感工坊 AI Studio · inspwk.site</span>
         <span>© 2026 · AI 洞察 · 软件开发 · 职场成长 · 内容创作</span>
       </footer>
     </main>
