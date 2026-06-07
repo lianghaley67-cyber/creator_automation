@@ -154,13 +154,27 @@ def analyze_stock(symbol: str, *, question: str = "") -> dict[str, Any]:
     volumes = [float(item.get("volume") or 0) for item in points]
     indicators = _technical_indicators(closes, volumes)
     score, stance, risks, opportunities = _score_stock(quote, indicators)
-    report = _build_report(quote, indicators, score, stance, risks, opportunities, question=question)
+    conclusion = _clear_conclusion(quote, indicators, score, stance)
+    upside_targets = _upside_targets(quote, indicators)
+    report = _build_report(
+        quote,
+        indicators,
+        score,
+        stance,
+        risks,
+        opportunities,
+        question=question,
+        conclusion=conclusion,
+        upside_targets=upside_targets,
+    )
     return {
         "quote": quote,
         "kline": points[-80:],
         "indicators": indicators,
         "score": score,
         "stance": stance,
+        "conclusion": conclusion,
+        "upside_targets": upside_targets,
         "opportunities": opportunities,
         "risks": risks,
         "alerts": _suggest_alerts(quote, indicators),
@@ -285,9 +299,15 @@ def _build_report(
     opportunities: list[str],
     *,
     question: str,
+    conclusion: dict[str, Any],
+    upside_targets: list[dict[str, Any]],
 ) -> str:
     lines = [
         f"## {quote.get('name')}（{quote.get('symbol')}）AI 辅助分析",
+        "",
+        f"### 明确结论：{conclusion.get('label')}",
+        f"- {conclusion.get('summary')}",
+        f"- 当前动作：{conclusion.get('action')}",
         "",
         f"- 市场：{quote.get('market')} / {quote.get('exchange')}",
         f"- 最新价：{quote.get('price')} {quote.get('currency')}，涨跌幅：{quote.get('change_percent')}%",
@@ -296,6 +316,13 @@ def _build_report(
         f"- RSI14：{indicators.get('rsi14')}，量能比：{indicators.get('volume_ratio')}",
         f"- MACD：{(indicators.get('macd') or {}).get('signal')}，BOLL：{(indicators.get('boll') or {}).get('position')}",
         f"- 近5日/20日收益：{indicators.get('return5')}% / {indicators.get('return20')}%，20日波动率：{indicators.get('volatility20')}%",
+        "",
+        "### 目标价情景测算",
+        *[
+            f"- {item.get('label')}：{item.get('target_price')} {quote.get('currency')}，"
+            f"对应约 {item.get('upside_percent')}%，依据：{item.get('basis')}"
+            for item in upside_targets
+        ],
         "",
         "### 机会",
         *[f"- {item}" for item in opportunities],
@@ -325,6 +352,79 @@ def _suggest_alerts(quote: dict[str, Any], indicators: dict[str, Any]) -> list[d
         {"type": "ma20", "label": "回踩/跌破 MA20", "price": indicators.get("ma20"), "enabled": False},
         {"type": "daily_move", "label": "单日涨跌超过 5%", "percent": 5, "enabled": False},
     ]
+
+
+def _clear_conclusion(quote: dict[str, Any], indicators: dict[str, Any], score: int, stance: str) -> dict[str, Any]:
+    trend = indicators.get("trend")
+    rsi = indicators.get("rsi14")
+    price = quote.get("price") or indicators.get("latest")
+    support = indicators.get("support")
+    resistance = indicators.get("resistance")
+    if score >= 70:
+        label = "偏强，可继续观察突破"
+        action = f"持有或观察突破 {resistance} 后的量能确认。"
+    elif score >= 55:
+        label = "中性偏多，但需要确认"
+        action = f"等待站稳 MA20 或突破 {resistance}，再提高关注级别。"
+    elif score >= 40:
+        label = "中性观望，不建议追高"
+        action = f"先观察 {support} 是否守住；若不能收复 MA20，继续谨慎。"
+    else:
+        label = "偏弱谨慎，优先控制风险"
+        action = f"若跌破 {support} 或反弹无量，优先降低风险暴露。"
+    if trend == "空头排列" and rsi is not None and rsi <= 30:
+        summary = (
+            f"当前价格 {price} 处在弱趋势里的超卖区，可能有技术反弹，"
+            "但还不能当作趋势反转。"
+        )
+    elif trend == "多头排列":
+        summary = f"当前价格 {price} 处在多头结构中，趋势占优，但仍需留意放量滞涨。"
+    else:
+        summary = f"当前价格 {price} 的趋势结论为「{trend}」，综合评级为「{stance}」。"
+    return {"label": label, "summary": summary, "action": action}
+
+
+def _upside_targets(quote: dict[str, Any], indicators: dict[str, Any]) -> list[dict[str, Any]]:
+    price = _num(quote.get("price") or indicators.get("latest"))
+    if not price:
+        return []
+    ma20 = _num(indicators.get("ma20"))
+    ma60 = _num(indicators.get("ma60"))
+    resistance = _num(indicators.get("resistance"))
+    high20 = _num(indicators.get("high20"))
+    volatility = _num(indicators.get("volatility20")) or 30
+    trend = indicators.get("trend")
+
+    conservative_candidates = [value for value in [ma20, resistance] if value and value > price]
+    conservative = min(conservative_candidates) if conservative_candidates else price * 1.04
+    neutral = max([value for value in [resistance, high20, ma60] if value and value > price] or [conservative * 1.05])
+    volatility_cap = min(max(volatility / 100 * 0.45, 0.08), 0.28)
+    if trend == "空头排列":
+        optimistic = max(neutral, price * (1 + min(volatility_cap, 0.18)))
+        basis = "弱趋势下只按技术反弹上沿估算，需放量收复均线才有效"
+    elif trend == "多头排列":
+        optimistic = max(neutral * 1.05, price * (1 + volatility_cap))
+        basis = "多头趋势延续时参考阻力突破和20日波动上沿"
+    else:
+        optimistic = max(neutral, price * (1 + min(volatility_cap, 0.22)))
+        basis = "震荡结构下参考阻力位和20日波动上沿"
+    targets = [
+        {"label": "保守目标", "target_price": conservative, "basis": "先看 MA20/近端压力位能否收复"},
+        {"label": "中性目标", "target_price": neutral, "basis": "参考20日高点、MA60和主要压力区"},
+        {"label": "最高上沿", "target_price": optimistic, "basis": basis},
+    ]
+    normalized: list[dict[str, Any]] = []
+    for item in targets:
+        target = max(price, float(item["target_price"]))
+        normalized.append(
+            {
+                "label": item["label"],
+                "target_price": _round(target),
+                "upside_percent": _round((target - price) / price * 100),
+                "basis": item["basis"],
+            }
+        )
+    return normalized
 
 
 def _sentiment_stub(quote: dict[str, Any], indicators: dict[str, Any]) -> dict[str, Any]:

@@ -2245,6 +2245,19 @@ onBeforeUnmount(() => {
                 <strong>{{ stockAnalysis.score }}/100</strong>
                 <em>{{ stockAnalysis.stance }}</em>
               </div>
+              <div v-if="stockAnalysis.conclusion" class="stock-clear-conclusion">
+                <strong>明确结论：{{ stockAnalysis.conclusion.label }}</strong>
+                <p>{{ stockAnalysis.conclusion.summary }}</p>
+                <span>{{ stockAnalysis.conclusion.action }}</span>
+              </div>
+              <div v-if="stockAnalysis.upside_targets?.length" class="stock-target-grid">
+                <div v-for="item in stockAnalysis.upside_targets" :key="item.label">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.target_price }}</strong>
+                  <em>约 {{ item.upside_percent }}%</em>
+                  <small>{{ item.basis }}</small>
+                </div>
+              </div>
               <svg class="stock-sparkline" viewBox="0 0 320 88" preserveAspectRatio="none" aria-hidden="true">
                 <polyline :points="stockKlinePoints(stockAnalysis.kline)" fill="none" stroke="#00d5e8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
               </svg>
@@ -4634,6 +4647,62 @@ textarea {
   font-weight: 900;
 }
 
+.stock-clear-conclusion {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(0, 213, 232, 0.22);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(0, 213, 232, 0.09);
+}
+
+.stock-clear-conclusion strong {
+  color: #f7fbff;
+  font-size: 18px;
+}
+
+.stock-clear-conclusion p {
+  margin: 0;
+  color: #dcecff;
+  line-height: 1.6;
+}
+
+.stock-clear-conclusion span {
+  color: #bdf7ff;
+  font-weight: 800;
+}
+
+.stock-target-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stock-target-grid div {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(255, 122, 61, 0.24);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(255, 122, 61, 0.08);
+}
+
+.stock-target-grid span,
+.stock-target-grid small {
+  color: #a9bfda;
+}
+
+.stock-target-grid strong {
+  color: #ffb088;
+  font-size: 26px;
+}
+
+.stock-target-grid em {
+  color: #ff7a3d;
+  font-style: normal;
+  font-weight: 900;
+}
+
 .stock-sparkline {
   width: 100%;
   height: 96px;
@@ -4812,6 +4881,7 @@ textarea {
   .stock-dashboard-grid,
   .stock-signal-columns,
   .indicator-grid,
+  .stock-target-grid,
   .stock-skill-grid,
   .console-grid {
     grid-template-columns: 1fr;
