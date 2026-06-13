@@ -85,6 +85,7 @@ const publishDrafts = reactive({});
 const distributionDrafts = reactive({});
 const materialDistributionDrafts = reactive({});
 const xiaohongshuPublishUrls = reactive({});
+const wechatDraftErrors = reactive({});
 const audioPreviews = reactive({});
 const stockWatchlist = ref([]);
 const stockAnalysis = ref(null);
@@ -849,7 +850,13 @@ async function createWechatDraft(job) {
 
 async function submitWechatDraftTask(task, applyResult) {
   if (!task?.id) return;
+  if (!wechatEntry.value?.cover_configured) {
+    wechatDraftErrors[task.id] = "请先点击“上传公众号封面”。微信规定草稿必须带封面，上传成功后才能发送。";
+    setError(wechatDraftErrors[task.id]);
+    return;
+  }
   busy.wechatDraft = String(task.id);
+  wechatDraftErrors[task.id] = "";
   try {
     const result = await requestApi(
       `/api/distribution/tasks/${task.id}/wechat-draft`,
@@ -865,7 +872,9 @@ async function submitWechatDraftTask(task, applyResult) {
     const verifiedTitle = result.wechat?.verified_title || result.title || "";
     setNotice(`微信已核验草稿：${verifiedTitle}。发送账号 AppID：${accountHint}，请登录这个 AppID 对应的公众号查看。`);
   } catch (error) {
-    setError(normalizeErrorMessage(error, "公众号草稿创建失败。"));
+    const message = normalizeErrorMessage(error, "公众号草稿创建失败。");
+    wechatDraftErrors[task.id] = message;
+    setError(message);
   } finally {
     busy.wechatDraft = "";
   }
@@ -1988,12 +1997,21 @@ onBeforeUnmount(() => {
               <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览公众号文章</a>
               <button
                 class="btn accent small"
-                :disabled="busy.wechatDraft === String(trendDistributionDraft.id)"
+                :disabled="!wechatEntry?.cover_configured || busy.wechatDraft === String(trendDistributionDraft.id)"
                 @click="createTrendWechatDraft"
               >
-                {{ busy.wechatDraft === String(trendDistributionDraft.id) ? "发送中..." : "发送到公众号草稿箱" }}
+                {{
+                  busy.wechatDraft === String(trendDistributionDraft.id)
+                    ? "发送中..."
+                    : !wechatEntry?.cover_configured
+                      ? "请先上传封面"
+                      : "发送到公众号草稿箱"
+                }}
               </button>
             </div>
+            <p v-if="wechatDraftErrors[trendDistributionDraft.id]" class="error-text">
+              {{ wechatDraftErrors[trendDistributionDraft.id] }}
+            </p>
             <div class="xiaohongshu-progress">
               <strong>小红书状态：{{ xiaohongshuStatusLabel(trendDistributionDraft) }}</strong>
               <template v-if="['publishing', 'failed'].includes(trendDistributionDraft.xiaohongshu?.status)">
@@ -2255,12 +2273,24 @@ onBeforeUnmount(() => {
               <button
                 class="btn accent small"
                 type="button"
-                :disabled="busy.wechatDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
+                :disabled="!wechatEntry?.cover_configured || busy.wechatDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
                 @click="createMaterialWechatDraft(selectedWechatMaterial)"
               >
-                {{ busy.wechatDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id) ? "发送中..." : "发送到公众号草稿箱" }}
+                {{
+                  busy.wechatDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id)
+                    ? "发送中..."
+                    : !wechatEntry?.cover_configured
+                      ? "请先上传封面"
+                      : "发送到公众号草稿箱"
+                }}
               </button>
             </div>
+            <p v-if="!wechatEntry?.cover_configured" class="error-text">
+              当前没有公众号封面。请先上传一张 JPG/PNG 封面，上传成功后发送按钮会自动解锁。
+            </p>
+            <p v-if="wechatDraftErrors[materialDistributionDrafts[selectedWechatMaterial.id].id]" class="error-text">
+              {{ wechatDraftErrors[materialDistributionDrafts[selectedWechatMaterial.id].id] }}
+            </p>
             <p class="meta">
               状态：{{ materialDistributionDrafts[selectedWechatMaterial.id].wechat?.status === "draft_created" ? "已进入公众号草稿箱" : "等待发送" }}
               <template v-if="materialDistributionDrafts[selectedWechatMaterial.id].wechat?.verified">
@@ -2571,12 +2601,21 @@ onBeforeUnmount(() => {
               </button>
               <button
                 class="btn accent small"
-                :disabled="busy.wechatDraft === String(distributionDrafts[job.id].id)"
+                :disabled="!wechatEntry?.cover_configured || busy.wechatDraft === String(distributionDrafts[job.id].id)"
                 @click="createWechatDraft(job)"
               >
-                {{ busy.wechatDraft === String(distributionDrafts[job.id].id) ? "提交中..." : "发送到公众号草稿箱" }}
+                {{
+                  busy.wechatDraft === String(distributionDrafts[job.id].id)
+                    ? "提交中..."
+                    : !wechatEntry?.cover_configured
+                      ? "请先上传封面"
+                      : "发送到公众号草稿箱"
+                }}
               </button>
             </div>
+            <p v-if="wechatDraftErrors[distributionDrafts[job.id].id]" class="error-text">
+              {{ wechatDraftErrors[distributionDrafts[job.id].id] }}
+            </p>
             <div class="xiaohongshu-progress">
               <strong>小红书状态：{{ xiaohongshuStatusLabel(distributionDrafts[job.id]) }}</strong>
               <template v-if="['publishing', 'failed'].includes(distributionDrafts[job.id].xiaohongshu?.status)">
