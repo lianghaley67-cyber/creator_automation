@@ -82,6 +82,7 @@ const maodouVoiceUrl = ref("");
 const peanutVoiceUrl = ref("");
 const publishDrafts = reactive({});
 const distributionDrafts = reactive({});
+const materialDistributionDrafts = reactive({});
 const audioPreviews = reactive({});
 const stockWatchlist = ref([]);
 const stockAnalysis = ref(null);
@@ -781,6 +782,12 @@ async function prepareDistribution(job) {
 
 async function createWechatDraft(job) {
   const task = distributionDrafts[job?.id];
+  await submitWechatDraftTask(task, (result) => {
+    distributionDrafts[job.id] = result;
+  });
+}
+
+async function submitWechatDraftTask(task, applyResult) {
   if (!task?.id) return;
   busy.wechatDraft = String(task.id);
   try {
@@ -793,13 +800,42 @@ async function createWechatDraft(job) {
       },
       60000
     );
-    distributionDrafts[job.id] = result;
+    applyResult(result);
     setNotice("文章已经自动进入微信公众号草稿箱，请到公众号后台预览后发布。");
   } catch (error) {
     setError(normalizeErrorMessage(error, "公众号草稿创建失败。"));
   } finally {
     busy.wechatDraft = "";
   }
+}
+
+async function prepareMaterialDistribution(material) {
+  if (!material?.id || !material?.script) return;
+  busy.distribution = String(material.id);
+  try {
+    const result = await requestApi(
+      `/api/integrations/wechat/materials/${material.id}/distribution`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({})
+      },
+      30000
+    );
+    materialDistributionDrafts[material.id] = result;
+    setNotice("公众号文章已准备好。首次使用请上传封面，然后发送到草稿箱。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "准备公众号文章失败。"));
+  } finally {
+    if (busy.distribution === String(material.id)) busy.distribution = "";
+  }
+}
+
+async function createMaterialWechatDraft(material) {
+  const task = materialDistributionDrafts[material?.id];
+  await submitWechatDraftTask(task, (result) => {
+    materialDistributionDrafts[material.id] = result;
+  });
 }
 
 async function uploadWechatCover(event) {
@@ -1975,7 +2011,48 @@ onBeforeUnmount(() => {
             <button v-if="selectedWechatMaterial.script" class="btn secondary small" type="button" :disabled="busy.archive === String(selectedWechatMaterial.id)" @click="archiveWechatMaterial(selectedWechatMaterial)">
               {{ busy.archive === String(selectedWechatMaterial.id) ? "归档中..." : "归档 Obsidian" }}
             </button>
+            <button
+              v-if="selectedWechatMaterial.script"
+              class="btn accent small"
+              type="button"
+              :disabled="busy.distribution === String(selectedWechatMaterial.id)"
+              @click="prepareMaterialDistribution(selectedWechatMaterial)"
+            >
+              {{ busy.distribution === String(selectedWechatMaterial.id) ? "准备中..." : "准备公众号文章" }}
+            </button>
             <button class="btn secondary small danger-action" type="button" :disabled="busy.refreshWechat" @click="deleteWechatMaterial(selectedWechatMaterial)">删除本条</button>
+          </div>
+          <div v-if="materialDistributionDrafts[selectedWechatMaterial.id]" class="publish-card material-publish-card">
+            <div class="publish-card-head">
+              <strong>微信公众号自动化</strong>
+              <span>文章已排版，下一步发送到公众号草稿箱</span>
+            </div>
+            <label class="field">
+              <span>文章标题</span>
+              <input readonly :value="materialDistributionDrafts[selectedWechatMaterial.id].title" />
+            </label>
+            <div class="publish-buttons">
+              <label class="upload-audio-label">
+                {{ busy.wechatCover ? "上传封面中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "先上传公众号封面") }}
+                <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
+              </label>
+              <a
+                class="btn secondary small"
+                :href="mediaUrl(materialDistributionDrafts[selectedWechatMaterial.id].wechat?.article_html_url)"
+                target="_blank"
+              >预览公众号文章</a>
+              <button
+                class="btn accent small"
+                type="button"
+                :disabled="busy.wechatDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
+                @click="createMaterialWechatDraft(selectedWechatMaterial)"
+              >
+                {{ busy.wechatDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id) ? "发送中..." : "发送到公众号草稿箱" }}
+              </button>
+            </div>
+            <p class="meta">
+              状态：{{ materialDistributionDrafts[selectedWechatMaterial.id].wechat?.status === "draft_created" ? "已进入公众号草稿箱" : "等待发送" }}
+            </p>
           </div>
         </div>
       </div>

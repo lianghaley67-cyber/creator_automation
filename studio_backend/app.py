@@ -47,6 +47,7 @@ from .kids_mode import (
 )
 from .persona import default_persona, distill_persona
 from .publishing import (
+    prepare_material_distribution_package,
     prepare_distribution_package,
     submit_wechat_draft,
     upload_wechat_cover,
@@ -2003,6 +2004,33 @@ def generate_wechat_material_script(material_id: str, payload: dict[str, Any]) -
         "updated_at": now_iso(),
     }
     return store.update_record("wechat_materials", material_id, patch)
+
+
+@app.post("/api/integrations/wechat/materials/{material_id}/distribution")
+def prepare_wechat_material_distribution(
+    material_id: str,
+    payload: DistributionPrepareRequest = DistributionPrepareRequest(),
+) -> dict[str, Any]:
+    material = store.find_record("wechat_materials", material_id)
+    if not material:
+        raise HTTPException(status_code=404, detail="微信素材不存在。")
+    try:
+        record = prepare_material_distribution_package(
+            material,
+            title=payload.title,
+            summary=payload.summary,
+            author=payload.author,
+            hashtags=payload.hashtags,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    store.add_record("distribution_tasks", record)
+    store.update_record(
+        "wechat_materials",
+        material_id,
+        {"distribution_task_id": record["id"], "updated_at": now_iso()},
+    )
+    return record
 
 
 @app.post("/api/integrations/wechat/materials/{material_id}/archive")

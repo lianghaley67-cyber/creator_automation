@@ -137,6 +137,43 @@ def prepare_distribution_package(
     return record
 
 
+def prepare_material_distribution_package(
+    material: dict[str, Any],
+    *,
+    title: str = "",
+    summary: str = "",
+    author: str = "",
+    hashtags: list[str] | None = None,
+) -> dict[str, Any]:
+    script = str(material.get("script") or "").strip()
+    if not script:
+        raise ValueError("这条微信素材还没有生成文案。")
+    source_text = str(material.get("text") or "").strip()
+    synthetic_job = {
+        "id": f"material:{material.get('id', '')}",
+        "status": "completed",
+        "script_text": script,
+        "request": {
+            "topic": title or source_text[:64] or "微信素材文章",
+            "title": title,
+            "content_mode": material.get("content_mode", ""),
+            "keywords": list(material.get("keywords") or []),
+        },
+        "artifacts": {},
+    }
+    record = prepare_distribution_package(
+        synthetic_job,
+        title=title,
+        summary=summary,
+        author=author,
+        hashtags=hashtags,
+    )
+    record["job_id"] = ""
+    record["material_id"] = str(material.get("id") or "")
+    record["source_type"] = "wechat_material"
+    return record
+
+
 def _post_wechat_json(path: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
     url = f"{WECHAT_API_ROOT}/{path}?{urllib.parse.urlencode({'access_token': token})}"
     request = urllib.request.Request(

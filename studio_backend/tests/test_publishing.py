@@ -9,6 +9,29 @@ from studio_backend import publishing
 
 
 class PublishingTests(unittest.TestCase):
+    def test_prepare_material_distribution_without_video_job(self):
+        material = {
+            "id": "wechat_1",
+            "text": "今天我用 AI 整理了重复工作",
+            "script": "真正有用的自动化，是把省下来的时间还给自己。",
+            "content_mode": "working_mom",
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+
+            def media_url(path):
+                return f"/files/{Path(path).relative_to(output_dir).as_posix()}"
+
+            with (
+                patch.object(publishing, "OUTPUTS_DIR", output_dir),
+                patch.object(publishing, "to_media_url", side_effect=media_url),
+            ):
+                result = publishing.prepare_material_distribution_package(material)
+
+        self.assertEqual(result["material_id"], "wechat_1")
+        self.assertEqual(result["source_type"], "wechat_material")
+        self.assertEqual(result["wechat"]["status"], "ready")
+
     def test_prepare_distribution_package_writes_channel_files(self):
         job = {
             "id": "job_1",
