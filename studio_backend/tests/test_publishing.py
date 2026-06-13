@@ -9,6 +9,35 @@ from studio_backend import publishing
 
 
 class PublishingTests(unittest.TestCase):
+    def test_prepare_trend_distribution_adds_xiaohongshu_recommendation(self):
+        trend = {
+            "id": "trend_1",
+            "title": "AI 工具实时日报",
+            "summary": "AI 正在降低普通人的内容制作门槛。",
+            "items": [{"title": "新工具发布", "summary": "可以自动整理资料。"}],
+            "angles": ["职场妈妈如何省时间"],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+
+            def media_url(path):
+                return f"/files/{Path(path).relative_to(output_dir).as_posix()}"
+
+            with (
+                patch.object(publishing, "OUTPUTS_DIR", output_dir),
+                patch.object(publishing, "to_media_url", side_effect=media_url),
+            ):
+                result = publishing.prepare_trend_distribution_package(
+                    trend,
+                    script="我用这个工具试了一次，确实能省下整理资料的时间。",
+                    question="普通人应该怎么用 AI？",
+                )
+
+        self.assertEqual(result["trend_id"], "trend_1")
+        self.assertTrue(result["xiaohongshu"]["recommended"])
+        self.assertTrue(result["xiaohongshu"]["cover_text"])
+        self.assertEqual(len(result["xiaohongshu"]["publish_steps"]), 4)
+
     def test_prepare_material_distribution_without_video_job(self):
         material = {
             "id": "wechat_1",

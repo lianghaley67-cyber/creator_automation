@@ -174,6 +174,80 @@ def prepare_material_distribution_package(
     return record
 
 
+def prepare_trend_distribution_package(
+    trend: dict[str, Any],
+    *,
+    script: str = "",
+    question: str = "",
+    title: str = "",
+    author: str = "",
+    hashtags: list[str] | None = None,
+) -> dict[str, Any]:
+    items = list(trend.get("items") or [])
+    angles = [str(item).strip() for item in trend.get("angles") or [] if str(item).strip()]
+    content = str(script or "").strip()
+    if not content:
+        sections = [str(trend.get("summary") or "").strip()]
+        for item in items[:6]:
+            item_title = str(item.get("title") or "").strip()
+            item_summary = str(item.get("summary") or "").strip()
+            if item_title:
+                sections.append(f"{item_title}：{item_summary}" if item_summary else item_title)
+        if angles:
+            sections.append("普通人可以关注：" + "；".join(angles[:4]))
+        content = "\n\n".join(item for item in sections if item)
+    if not content:
+        raise ValueError("这份实时资讯没有可分发的内容。")
+
+    source_title = str(title or question or trend.get("title") or trend.get("query") or "").strip()
+    synthetic_job = {
+        "id": f"trend:{trend.get('id', '')}",
+        "status": "completed",
+        "script_text": content,
+        "request": {
+            "topic": source_title or "今天值得关注的 AI 实时资讯",
+            "title": title,
+            "content_mode": "ai_growth",
+            "keywords": list(hashtags or ["AI工具", "效率提升", "职场成长"]),
+        },
+        "artifacts": {},
+    }
+    record = prepare_distribution_package(
+        synthetic_job,
+        title=source_title,
+        summary=str(trend.get("summary") or content),
+        author=author,
+        hashtags=hashtags,
+    )
+    record["job_id"] = ""
+    record["trend_id"] = str(trend.get("id") or "")
+    record["source_type"] = "ai_trends"
+    record["source_question"] = question
+    xhs = dict(record.get("xiaohongshu") or {})
+    recommendation_reason = (
+        "这条内容有明确的新信息、普通人影响和可执行动作，适合做成小红书知识型笔记。"
+        if script
+        else "这份日报包含多条新资讯，建议先加入个人经历或明确观点，再发布成小红书笔记。"
+    )
+    xhs.update(
+        {
+            "recommended": True,
+            "recommendation_reason": recommendation_reason,
+            "cover_text": _compact(source_title or "AI 正在改变普通人的工作方式", 14),
+            "publish_steps": [
+                "先检查标题是否直接说清读者能得到什么。",
+                "封面使用短句，不堆叠资讯标题。",
+                "正文前两段加入你的真实判断或使用经历。",
+                "上传配图或视频后，人工确认再发布。",
+            ],
+        }
+    )
+    record["xiaohongshu"] = xhs
+    manifest_file = OUTPUTS_DIR / "distribution" / record["id"] / "manifest.json"
+    manifest_file.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    return record
+
+
 def _post_wechat_json(path: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
     url = f"{WECHAT_API_ROOT}/{path}?{urllib.parse.urlencode({'access_token': token})}"
     request = urllib.request.Request(

@@ -53,6 +53,7 @@ const quality = ref(null);
 const activeTab = ref("overview"); // overview | trends | materials | stocks
 const trendQuestions = ref([]);
 const trendScripts = ref({});
+const trendDistributionDraft = ref(null);
 const generatingTrendScript = ref(false);
 const selectedTrendQuestion = ref("");
 const trendInterviewAnswer = ref("");
@@ -123,6 +124,7 @@ const busy = reactive({
   refreshTrends: false,
   trendInterview: false,
   trendVoice: false,
+  trendDistribution: false,
   notebooklm: false,
   archive: "",
   cleanup: false,
@@ -726,6 +728,54 @@ function generateTrendQuestions(trend) {
     "如果用访谈方式深挖：这条资讯最触动我的一个焦虑、期待或真实经历是什么？",
     `怎么把「${pickTitle(2)}」转成一条有钩子、有观点、有行动建议的视频号口播文案？`
   ];
+}
+
+async function prepareTrendDistribution(preferGeneratedScript = false, destination = "all") {
+  const trend = aiTrends.value[0];
+  if (!trend?.id) {
+    setError("请先获取实时资讯。");
+    return;
+  }
+  const generated = selectedTrendQuestion.value
+    ? trendScripts.value[selectedTrendQuestion.value]
+    : null;
+  const script = preferGeneratedScript ? String(generated?.script || "").trim() : "";
+  if (preferGeneratedScript && !script) {
+    setError("请先基于追问生成文案，再推荐到小红书。");
+    return;
+  }
+  busy.trendDistribution = true;
+  try {
+    const result = await requestApi(
+      `/api/ai-trends/${trend.id}/distribution`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          script,
+          question: preferGeneratedScript ? selectedTrendQuestion.value : "",
+          title: preferGeneratedScript ? selectedTrendQuestion.value : trend.title || ""
+        })
+      },
+      30000
+    );
+    trendDistributionDraft.value = result;
+    setNotice(
+      destination === "xiaohongshu"
+        ? "已生成小红书推荐方案：标题、封面短句、正文、话题和发布步骤都准备好了。"
+        : "实时资讯已整理成公众号文章和小红书发布包。"
+    );
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "实时资讯分发准备失败。"));
+  } finally {
+    busy.trendDistribution = false;
+  }
+}
+
+async function createTrendWechatDraft() {
+  await submitWechatDraftTask(trendDistributionDraft.value, (result) => {
+    trendDistributionDraft.value = result;
+  });
 }
 
 async function generateJobAudio(job) {
@@ -1821,6 +1871,51 @@ onBeforeUnmount(() => {
             <strong>可转化选题角度</strong>
             <span v-for="angle in aiTrends[0].angles || []" :key="angle">{{ angle }}</span>
           </div>
+          <div class="publish-buttons trend-publish-actions">
+            <button class="btn accent small" :disabled="busy.trendDistribution" @click="prepareTrendDistribution(false, 'wechat')">
+              {{ busy.trendDistribution ? "准备中..." : "整理并推公众号" }}
+            </button>
+            <button class="btn primary small" :disabled="busy.trendDistribution" @click="prepareTrendDistribution(false, 'xiaohongshu')">
+              推荐到小红书
+            </button>
+          </div>
+          <div v-if="trendDistributionDraft" class="publish-card trend-distribution-card">
+            <div class="publish-card-head">
+              <strong>实时资讯分发</strong>
+              <span>{{ trendDistributionDraft.xiaohongshu?.recommendation_reason }}</span>
+            </div>
+            <label class="field">
+              <span>小红书推荐标题</span>
+              <input readonly :value="trendDistributionDraft.xiaohongshu?.title" />
+            </label>
+            <label class="field">
+              <span>封面短句</span>
+              <input readonly :value="trendDistributionDraft.xiaohongshu?.cover_text" />
+            </label>
+            <label class="field">
+              <span>小红书正文与话题</span>
+              <textarea class="caption-box" readonly :value="trendDistributionDraft.xiaohongshu?.body"></textarea>
+            </label>
+            <div class="publish-buttons">
+              <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.body, '小红书正文已复制。')">复制小红书正文</button>
+              <button class="btn secondary small" @click="openXiaohongshuCreator(trendDistributionDraft)">打开小红书后台</button>
+              <label class="upload-audio-label">
+                {{ busy.wechatCover ? "上传中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
+                <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
+              </label>
+              <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览公众号文章</a>
+              <button
+                class="btn accent small"
+                :disabled="busy.wechatDraft === String(trendDistributionDraft.id)"
+                @click="createTrendWechatDraft"
+              >
+                {{ busy.wechatDraft === String(trendDistributionDraft.id) ? "发送中..." : "发送到公众号草稿箱" }}
+              </button>
+            </div>
+            <ol>
+              <li v-for="step in trendDistributionDraft.xiaohongshu?.publish_steps || []" :key="step">{{ step }}</li>
+            </ol>
+          </div>
           <div v-if="notebookLmPackage" class="notebooklm-box">
             <strong>NotebookLM 导入包</strong>
             <span>Markdown 包适合整体导入；原始链接清单适合让 NotebookLM 分别读取每篇资讯网页。</span>
@@ -1936,7 +2031,11 @@ onBeforeUnmount(() => {
           <div v-if="trendScripts[selectedTrendQuestion]" class="script-preview-card interview-script">
             <div class="script-preview-head">
               <strong>已生成文案</strong>
-              <button class="btn secondary small inline" @click="copyText(trendScripts[selectedTrendQuestion].script, '文案已复制')">复制</button>
+              <div class="top-actions">
+                <button class="btn secondary small inline" @click="copyText(trendScripts[selectedTrendQuestion].script, '文案已复制')">复制</button>
+                <button class="btn accent small inline" :disabled="busy.trendDistribution" @click="prepareTrendDistribution(true, 'wechat')">这篇推公众号</button>
+                <button class="btn primary small inline" :disabled="busy.trendDistribution" @click="prepareTrendDistribution(true, 'xiaohongshu')">推荐到小红书</button>
+              </div>
             </div>
             <pre>{{ trendScripts[selectedTrendQuestion].script }}</pre>
             <div v-if="trendScripts[selectedTrendQuestion].quality" class="quality" :class="{ pass: trendScripts[selectedTrendQuestion].quality.passed }">

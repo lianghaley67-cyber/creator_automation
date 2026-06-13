@@ -48,6 +48,7 @@ from .kids_mode import (
 from .persona import default_persona, distill_persona
 from .publishing import (
     prepare_material_distribution_package,
+    prepare_trend_distribution_package,
     prepare_distribution_package,
     submit_wechat_draft,
     upload_wechat_cover,
@@ -70,6 +71,7 @@ from .schemas import (
     SchedulePayload,
     WeChatMaterialRequest,
     WeChatDraftRequest,
+    TrendDistributionRequest,
 )
 from .storage import (
     OUTPUTS_DIR,
@@ -1598,6 +1600,29 @@ def create_notebooklm_package() -> dict[str, Any]:
     }
     store.add_record("obsidian_archives", record)
     return {"status": "ok", **record}
+
+
+@app.post("/api/ai-trends/{trend_id}/distribution")
+def prepare_ai_trend_distribution(
+    trend_id: str,
+    payload: TrendDistributionRequest = TrendDistributionRequest(),
+) -> dict[str, Any]:
+    trend = store.find_record("ai_trends", trend_id)
+    if not trend:
+        raise HTTPException(status_code=404, detail="实时资讯记录不存在。")
+    try:
+        record = prepare_trend_distribution_package(
+            trend,
+            script=payload.script,
+            question=payload.question,
+            title=payload.title,
+            author=payload.author,
+            hashtags=payload.hashtags,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    store.add_record("distribution_tasks", record)
+    return record
 
 
 @app.post("/api/ai-trends/interview/followups")

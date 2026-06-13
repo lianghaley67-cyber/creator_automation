@@ -185,3 +185,11 @@ class DistributionPrepareRequest(BaseModel):
 
 class WeChatDraftRequest(BaseModel):
     publish_now: bool = False
+
+
+class TrendDistributionRequest(BaseModel):
+    script: str = ""
+    question: str = ""
+    title: str = ""
+    author: str = ""
+    hashtags: list[str] = Field(default_factory=list)
