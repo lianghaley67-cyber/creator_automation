@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -32,6 +33,18 @@ class PublishingTests(unittest.TestCase):
                     script="我用这个工具试了一次，确实能省下整理资料的时间。",
                     question="普通人应该怎么用 AI？",
                 )
+            package_path = (
+                output_dir
+                / "distribution"
+                / result["id"]
+                / "xiaohongshu_publish_package.zip"
+            )
+            self.assertTrue(package_path.exists())
+            with zipfile.ZipFile(package_path) as bundle:
+                self.assertIn("xiaohongshu_title.txt", bundle.namelist())
+                self.assertIn("xiaohongshu_note.txt", bundle.namelist())
+                self.assertIn("xiaohongshu_checklist.txt", bundle.namelist())
+                self.assertIn("xiaohongshu_cover_text.txt", bundle.namelist())
 
         self.assertEqual(result["trend_id"], "trend_1")
         self.assertTrue(result["xiaohongshu"]["recommended"])

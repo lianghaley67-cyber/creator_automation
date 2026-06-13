@@ -84,6 +84,7 @@ const peanutVoiceUrl = ref("");
 const publishDrafts = reactive({});
 const distributionDrafts = reactive({});
 const materialDistributionDrafts = reactive({});
+const xiaohongshuPublishUrls = reactive({});
 const audioPreviews = reactive({});
 const stockWatchlist = ref([]);
 const stockAnalysis = ref(null);
@@ -136,6 +137,7 @@ const busy = reactive({
   publish: "",
   audio: "",
   distribution: "",
+  xiaohongshu: "",
   wechatDraft: "",
   wechatCover: false,
   stockRefresh: false,
@@ -778,6 +780,14 @@ async function createTrendWechatDraft() {
   });
 }
 
+function applyTrendDistributionResult(result) {
+  trendDistributionDraft.value = result;
+}
+
+function applyJobDistributionResult(jobId, result) {
+  distributionDrafts[jobId] = result;
+}
+
 async function generateJobAudio(job) {
   const text = String(job?.script_text || job?.request?.custom_script || job?.request?.topic || "").trim();
   if (!text) {
@@ -911,8 +921,70 @@ async function uploadWechatCover(event) {
   }
 }
 
-function openXiaohongshuCreator(draft) {
-  window.open(draft?.xiaohongshu?.creator_url || "https://creator.xiaohongshu.com/", "_blank", "noopener,noreferrer");
+function xiaohongshuStatusLabel(draft) {
+  const status = draft?.xiaohongshu?.status;
+  if (status === "publishing") return "发布中，等待你确认";
+  if (status === "published") return "已发布";
+  if (status === "failed") return "发布失败，可重新尝试";
+  return "待发布";
+}
+
+async function updateXiaohongshuStatus(task, status, applyResult, noteUrl = "") {
+  if (!task?.id) return;
+  busy.xiaohongshu = String(task.id);
+  try {
+    const result = await requestApi(
+      `/api/distribution/tasks/${task.id}/xiaohongshu/status`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          status,
+          note_url: noteUrl,
+          notes: status === "failed" ? "人工发布未完成，等待重新处理。" : ""
+        })
+      },
+      30000
+    );
+    applyResult(result);
+    return result;
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "更新小红书发布状态失败。"));
+    return null;
+  } finally {
+    busy.xiaohongshu = "";
+  }
+}
+
+async function startXiaohongshuPublishing(task, applyResult) {
+  if (!task?.id) return;
+  const xiaohongshu = task.xiaohongshu || {};
+  const creatorWindow = window.open(
+    xiaohongshu.creator_url || "https://creator.xiaohongshu.com/",
+    "_blank",
+    "noopener,noreferrer"
+  );
+  await copyText(
+    `${xiaohongshu.title || ""}\n\n${xiaohongshu.body || ""}`.trim(),
+    "标题和正文已复制，小红书创作中心已打开。"
+  );
+  const result = await updateXiaohongshuStatus(task, "publishing", applyResult);
+  if (result && creatorWindow) creatorWindow.focus();
+}
+
+async function finishXiaohongshuPublishing(task, applyResult) {
+  const noteUrl = String(xiaohongshuPublishUrls[task?.id] || "").trim();
+  if (!noteUrl) {
+    setError("请先粘贴发布后的小红书笔记链接。");
+    return;
+  }
+  const result = await updateXiaohongshuStatus(task, "published", applyResult, noteUrl);
+  if (result) setNotice("小红书笔记已标记为发布完成，链接已保存，后续可以继续做数据复盘。");
+}
+
+async function failXiaohongshuPublishing(task, applyResult) {
+  const result = await updateXiaohongshuStatus(task, "failed", applyResult);
+  if (result) setNotice("已记录为发布失败，你可以修改内容后重新开始。");
 }
 
 function startTrendInterview(question) {
@@ -1897,8 +1969,16 @@ onBeforeUnmount(() => {
               <textarea class="caption-box" readonly :value="trendDistributionDraft.xiaohongshu?.body"></textarea>
             </label>
             <div class="publish-buttons">
-              <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.body, '小红书正文已复制。')">复制小红书正文</button>
-              <button class="btn secondary small" @click="openXiaohongshuCreator(trendDistributionDraft)">打开小红书后台</button>
+              <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.title, '小红书标题已复制。')">复制标题</button>
+              <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
+              <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.xiaohongshu?.package_url)" download>下载小红书素材包</a>
+              <button
+                class="btn primary small"
+                :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
+                @click="startXiaohongshuPublishing(trendDistributionDraft, applyTrendDistributionResult)"
+              >
+                {{ busy.xiaohongshu === String(trendDistributionDraft.id) ? "处理中..." : "开始半自动发布" }}
+              </button>
               <label class="upload-audio-label">
                 {{ busy.wechatCover ? "上传中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
                 <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
@@ -1911,6 +1991,32 @@ onBeforeUnmount(() => {
               >
                 {{ busy.wechatDraft === String(trendDistributionDraft.id) ? "发送中..." : "发送到公众号草稿箱" }}
               </button>
+            </div>
+            <div class="xiaohongshu-progress">
+              <strong>小红书状态：{{ xiaohongshuStatusLabel(trendDistributionDraft) }}</strong>
+              <template v-if="['publishing', 'failed'].includes(trendDistributionDraft.xiaohongshu?.status)">
+                <input
+                  v-model="xiaohongshuPublishUrls[trendDistributionDraft.id]"
+                  placeholder="发布后，把小红书笔记链接粘贴到这里"
+                />
+                <button
+                  class="btn accent small"
+                  :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
+                  @click="finishXiaohongshuPublishing(trendDistributionDraft, applyTrendDistributionResult)"
+                >标记已发布</button>
+                <button
+                  v-if="trendDistributionDraft.xiaohongshu?.status !== 'published'"
+                  class="btn secondary small"
+                  :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
+                  @click="failXiaohongshuPublishing(trendDistributionDraft, applyTrendDistributionResult)"
+                >记录失败</button>
+              </template>
+              <a
+                v-if="trendDistributionDraft.xiaohongshu?.published_note_url"
+                :href="trendDistributionDraft.xiaohongshu.published_note_url"
+                target="_blank"
+                rel="noreferrer"
+              >查看已发布笔记</a>
             </div>
             <ol>
               <li v-for="step in trendDistributionDraft.xiaohongshu?.publish_steps || []" :key="step">{{ step }}</li>
@@ -2440,8 +2546,19 @@ onBeforeUnmount(() => {
               <button
                 class="btn secondary small"
                 @click="copyText(distributionDrafts[job.id].xiaohongshu?.body, '小红书正文已复制。')"
-              >复制小红书正文</button>
-              <button class="btn secondary small" @click="openXiaohongshuCreator(distributionDrafts[job.id])">打开小红书后台</button>
+              >复制正文</button>
+              <button
+                class="btn secondary small"
+                @click="copyText(distributionDrafts[job.id].xiaohongshu?.title, '小红书标题已复制。')"
+              >复制标题</button>
+              <a class="btn secondary small" :href="mediaUrl(distributionDrafts[job.id].xiaohongshu?.package_url)" download>下载小红书素材包</a>
+              <button
+                class="btn primary small"
+                :disabled="busy.xiaohongshu === String(distributionDrafts[job.id].id)"
+                @click="startXiaohongshuPublishing(distributionDrafts[job.id], (result) => applyJobDistributionResult(job.id, result))"
+              >
+                {{ busy.xiaohongshu === String(distributionDrafts[job.id].id) ? "处理中..." : "开始半自动发布" }}
+              </button>
               <button
                 class="btn accent small"
                 :disabled="busy.wechatDraft === String(distributionDrafts[job.id].id)"
@@ -2450,9 +2567,35 @@ onBeforeUnmount(() => {
                 {{ busy.wechatDraft === String(distributionDrafts[job.id].id) ? "提交中..." : "发送到公众号草稿箱" }}
               </button>
             </div>
+            <div class="xiaohongshu-progress">
+              <strong>小红书状态：{{ xiaohongshuStatusLabel(distributionDrafts[job.id]) }}</strong>
+              <template v-if="['publishing', 'failed'].includes(distributionDrafts[job.id].xiaohongshu?.status)">
+                <input
+                  v-model="xiaohongshuPublishUrls[distributionDrafts[job.id].id]"
+                  placeholder="发布后，把小红书笔记链接粘贴到这里"
+                />
+                <button
+                  class="btn accent small"
+                  :disabled="busy.xiaohongshu === String(distributionDrafts[job.id].id)"
+                  @click="finishXiaohongshuPublishing(distributionDrafts[job.id], (result) => applyJobDistributionResult(job.id, result))"
+                >标记已发布</button>
+                <button
+                  v-if="distributionDrafts[job.id].xiaohongshu?.status !== 'published'"
+                  class="btn secondary small"
+                  :disabled="busy.xiaohongshu === String(distributionDrafts[job.id].id)"
+                  @click="failXiaohongshuPublishing(distributionDrafts[job.id], (result) => applyJobDistributionResult(job.id, result))"
+                >记录失败</button>
+              </template>
+              <a
+                v-if="distributionDrafts[job.id].xiaohongshu?.published_note_url"
+                :href="distributionDrafts[job.id].xiaohongshu.published_note_url"
+                target="_blank"
+                rel="noreferrer"
+              >查看已发布笔记</a>
+            </div>
             <p class="meta">
               公众号：{{ distributionDrafts[job.id].wechat?.status === "draft_created" ? "草稿已创建" : "等待提交" }}
-              · 小红书：最后一步由你检查封面后确认发布
+              · 小红书：{{ xiaohongshuStatusLabel(distributionDrafts[job.id]) }}
             </p>
           </div>
           <div v-if="publishDrafts[job.id]" class="publish-card">
@@ -4317,6 +4460,30 @@ textarea {
   margin: 0;
   padding-left: 18px;
   line-height: 1.55;
+}
+
+.xiaohongshu-progress {
+  display: grid;
+  grid-template-columns: minmax(160px, auto) minmax(240px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid #ead5bf;
+}
+
+.xiaohongshu-progress input {
+  min-width: 0;
+}
+
+.xiaohongshu-progress a {
+  color: #246bfe;
+  font-weight: 800;
+}
+
+@media (max-width: 860px) {
+  .xiaohongshu-progress {
+    grid-template-columns: 1fr;
+  }
 }
 
 .floating-generate {

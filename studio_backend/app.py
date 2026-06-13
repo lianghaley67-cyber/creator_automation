@@ -50,6 +50,7 @@ from .publishing import (
     prepare_material_distribution_package,
     prepare_trend_distribution_package,
     prepare_distribution_package,
+    refresh_distribution_manifest,
     submit_wechat_draft,
     upload_wechat_cover,
 )
@@ -72,6 +73,7 @@ from .schemas import (
     WeChatMaterialRequest,
     WeChatDraftRequest,
     TrendDistributionRequest,
+    XiaohongshuPublishStatusRequest,
 )
 from .storage import (
     OUTPUTS_DIR,
@@ -2407,6 +2409,35 @@ def create_distribution_wechat_draft(
         task_id,
         {"wechat": updated_wechat, "updated_at": now_iso()},
     )
+
+
+@app.post("/api/distribution/tasks/{task_id}/xiaohongshu/status")
+def update_distribution_xiaohongshu_status(
+    task_id: str,
+    payload: XiaohongshuPublishStatusRequest,
+) -> dict[str, Any]:
+    task = store.find_record("distribution_tasks", task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="分发任务不存在。")
+    xiaohongshu = {
+        **(task.get("xiaohongshu") if isinstance(task.get("xiaohongshu"), dict) else {}),
+        "status": payload.status,
+        "notes": payload.notes.strip(),
+    }
+    if payload.status == "publishing":
+        xiaohongshu["started_at"] = now_iso()
+    if payload.status == "published":
+        note_url = payload.note_url.strip()
+        if not note_url:
+            raise HTTPException(status_code=422, detail="请填写发布后的小红书笔记链接。")
+        xiaohongshu["published_note_url"] = note_url
+        xiaohongshu["published_at"] = now_iso()
+    updated = store.update_record(
+        "distribution_tasks",
+        task_id,
+        {"xiaohongshu": xiaohongshu, "updated_at": now_iso()},
+    )
+    return refresh_distribution_manifest(updated)
 
 
 @app.get("/api/jobs/{job_id}/publish/douyin-assistant")

@@ -193,3 +193,9 @@ class TrendDistributionRequest(BaseModel):
     title: str = ""
     author: str = ""
     hashtags: list[str] = Field(default_factory=list)
+
+
+class XiaohongshuPublishStatusRequest(BaseModel):
+    status: Literal["ready_for_manual_confirm", "publishing", "published", "failed"]
+    note_url: str = ""
+    notes: str = ""

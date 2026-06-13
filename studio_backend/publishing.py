@@ -6,10 +6,11 @@ import os
 import re
 import urllib.parse
 import urllib.request
+import zipfile
 from pathlib import Path
 from typing import Any, Callable
 
-from .storage import OUTPUTS_DIR, make_id, now_iso, to_media_url
+from .storage import OUTPUTS_DIR, STUDIO_DIR, make_id, now_iso, to_media_url
 
 
 WECHAT_API_ROOT = "https://api.weixin.qq.com/cgi-bin"
@@ -73,6 +74,106 @@ def _wechat_html(title: str, summary: str, script: str) -> str:
     )
 
 
+def _source_media_files(artifacts: dict[str, Any]) -> list[Path]:
+    candidates: list[str] = []
+
+    def collect(value: Any) -> None:
+        if isinstance(value, dict):
+            for item in value.values():
+                collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+        elif isinstance(value, str):
+            candidates.append(value)
+
+    collect(artifacts)
+    files: list[Path] = []
+    seen: set[Path] = set()
+    for value in candidates:
+        path: Path | None = None
+        if value.startswith("/studio-files/"):
+            path = STUDIO_DIR / value.removeprefix("/studio-files/")
+        else:
+            candidate = Path(value)
+            if candidate.is_absolute():
+                path = candidate
+        if path and path.is_file():
+            resolved = path.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                files.append(resolved)
+    return files
+
+
+def _write_xiaohongshu_package(
+    package_dir: Path,
+    record: dict[str, Any],
+    source_artifacts: dict[str, Any],
+) -> Path:
+    xhs = record["xiaohongshu"]
+    checklist = "\n".join(
+        [
+            "小红书半自动发布清单",
+            "",
+            "1. 下载并解压这个素材包。",
+            "2. 点击系统里的“开始半自动发布”，系统会复制标题和正文并打开创作中心。",
+            "3. 在创作中心上传 media 文件夹里的图片或视频。",
+            "4. 粘贴标题和正文，检查封面、话题和错别字。",
+            "5. 由你本人点击发布。",
+            "6. 发布后复制笔记链接，回填系统并标记“已发布”。",
+        ]
+    )
+    (package_dir / "xiaohongshu_title.txt").write_text(
+        str(xhs.get("title") or ""), encoding="utf-8"
+    )
+    (package_dir / "xiaohongshu_checklist.txt").write_text(checklist, encoding="utf-8")
+    cover_text = str(xhs.get("cover_text") or "").strip()
+    if cover_text:
+        (package_dir / "xiaohongshu_cover_text.txt").write_text(
+            cover_text, encoding="utf-8"
+        )
+
+    archive = package_dir / "xiaohongshu_publish_package.zip"
+    used_names: set[str] = set()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        for filename in (
+            "xiaohongshu_title.txt",
+            "xiaohongshu_note.txt",
+            "xiaohongshu_checklist.txt",
+            "xiaohongshu_cover_text.txt",
+        ):
+            file_path = package_dir / filename
+            if file_path.exists():
+                bundle.write(file_path, filename)
+        for index, media_path in enumerate(_source_media_files(source_artifacts), start=1):
+            name = media_path.name
+            if name in used_names:
+                name = f"{index}_{name}"
+            used_names.add(name)
+            bundle.write(media_path, f"media/{name}")
+    return archive
+
+
+def refresh_distribution_manifest(record: dict[str, Any]) -> dict[str, Any]:
+    package_dir = OUTPUTS_DIR / "distribution" / str(record.get("id") or "")
+    package_dir.mkdir(parents=True, exist_ok=True)
+    archive = _write_xiaohongshu_package(
+        package_dir,
+        record,
+        record.get("source_artifacts")
+        if isinstance(record.get("source_artifacts"), dict)
+        else {},
+    )
+    record["xiaohongshu"]["package_url"] = to_media_url(archive)
+    manifest_file = package_dir / "manifest.json"
+    record["manifest_url"] = to_media_url(manifest_file)
+    manifest_file.write_text(
+        json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return record
+
+
 def prepare_distribution_package(
     job: dict[str, Any],
     *,
@@ -100,7 +201,6 @@ def prepare_distribution_package(
     package_dir.mkdir(parents=True, exist_ok=True)
     wechat_file = package_dir / "wechat_article.html"
     xhs_file = package_dir / "xiaohongshu_note.txt"
-    manifest_file = package_dir / "manifest.json"
     wechat_file.write_text(_wechat_html(final_title, final_summary, script), encoding="utf-8")
     xhs_file.write_text(f"{xhs_title}\n\n{xhs_body}", encoding="utf-8")
 
@@ -129,12 +229,14 @@ def prepare_distribution_package(
             "title": xhs_title,
             "body": xhs_body,
             "note_url": to_media_url(xhs_file),
+            "published_note_url": "",
+            "started_at": "",
+            "published_at": "",
+            "notes": "",
             "manual_confirm_required": True,
         },
     }
-    manifest_file.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
-    record["manifest_url"] = to_media_url(manifest_file)
-    return record
+    return refresh_distribution_manifest(record)
 
 
 def prepare_material_distribution_package(
@@ -171,7 +273,7 @@ def prepare_material_distribution_package(
     record["job_id"] = ""
     record["material_id"] = str(material.get("id") or "")
     record["source_type"] = "wechat_material"
-    return record
+    return refresh_distribution_manifest(record)
 
 
 def prepare_trend_distribution_package(
@@ -243,9 +345,7 @@ def prepare_trend_distribution_package(
         }
     )
     record["xiaohongshu"] = xhs
-    manifest_file = OUTPUTS_DIR / "distribution" / record["id"] / "manifest.json"
-    manifest_file.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
-    return record
+    return refresh_distribution_manifest(record)
 
 
 def _post_wechat_json(path: str, token: str, payload: dict[str, Any]) -> dict[str, Any]:
