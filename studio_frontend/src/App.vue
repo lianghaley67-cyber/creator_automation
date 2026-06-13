@@ -861,7 +861,9 @@ async function submitWechatDraftTask(task, applyResult) {
       60000
     );
     applyResult(result);
-    setNotice("文章已经自动进入微信公众号草稿箱，请到公众号后台预览后发布。");
+    const accountHint = result.wechat?.app_id_masked || wechatEntry.value?.app_id_masked || "当前配置账号";
+    const verifiedTitle = result.wechat?.verified_title || result.title || "";
+    setNotice(`微信已核验草稿：${verifiedTitle}。发送账号 AppID：${accountHint}，请登录这个 AppID 对应的公众号查看。`);
   } catch (error) {
     setError(normalizeErrorMessage(error, "公众号草稿创建失败。"));
   } finally {
@@ -2018,6 +2020,10 @@ onBeforeUnmount(() => {
                 rel="noreferrer"
               >查看已发布笔记</a>
             </div>
+            <p v-if="trendDistributionDraft.wechat?.verified" class="meta">
+              公众号草稿已由微信读取核验 · AppID {{ trendDistributionDraft.wechat?.app_id_masked }}
+              · 草稿ID {{ trendDistributionDraft.wechat?.draft_media_id }}
+            </p>
             <ol>
               <li v-for="step in trendDistributionDraft.xiaohongshu?.publish_steps || []" :key="step">{{ step }}</li>
             </ol>
@@ -2257,6 +2263,10 @@ onBeforeUnmount(() => {
             </div>
             <p class="meta">
               状态：{{ materialDistributionDrafts[selectedWechatMaterial.id].wechat?.status === "draft_created" ? "已进入公众号草稿箱" : "等待发送" }}
+              <template v-if="materialDistributionDrafts[selectedWechatMaterial.id].wechat?.verified">
+                · 微信已读取核验 · AppID {{ materialDistributionDrafts[selectedWechatMaterial.id].wechat?.app_id_masked }}
+                · 草稿ID {{ materialDistributionDrafts[selectedWechatMaterial.id].wechat?.draft_media_id }}
+              </template>
             </p>
           </div>
         </div>
@@ -2595,6 +2605,9 @@ onBeforeUnmount(() => {
             </div>
             <p class="meta">
               公众号：{{ distributionDrafts[job.id].wechat?.status === "draft_created" ? "草稿已创建" : "等待提交" }}
+              <template v-if="distributionDrafts[job.id].wechat?.verified">
+                · 微信已核验 · AppID {{ distributionDrafts[job.id].wechat?.app_id_masked }}
+              </template>
               · 小红书：{{ xiaohongshuStatusLabel(distributionDrafts[job.id]) }}
             </p>
           </div>

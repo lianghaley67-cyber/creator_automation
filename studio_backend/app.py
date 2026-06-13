@@ -545,6 +545,14 @@ def _get_wechat_access_token() -> str:
     return token
 
 
+def _masked_wechat_app_id() -> str:
+    if not WECHAT_APP_ID:
+        return ""
+    if len(WECHAT_APP_ID) <= 8:
+        return WECHAT_APP_ID
+    return f"{WECHAT_APP_ID[:4]}***{WECHAT_APP_ID[-6:]}"
+
+
 def _download_wechat_voice_media(media_id: str, *, msg_id: str = "") -> Path:
     token = _get_wechat_access_token()
     if not token:
@@ -1883,6 +1891,7 @@ def get_wechat_entry() -> dict[str, Any]:
         "voice_fallback_enabled": WECHAT_VOICE_FALLBACK_TRANSCRIBE,
         "voice_fallback_configured": bool(WECHAT_APP_ID and WECHAT_APP_SECRET),
         "draft_api_configured": bool(WECHAT_APP_ID and WECHAT_APP_SECRET),
+        "app_id_masked": _masked_wechat_app_id(),
         "cover_configured": bool(saved_thumb or os.getenv("WECHAT_THUMB_MEDIA_ID", "").strip()),
     }
 
@@ -2403,6 +2412,7 @@ def create_distribution_wechat_draft(
     updated_wechat = {
         **(task.get("wechat") if isinstance(task.get("wechat"), dict) else {}),
         **wechat_result,
+        "app_id_masked": _masked_wechat_app_id(),
     }
     return store.update_record(
         "distribution_tasks",

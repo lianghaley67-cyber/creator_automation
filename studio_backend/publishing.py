@@ -394,10 +394,23 @@ def submit_wechat_draft(
     }
     draft_result = _post_wechat_json("draft/add", token, {"articles": [article]})
     media_id = str(draft_result.get("media_id") or "")
+    if not media_id:
+        raise RuntimeError(
+            f"微信接口没有返回草稿 media_id，不能确认发送成功。原始返回：{draft_result}"
+        )
+    verify_result = _post_wechat_json("draft/get", token, {"media_id": media_id})
+    news_items = verify_result.get("news_item")
+    if not isinstance(news_items, list) or not news_items:
+        raise RuntimeError(
+            f"微信返回了草稿 ID，但随后读取不到草稿内容。草稿 ID：{media_id}"
+        )
+    verified_title = str(news_items[0].get("title") or "").strip()
     result = {
         "status": "draft_created",
         "draft_media_id": media_id,
         "submitted_at": now_iso(),
+        "verified": True,
+        "verified_title": verified_title,
         "publish_id": "",
     }
     if publish_now:

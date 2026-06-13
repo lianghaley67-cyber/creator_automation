@@ -111,12 +111,18 @@ class PublishingTests(unittest.TestCase):
             "summary": "测试摘要",
             "author": "作者",
         }
-        responses = [{"media_id": "draft_123"}]
+        responses = [
+            {"media_id": "draft_123"},
+            {"news_item": [{"title": "测试标题", "content": "<p>正文</p>"}]},
+        ]
 
         def fake_post(path, token, payload):
-            self.assertEqual(path, "draft/add")
             self.assertEqual(token, "token_1")
-            self.assertEqual(payload["articles"][0]["thumb_media_id"], "cover_1")
+            if path == "draft/add":
+                self.assertEqual(payload["articles"][0]["thumb_media_id"], "cover_1")
+            else:
+                self.assertEqual(path, "draft/get")
+                self.assertEqual(payload["media_id"], "draft_123")
             return responses.pop(0)
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -138,6 +144,28 @@ class PublishingTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "draft_created")
         self.assertEqual(result["draft_media_id"], "draft_123")
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["verified_title"], "测试标题")
+
+    def test_submit_wechat_draft_rejects_missing_media_id(self):
+        task = {"id": "distribution_2", "title": "测试标题", "summary": ""}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            article_dir = output_dir / "distribution" / task["id"]
+            article_dir.mkdir(parents=True)
+            (article_dir / "wechat_article.html").write_text(
+                "<p>正文</p>", encoding="utf-8"
+            )
+            with (
+                patch.object(publishing, "OUTPUTS_DIR", output_dir),
+                patch.object(publishing, "_post_wechat_json", return_value={}),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "没有返回草稿 media_id"):
+                    publishing.submit_wechat_draft(
+                        task,
+                        get_access_token=lambda: "token_1",
+                        thumb_media_id="cover_1",
+                    )
 
 
 if __name__ == "__main__":
