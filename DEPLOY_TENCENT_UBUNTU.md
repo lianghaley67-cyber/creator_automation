@@ -158,3 +158,27 @@ cd /home/ubuntu/creator_automation
 git pull
 bash deploy/ubuntu_install.sh
 ```
+
+## 8. 从 JSON 升级到 SQLite（Docker 部署）
+
+SQLite 免费，并且 Python 已内置运行支持。服务器上的 `sqlite3` 命令行工具仅用于人工检查。
+
+```bash
+cd /home/ubuntu/creator_automation
+git pull
+sudo apt update
+sudo apt install -y sqlite3
+chmod +x deploy/upgrade_sqlite_docker.sh
+bash deploy/upgrade_sqlite_docker.sh
+```
+
+首次启动会把 `studio_runtime/studio_state.json` 自动导入
+`studio_runtime/studio.db`。旧 JSON 和带时间戳的备份都会保留。
+
+检查数据库：
+
+```bash
+sqlite3 studio_runtime/studio.db "PRAGMA integrity_check;"
+sqlite3 studio_runtime/studio.db \
+  "SELECT section, updated_at FROM state_sections ORDER BY section;"
+```

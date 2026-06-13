@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -20,6 +22,7 @@ REFERENCES_DIR = STUDIO_DIR / "references"    # 参考资源目录
 PORTRAITS_DIR = REFERENCES_DIR / "portraits"  # 人脸肖像目录
 VOICE_REFERENCES_DIR = REFERENCES_DIR / "voice_samples"  # 语音参考目录
 STATE_FILE = STUDIO_DIR / "studio_state.json" # 状态持久化文件
+DATABASE_FILE = STUDIO_DIR / "studio.db"       # SQLite 状态数据库
 
 # 默认状态结构定义
 DEFAULT_STATE: dict[str, Any] = {
@@ -68,7 +71,7 @@ def ensure_workspace() -> None:
     """
     确保工作室目录结构存在
 
-    创建所有必要的目录和默认状态文件，在应用启动时调用。
+    创建所有必要的目录，在应用启动时调用。
     """
     STUDIO_DIR.mkdir(parents=True, exist_ok=True)
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -76,8 +79,10 @@ def ensure_workspace() -> None:
     REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
     PORTRAITS_DIR.mkdir(parents=True, exist_ok=True)
     VOICE_REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
-    if not STATE_FILE.exists():
-        STATE_FILE.write_text(json.dumps(DEFAULT_STATE, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _default_state() -> dict[str, Any]:
+    return json.loads(json.dumps(DEFAULT_STATE))
 
 
 def to_media_url(path: str | Path) -> str:
@@ -101,43 +106,80 @@ class StudioStore:
     """
     工作室状态存储管理器
 
-    提供线程安全的状态读写操作，基于JSON文件持久化。
+    提供线程安全的状态读写操作，基于 SQLite 持久化。
     支持事务性的状态修改操作。
     """
 
     def __init__(self) -> None:
-        """初始化存储管理器，确保工作空间存在并创建锁"""
+        """初始化存储管理器，创建数据库并迁移旧 JSON 数据。"""
         ensure_workspace()
         self._lock = threading.Lock()
+        self._initialize_database()
 
-    def _load_unlocked(self) -> dict[str, Any]:
-        """
-        不加锁加载状态（内部方法）
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        connection = sqlite3.connect(DATABASE_FILE, timeout=30)
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=NORMAL")
+            connection.execute("PRAGMA busy_timeout=30000")
+            yield connection
+        finally:
+            connection.close()
 
-        Returns:
-            完整的状态字典
+    def _initialize_database(self) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS state_sections (
+                    section TEXT PRIMARY KEY,
+                    value_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            row_count = int(
+                connection.execute("SELECT COUNT(*) FROM state_sections").fetchone()[0]
+            )
+            if row_count:
+                return
 
-        注意：此方法不保证线程安全，仅供内部调用。
-        """
-        raw = STATE_FILE.read_text(encoding="utf-8-sig")
-        if not raw.strip():
-            return json.loads(json.dumps(DEFAULT_STATE))
-        state = json.loads(raw)
-        # 确保所有默认字段都存在
-        for key, value in DEFAULT_STATE.items():
-            state.setdefault(key, [] if isinstance(value, list) else value)
+            state = _default_state()
+            if STATE_FILE.exists():
+                raw = STATE_FILE.read_text(encoding="utf-8-sig")
+                if raw.strip():
+                    loaded = json.loads(raw)
+                    if not isinstance(loaded, dict):
+                        raise ValueError(f"旧状态文件格式错误: {STATE_FILE}")
+                    state.update(loaded)
+
+            self._save_to_connection(connection, state)
+            connection.commit()
+
+    def _load_from_connection(self, connection: sqlite3.Connection) -> dict[str, Any]:
+        state = _default_state()
+        rows = connection.execute(
+            "SELECT section, value_json FROM state_sections"
+        ).fetchall()
+        for section, value_json in rows:
+            state[section] = json.loads(value_json)
         return state
 
-    def _save_unlocked(self, state: dict[str, Any]) -> None:
-        """
-        不加锁保存状态（内部方法）
-
-        Args:
-            state: 要保存的状态字典
-
-        注意：此方法不保证线程安全，仅供内部调用。
-        """
-        STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    def _save_to_connection(
+        self, connection: sqlite3.Connection, state: dict[str, Any]
+    ) -> None:
+        timestamp = now_iso()
+        for section, value in state.items():
+            connection.execute(
+                """
+                INSERT INTO state_sections(section, value_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(section) DO UPDATE SET
+                    value_json = excluded.value_json,
+                    updated_at = excluded.updated_at
+                """,
+                (section, json.dumps(value, ensure_ascii=False), timestamp),
+            )
 
     def get_state(self) -> dict[str, Any]:
         """
@@ -147,7 +189,8 @@ class StudioStore:
             当前完整状态字典的副本
         """
         with self._lock:
-            return self._load_unlocked()
+            with self._connect() as connection:
+                return self._load_from_connection(connection)
 
     def mutate(self, fn: Callable[[dict[str, Any]], Any]) -> Any:
         """
@@ -165,10 +208,13 @@ class StudioStore:
         该方法保证读写操作的原子性，避免并发冲突。
         """
         with self._lock:
-            state = self._load_unlocked()
-            result = fn(state)
-            self._save_unlocked(state)
-            return result
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                state = self._load_from_connection(connection)
+                result = fn(state)
+                self._save_to_connection(connection, state)
+                connection.commit()
+                return result
 
     def list_section(self, section: str) -> list[dict[str, Any]]:
         """

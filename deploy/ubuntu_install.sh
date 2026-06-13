@@ -9,7 +9,7 @@ cd "$PROJECT_DIR"
 
 echo "[1/7] Installing system packages..."
 sudo apt update
-sudo apt install -y software-properties-common curl ca-certificates gnupg git nginx ffmpeg build-essential
+sudo apt install -y software-properties-common curl ca-certificates gnupg git nginx ffmpeg build-essential sqlite3
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   sudo add-apt-repository -y ppa:deadsnakes/ppa
@@ -47,6 +47,10 @@ cd "$PROJECT_DIR"
 
 echo "[4/7] Preparing runtime folders..."
 mkdir -p studio_runtime/uploads studio_runtime/outputs studio_runtime/references logs
+if [ -f studio_runtime/studio_state.json ]; then
+  cp -a studio_runtime/studio_state.json \
+    "studio_runtime/studio_state.before_sqlite_$(date +%Y%m%d_%H%M%S).json"
+fi
 
 if [ ! -f .env ]; then
   cp .env.example .env
@@ -72,4 +76,6 @@ echo "[7/7] Verifying service..."
 sleep 2
 curl -fsS http://127.0.0.1:8000/api/health
 echo
+test -f studio_runtime/studio.db
+sqlite3 studio_runtime/studio.db "PRAGMA integrity_check;"
 echo "Creator Studio is running. Open your server public IP or configured domain in a browser."
