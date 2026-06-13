@@ -990,7 +990,10 @@ def health() -> dict[str, str]:
 
 @app.get("/api/stocks/search")
 def api_stock_search(q: str = Query("")) -> dict[str, Any]:
-    return {"items": search_stocks(q)}
+    try:
+        return {"items": search_stocks(q)}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"股票搜索暂时不可用：{str(exc)[:180]}") from exc
 
 
 @app.get("/api/stocks/skills")
@@ -1108,7 +1111,10 @@ def _float_or_none(value: Any) -> float | None:
 def api_stock_quote(symbol: str = Query("")) -> dict[str, Any]:
     if not symbol:
         raise HTTPException(status_code=400, detail="股票代码不能为空。")
-    return stock_quote(symbol)
+    try:
+        return stock_quote(symbol)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"行情源暂时不可用：{str(exc)[:220]}") from exc
 
 
 @app.get("/api/stocks/market")
@@ -1144,7 +1150,10 @@ def api_stock_analyze(payload: dict[str, Any]) -> dict[str, Any]:
     symbol = str(payload.get("symbol") or "").strip()
     if not symbol:
         raise HTTPException(status_code=400, detail="股票代码不能为空。")
-    result = analyze_stock(symbol, question=str(payload.get("question") or "").strip(), position=payload)
+    try:
+        result = analyze_stock(symbol, question=str(payload.get("question") or "").strip(), position=payload)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"暂时无法取得足够行情数据：{str(exc)[:220]}") from exc
     record = {
         "id": make_id("stock_analysis"),
         "created_at": now_iso(),

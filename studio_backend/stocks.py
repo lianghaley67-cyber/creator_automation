@@ -10,6 +10,10 @@ from typing import Any
 
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 YAHOO_SEARCH_URL = "https://query1.finance.yahoo.com/v1/finance/search"
+TENCENT_KLINE_URLS = [
+    "http://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+    "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+]
 
 
 def normalize_stock_symbol(symbol: str, market: str = "") -> str:
@@ -45,19 +49,41 @@ def infer_market(symbol: str) -> str:
     return "美股"
 
 
-def _http_json(url: str, timeout: int = 12) -> dict[str, Any]:
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 CreatorStudio/stock-module",
-            "Accept": "application/json,text/plain,*/*",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8", errors="replace"))
+def _http_json(url: str, timeout: int = 12, retries: int = 2) -> dict[str, Any]:
+    last_error: Exception | None = None
+    for attempt in range(max(1, retries + 1)):
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 CreatorStudio/stock-module",
+                "Accept": "application/json,text/plain,*/*",
+                "Connection": "close",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8", errors="replace"))
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries:
+                time.sleep(0.35 * (attempt + 1))
+    raise last_error or RuntimeError("HTTP request failed")
 
 
 def fetch_stock_chart(symbol: str, *, range_text: str = "6mo", interval: str = "1d") -> dict[str, Any]:
+    errors: list[str] = []
+    try:
+        return _fetch_yahoo_chart(symbol, range_text=range_text, interval=interval)
+    except Exception as exc:
+        errors.append(f"Yahoo: {exc}")
+    try:
+        return _fetch_tencent_chart(symbol, range_text=range_text, interval=interval)
+    except Exception as exc:
+        errors.append(f"Tencent: {exc}")
+    raise RuntimeError("；".join(errors) or "stock data unavailable")
+
+
+def _fetch_yahoo_chart(symbol: str, *, range_text: str = "6mo", interval: str = "1d") -> dict[str, Any]:
     safe_symbol = urllib.parse.quote(normalize_stock_symbol(symbol), safe="")
     if not safe_symbol:
         raise ValueError("stock symbol is required")
@@ -100,6 +126,93 @@ def fetch_stock_chart(symbol: str, *, range_text: str = "6mo", interval: str = "
         "previous_close": _num(meta.get("chartPreviousClose") or meta.get("previousClose")),
         "points": points,
         "fetched_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "data_source": "Yahoo Finance",
+    }
+
+
+def _tencent_code(symbol: str) -> str:
+    normalized = normalize_stock_symbol(symbol)
+    upper = normalized.upper()
+    aliases = {
+        "^GSPC": "usINX",
+        "^IXIC": "usIXIC",
+        "^DJI": "usDJI",
+        "^HSI": "hkHSI",
+    }
+    if upper in aliases:
+        return aliases[upper]
+    if upper.endswith(".SZ"):
+        return f"sz{upper[:-3]}"
+    if upper.endswith(".SS"):
+        return f"sh{upper[:-3]}"
+    if upper.endswith(".HK"):
+        code = upper[:-3]
+        return f"hk{code.zfill(5)}"
+    if upper.replace(".", "").replace("-", "").isalnum():
+        return f"us{upper.split('.')[0]}"
+    raise ValueError(f"unsupported Tencent symbol: {symbol}")
+
+
+def _fetch_tencent_chart(symbol: str, *, range_text: str = "6mo", interval: str = "1d") -> dict[str, Any]:
+    if interval != "1d":
+        raise ValueError("Tencent fallback currently supports daily interval only")
+    normalized = normalize_stock_symbol(symbol)
+    code = _tencent_code(normalized)
+    limit = 10 if range_text == "5d" else 180
+    query = urllib.parse.urlencode({"param": f"{code},day,,,{limit},"})
+    data: dict[str, Any] | None = None
+    errors: list[str] = []
+    for base_url in TENCENT_KLINE_URLS:
+        try:
+            data = _http_json(f"{base_url}?{query}", timeout=15, retries=2)
+            break
+        except Exception as exc:
+            errors.append(str(exc))
+    if data is None:
+        raise RuntimeError("Tencent request failed: " + "；".join(errors))
+    payload = (data.get("data") or {}).get(code) or {}
+    rows = payload.get("qfqday") or payload.get("day") or []
+    if not rows:
+        raise RuntimeError("Tencent kline data unavailable")
+    points: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, list) or len(row) < 6:
+            continue
+        close = _num(row[2])
+        if close is None:
+            continue
+        points.append(
+            {
+                "time": str(row[0]),
+                "open": _num(row[1]),
+                "close": close,
+                "high": _num(row[3]),
+                "low": _num(row[4]),
+                "volume": _num(row[5]) or 0,
+            }
+        )
+    if not points:
+        raise RuntimeError("Tencent returned no valid kline points")
+    quote_fields = payload.get("qt") or {}
+    quote_row = quote_fields.get(code) if isinstance(quote_fields, dict) else None
+    quote_row = quote_row if isinstance(quote_row, list) else []
+    name = str(quote_row[1] if len(quote_row) > 1 else normalized)
+    price = _num(quote_row[3] if len(quote_row) > 3 else points[-1]["close"])
+    previous_close = _num(quote_row[4] if len(quote_row) > 4 else None)
+    if previous_close is None and len(points) >= 2:
+        previous_close = points[-2]["close"]
+    market = infer_market(normalized)
+    return {
+        "symbol": normalized,
+        "name": name or normalized,
+        "currency": "CNY" if market == "A股" else "HKD" if market == "港股" else "USD",
+        "exchange": "SZSE" if normalized.endswith(".SZ") else "SSE" if normalized.endswith(".SS") else "HKEX" if normalized.endswith(".HK") else "US",
+        "market": market,
+        "regular_market_price": price,
+        "previous_close": previous_close,
+        "points": points,
+        "fetched_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "data_source": "Tencent Finance fallback",
     }
 
 
@@ -114,7 +227,7 @@ def stock_quote(symbol: str) -> dict[str, Any]:
     change = price - previous if price is not None and previous else 0
     change_percent = (change / previous * 100) if previous else 0
     return {
-        **{key: chart[key] for key in ["symbol", "name", "currency", "exchange", "market", "fetched_at"]},
+        **{key: chart[key] for key in ["symbol", "name", "currency", "exchange", "market", "fetched_at", "data_source"]},
         "price": round(price, 4) if price is not None else None,
         "previous_close": round(previous, 4) if previous is not None else None,
         "change": round(change, 4),
@@ -128,7 +241,23 @@ def search_stocks(query: str) -> list[dict[str, Any]]:
     if not text:
         return []
     url = f"{YAHOO_SEARCH_URL}?{urllib.parse.urlencode({'q': text, 'quotesCount': 10, 'newsCount': 0})}"
-    data = _http_json(url)
+    try:
+        data = _http_json(url)
+    except Exception:
+        normalized = normalize_stock_symbol(text)
+        try:
+            quote = stock_quote(normalized)
+        except Exception:
+            return []
+        return [
+            {
+                "symbol": quote["symbol"],
+                "name": quote["name"],
+                "exchange": quote["exchange"],
+                "market": quote["market"],
+                "type": "EQUITY",
+            }
+        ]
     items = []
     for item in data.get("quotes", [])[:10]:
         symbol = item.get("symbol") or ""
