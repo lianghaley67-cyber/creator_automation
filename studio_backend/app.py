@@ -29,7 +29,7 @@ from .ai_trends import (
     collect_ai_trends,
 )
 from .avatar import detect_sadtalker_status, normalize_sadtalker_config
-from .generation import render_job
+from .generation import render_job, synthesize_audio_asset
 from .kids_mode import (
     KIDS_ANIMATION_HARD_RULES,
     KIDS_CHARACTER_DESIGN,
@@ -46,12 +46,19 @@ from .kids_mode import (
     normalize_video_provider,
 )
 from .persona import default_persona, distill_persona
+from .publishing import (
+    prepare_distribution_package,
+    submit_wechat_draft,
+    upload_wechat_cover,
+)
 from .scheduler import StudioScheduler
 from .script_ai import generate_kids_script_with_ai, generate_reviewed_draft, revise_script_with_feedback
 from .stock_skills import list_stock_skills, run_stock_skill
 from .stocks import analyze_stock, normalize_stock_symbol, search_stocks, stock_quote
 from .schemas import (
+    AudioGenerateRequest,
     DistillRequest,
+    DistributionPrepareRequest,
     DouyinPublishAssistantRequest,
     GenerateRequest,
     KidsGenerateRequest,
@@ -61,6 +68,7 @@ from .schemas import (
     SadTalkerConfigPayload,
     SchedulePayload,
     WeChatMaterialRequest,
+    WeChatDraftRequest,
 )
 from .storage import (
     OUTPUTS_DIR,
@@ -1834,6 +1842,8 @@ def get_wechat_entry() -> dict[str, Any]:
     public_base = os.getenv("CREATOR_STUDIO_PUBLIC_BASE_URL", "").strip().rstrip("/")
     callback_path = "/api/integrations/wechat/callback"
     qr_path = "/api/integrations/wechat/qr"
+    integration_settings = store.get_state().get("integration_settings") or {}
+    saved_thumb = str(integration_settings.get("wechat_thumb_media_id") or "").strip()
     return {
         "status": "ok",
         "account_name": WECHAT_ACCOUNT_NAME,
@@ -1844,7 +1854,39 @@ def get_wechat_entry() -> dict[str, Any]:
         "voice_requirement": "微信后台需要开启语音识别，语音消息回调里才会带 Recognition 文本。",
         "voice_fallback_enabled": WECHAT_VOICE_FALLBACK_TRANSCRIBE,
         "voice_fallback_configured": bool(WECHAT_APP_ID and WECHAT_APP_SECRET),
+        "draft_api_configured": bool(WECHAT_APP_ID and WECHAT_APP_SECRET),
+        "cover_configured": bool(saved_thumb or os.getenv("WECHAT_THUMB_MEDIA_ID", "").strip()),
     }
+
+
+@app.post("/api/integrations/wechat/cover")
+async def upload_official_account_cover(file: UploadFile = File(...)) -> dict[str, Any]:
+    content_type = str(file.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="请上传 JPG、PNG 等图片文件。")
+    body = await file.read()
+    if len(body) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="封面图片不能超过 10MB。")
+    try:
+        result = upload_wechat_cover(
+            filename=str(file.filename or "cover.jpg"),
+            content_type=content_type,
+            body=body,
+            get_access_token=_get_wechat_access_token,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)[:500]) from exc
+
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        settings = dict(state.get("integration_settings") or {})
+        settings["wechat_thumb_media_id"] = result["media_id"]
+        settings["wechat_cover_url"] = result.get("url", "")
+        settings["updated_at"] = now_iso()
+        state["integration_settings"] = settings
+        return settings
+
+    settings = store.mutate(updater)
+    return {"status": "ok", **result, "settings": settings}
 
 
 @app.get("/api/integrations/wechat/qr")
@@ -2232,6 +2274,86 @@ def list_jobs() -> list[dict[str, Any]]:
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str) -> dict[str, Any]:
     return _job_snapshot(job_id)
+
+
+@app.post("/api/audio/generate")
+def generate_audio(payload: AudioGenerateRequest) -> dict[str, Any]:
+    audio_id = make_id("audio")
+    output_file = OUTPUTS_DIR / "audio" / f"{audio_id}.mp3"
+    try:
+        result = synthesize_audio_asset(
+            text=payload.text,
+            output_file=output_file,
+            provider=payload.provider,
+            voice=payload.voice,
+            rate=payload.rate,
+            volume=payload.volume,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"音频生成失败：{str(exc)[:500]}。请检查服务器网络，或配置 OPENAI_API_KEY 作为备用语音。",
+        ) from exc
+    return {
+        "id": audio_id,
+        "created_at": now_iso(),
+        "audio_url": to_media_url(output_file),
+        **result,
+    }
+
+
+@app.get("/api/distribution/tasks")
+def list_distribution_tasks() -> dict[str, Any]:
+    return {"items": _sorted(store.list_section("distribution_tasks"), key="updated_at")[:50]}
+
+
+@app.post("/api/jobs/{job_id}/distribution")
+def prepare_job_distribution(
+    job_id: str,
+    payload: DistributionPrepareRequest = DistributionPrepareRequest(),
+) -> dict[str, Any]:
+    job = _job_snapshot(job_id)
+    try:
+        record = prepare_distribution_package(
+            job,
+            title=payload.title,
+            summary=payload.summary,
+            author=payload.author,
+            hashtags=payload.hashtags,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    store.add_record("distribution_tasks", record)
+    return record
+
+
+@app.post("/api/distribution/tasks/{task_id}/wechat-draft")
+def create_distribution_wechat_draft(
+    task_id: str,
+    payload: WeChatDraftRequest = WeChatDraftRequest(),
+) -> dict[str, Any]:
+    task = store.find_record("distribution_tasks", task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="分发任务不存在。")
+    try:
+        integration_settings = store.get_state().get("integration_settings") or {}
+        wechat_result = submit_wechat_draft(
+            task,
+            get_access_token=_get_wechat_access_token,
+            publish_now=payload.publish_now,
+            thumb_media_id=str(integration_settings.get("wechat_thumb_media_id") or ""),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)[:500]) from exc
+    updated_wechat = {
+        **(task.get("wechat") if isinstance(task.get("wechat"), dict) else {}),
+        **wechat_result,
+    }
+    return store.update_record(
+        "distribution_tasks",
+        task_id,
+        {"wechat": updated_wechat, "updated_at": now_iso()},
+    )
 
 
 @app.get("/api/jobs/{job_id}/publish/douyin-assistant")

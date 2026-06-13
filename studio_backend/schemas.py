@@ -166,3 +166,22 @@ class WeChatMaterialRequest(BaseModel):
 class DouyinPublishAssistantRequest(BaseModel):
     title: str = ""
     hashtags: list[str] = Field(default_factory=list)
+
+
+class AudioGenerateRequest(BaseModel):
+    text: str
+    provider: TtsProvider = "edge"
+    voice: str = "zh-CN-XiaoxiaoNeural"
+    rate: str = ""
+    volume: str = ""
+
+
+class DistributionPrepareRequest(BaseModel):
+    title: str = ""
+    summary: str = ""
+    author: str = ""
+    hashtags: list[str] = Field(default_factory=list)
+
+
+class WeChatDraftRequest(BaseModel):
+    publish_now: bool = False

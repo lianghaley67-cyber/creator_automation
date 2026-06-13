@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -813,18 +814,24 @@ def _synthesize_audio(script_text: str, audio_file: Path, request_payload: dict[
         return "silent_fallback"
 
     edge_error: Exception | None = None
-    try:
-        avvg.synthesize_edge_tts(
-            text=script_text,
-            output_file=audio_file,
-            voice=str(request_payload.get("edge_voice", "zh-CN-XiaoxiaoNeural")),
-            rate=str(request_payload.get("edge_rate", "")),
-            volume=str(request_payload.get("edge_volume", "")),
-        )
-        if _audio_is_valid(audio_file):
-            return "edge"
-    except Exception as exc:
-        edge_error = exc
+    edge_retries = max(1, min(4, int(os.getenv("EDGE_TTS_RETRIES", "3") or "3")))
+    for attempt in range(edge_retries):
+        try:
+            audio_file.unlink(missing_ok=True)
+            avvg.synthesize_edge_tts(
+                text=script_text,
+                output_file=audio_file,
+                voice=str(request_payload.get("edge_voice", "zh-CN-XiaoxiaoNeural")),
+                rate=str(request_payload.get("edge_rate", "")),
+                volume=str(request_payload.get("edge_volume", "")),
+            )
+            if _audio_is_valid(audio_file):
+                return "edge"
+            edge_error = RuntimeError("Edge TTS returned an empty or invalid audio file.")
+        except Exception as exc:
+            edge_error = exc
+        if attempt + 1 < edge_retries:
+            time.sleep(1.2 * (attempt + 1))
 
     eleven_api = os.getenv("ELEVENLABS_API_KEY", "").strip()
     eleven_voice = os.getenv("ELEVENLABS_VOICE_ID", "").strip()
@@ -878,6 +885,40 @@ def _synthesize_audio(script_text: str, audio_file: Path, request_payload: dict[
     if edge_error:
         raise RuntimeError(f"TTS failed and no voiced fallback was available: {edge_error}") from edge_error
     raise RuntimeError("TTS failed and no voiced fallback was available.")
+
+
+def synthesize_audio_asset(
+    *,
+    text: str,
+    output_file: Path,
+    provider: str = "edge",
+    voice: str = "zh-CN-XiaoxiaoNeural",
+    rate: str = "",
+    volume: str = "",
+) -> dict[str, Any]:
+    clean_text = str(text or "").strip()
+    if not clean_text:
+        raise ValueError("音频文案不能为空。")
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.unlink(missing_ok=True)
+    selected_provider = _synthesize_audio(
+        clean_text,
+        output_file,
+        {
+            "tts_provider": provider,
+            "edge_voice": voice,
+            "edge_rate": rate,
+            "edge_volume": volume,
+        },
+    )
+    duration = avvg.probe_audio_duration(output_file)
+    if not _audio_is_valid(output_file):
+        raise RuntimeError("音频文件已生成，但校验失败。")
+    return {
+        "provider": selected_provider,
+        "duration_seconds": round(float(duration or 0.0), 2),
+        "size_bytes": output_file.stat().st_size,
+    }
 
 
 def _run_avatar_command(

@@ -81,6 +81,8 @@ const referenceImageUrl = ref("");
 const maodouVoiceUrl = ref("");
 const peanutVoiceUrl = ref("");
 const publishDrafts = reactive({});
+const distributionDrafts = reactive({});
+const audioPreviews = reactive({});
 const stockWatchlist = ref([]);
 const stockAnalysis = ref(null);
 const stockSearchResults = ref([]);
@@ -129,6 +131,10 @@ const busy = reactive({
   reviseScript: false,
   generate: false,
   publish: "",
+  audio: "",
+  distribution: "",
+  wechatDraft: "",
+  wechatCover: false,
   stockRefresh: false,
   stockSearch: false,
   stockSave: false,
@@ -719,6 +725,108 @@ function generateTrendQuestions(trend) {
     "如果用访谈方式深挖：这条资讯最触动我的一个焦虑、期待或真实经历是什么？",
     `怎么把「${pickTitle(2)}」转成一条有钩子、有观点、有行动建议的视频号口播文案？`
   ];
+}
+
+async function generateJobAudio(job) {
+  const text = String(job?.script_text || job?.request?.custom_script || job?.request?.topic || "").trim();
+  if (!text) {
+    setError("这个任务没有可转成音频的文案。");
+    return;
+  }
+  busy.audio = String(job.id);
+  try {
+    const result = await requestApi(
+      "/api/audio/generate",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          text,
+          provider: "edge",
+          voice: job?.request?.edge_voice || kidsForm.edge_voice
+        })
+      },
+      180000
+    );
+    audioPreviews[job.id] = result;
+    setNotice(`音频生成成功，使用 ${result.provider}，时长 ${result.duration_seconds || 0} 秒。`);
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "音频生成失败。"));
+  } finally {
+    if (busy.audio === String(job.id)) busy.audio = "";
+  }
+}
+
+async function prepareDistribution(job) {
+  if (!job?.id) return;
+  busy.distribution = String(job.id);
+  try {
+    const result = await requestApi(
+      `/api/jobs/${job.id}/distribution`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({})
+      },
+      30000
+    );
+    distributionDrafts[job.id] = result;
+    setNotice("分发包已生成：公众号文章、小红书标题正文和素材路径都已准备好。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "准备分发包失败。"));
+  } finally {
+    if (busy.distribution === String(job.id)) busy.distribution = "";
+  }
+}
+
+async function createWechatDraft(job) {
+  const task = distributionDrafts[job?.id];
+  if (!task?.id) return;
+  busy.wechatDraft = String(task.id);
+  try {
+    const result = await requestApi(
+      `/api/distribution/tasks/${task.id}/wechat-draft`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ publish_now: false })
+      },
+      60000
+    );
+    distributionDrafts[job.id] = result;
+    setNotice("文章已经自动进入微信公众号草稿箱，请到公众号后台预览后发布。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "公众号草稿创建失败。"));
+  } finally {
+    busy.wechatDraft = "";
+  }
+}
+
+async function uploadWechatCover(event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  busy.wechatCover = true;
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    await requestApi(
+      "/api/integrations/wechat/cover",
+      { method: "POST", body: form },
+      90000
+    );
+    const entry = await requestApi("/api/integrations/wechat/entry");
+    if (entry) wechatEntry.value = entry;
+    setNotice("公众号封面已上传并保存，以后创建草稿会自动使用它。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "公众号封面上传失败。"));
+  } finally {
+    busy.wechatCover = false;
+    if (event?.target) event.target.value = "";
+  }
+}
+
+function openXiaohongshuCreator(draft) {
+  window.open(draft?.xiaohongshu?.creator_url || "https://creator.xiaohongshu.com/", "_blank", "noopener,noreferrer");
 }
 
 function startTrendInterview(question) {
@@ -2119,9 +2227,57 @@ onBeforeUnmount(() => {
           </div>
           <video v-if="job.artifacts?.video_url" class="video-preview" :src="mediaUrl(job.artifacts.video_url)" controls preload="metadata"></video>
           <div class="publish-actions">
+            <button class="btn secondary small" :disabled="busy.audio === String(job.id)" @click="generateJobAudio(job)">
+              {{ busy.audio === String(job.id) ? "生成中..." : "补生成音频" }}
+            </button>
+            <button class="btn accent small" :disabled="busy.distribution === String(job.id)" @click="prepareDistribution(job)">
+              {{ busy.distribution === String(job.id) ? "准备中..." : "准备多平台分发" }}
+            </button>
             <button class="btn accent small" :disabled="busy.publish === String(job.id)" @click="prepareDouyinPublish(job)">
               {{ busy.publish === String(job.id) ? "准备中..." : "发布助手" }}
             </button>
+          </div>
+          <audio
+            v-if="audioPreviews[job.id]?.audio_url"
+            :src="mediaUrl(audioPreviews[job.id].audio_url)"
+            controls
+            preload="metadata"
+          ></audio>
+          <div v-if="distributionDrafts[job.id]" class="publish-card">
+            <div class="publish-card-head">
+              <strong>长期分发工作台</strong>
+              <span>公众号自动进草稿，小红书生成稳定发布包</span>
+            </div>
+            <label class="field">
+              <span>小红书标题</span>
+              <input readonly :value="distributionDrafts[job.id].xiaohongshu?.title" />
+            </label>
+            <label class="field">
+              <span>小红书正文</span>
+              <textarea class="caption-box" readonly :value="distributionDrafts[job.id].xiaohongshu?.body"></textarea>
+            </label>
+            <div class="publish-buttons">
+              <label class="upload-audio-label">
+                {{ busy.wechatCover ? "上传封面中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
+                <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
+              </label>
+              <button
+                class="btn secondary small"
+                @click="copyText(distributionDrafts[job.id].xiaohongshu?.body, '小红书正文已复制。')"
+              >复制小红书正文</button>
+              <button class="btn secondary small" @click="openXiaohongshuCreator(distributionDrafts[job.id])">打开小红书后台</button>
+              <button
+                class="btn accent small"
+                :disabled="busy.wechatDraft === String(distributionDrafts[job.id].id)"
+                @click="createWechatDraft(job)"
+              >
+                {{ busy.wechatDraft === String(distributionDrafts[job.id].id) ? "提交中..." : "发送到公众号草稿箱" }}
+              </button>
+            </div>
+            <p class="meta">
+              公众号：{{ distributionDrafts[job.id].wechat?.status === "draft_created" ? "草稿已创建" : "等待提交" }}
+              · 小红书：最后一步由你检查封面后确认发布
+            </p>
           </div>
           <div v-if="publishDrafts[job.id]" class="publish-card">
             <div class="publish-card-head">

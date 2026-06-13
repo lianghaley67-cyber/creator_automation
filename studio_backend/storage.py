@@ -33,6 +33,8 @@ DEFAULT_STATE: dict[str, Any] = {
     "schedules": [],            # 定时任务
     "wechat_materials": [],     # 微信素材
     "wechat_callback_events": [], # 微信回调事件
+    "distribution_tasks": [],   # 多平台分发任务
+    "integration_settings": {}, # 渠道配置（不保存 AppSecret）
     "ai_trends": [],            # AI趋势数据
     "obsidian_archives": [],    # Obsidian归档
     "stock_watchlist": [],      # 股票自选与预警
