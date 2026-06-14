@@ -920,5 +920,11 @@ def save_platform_draft(task: dict[str, Any]) -> dict[str, Any]:
                     "platform_confirmation": success_message,
                     "message": f"小红书平台已确认草稿保存成功：{success_message}",
                 }
+            except Exception:
+                try:
+                    page.screenshot(path=str(RESULT_SCREENSHOT), full_page=True)
+                except Exception:
+                    pass
+                raise
             finally:
                 context.close()

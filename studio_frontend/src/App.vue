@@ -1106,6 +1106,9 @@ function xiaohongshuStatusLabel(draft) {
   const status = draft?.xiaohongshu?.status;
   if (status === "draft_saved") return "已保存到系统草稿箱";
   if (status === "platform_draft_saved") return "已保存到小红书平台草稿箱";
+  if (status === "platform_draft_saving") return "正在保存到小红书平台草稿箱";
+  if (status === "platform_draft_failed") return "保存到小红书平台草稿箱失败";
+  if (status === "login_required") return "小红书登录已失效";
   if (status === "publishing") return "发布中，等待你确认";
   if (status === "published") return "已发布";
   if (status === "failed") return "发布失败，可重新尝试";
@@ -1345,16 +1348,41 @@ async function saveXiaohongshuPlatformDraft(task, applyResult) {
   if (!task?.id) return;
   busy.xiaohongshuServerDraft = String(task.id);
   try {
-    const result = await requestApi(
+    let result = await requestApi(
       `/api/distribution/tasks/${task.id}/xiaohongshu/server-draft`,
       { method: "POST" },
-      150000
+      20000
     );
     applyResult(result);
-    await refreshDistributionTasks();
-    setNotice("服务器已把图卡和文案保存到小红书官方草稿箱，请到小红书创作中心刷新查看。");
+    setNotice("服务器正在上传图卡和文案，请稍等，页面会自动更新结果。");
+
+    const deadline = Date.now() + 8 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 3000));
+      const payload = await requestApi("/api/distribution/tasks", {}, 20000);
+      result = (payload.items || []).find((item) => String(item.id) === String(task.id));
+      if (!result) throw new Error("没有找到正在保存的小红书任务。");
+      applyResult(result);
+      const status = result?.xiaohongshu?.status;
+      if (status === "platform_draft_saved") {
+        await refreshDistributionTasks();
+        setNotice(
+          result?.xiaohongshu?.message
+          || "服务器已确认保存到小红书官方草稿箱，请到小红书创作中心刷新查看。"
+        );
+        return;
+      }
+      if (["platform_draft_failed", "login_required"].includes(status)) {
+        throw new Error(
+          result?.xiaohongshu?.save_error
+          || "保存到小红书官方草稿箱失败，请查看服务器保存结果。"
+        );
+      }
+    }
+    throw new Error("小红书保存超过 8 分钟仍未完成，请检查服务器保存结果。");
   } catch (error) {
-    setError(normalizeErrorMessage(error, "保存到小红书官方草稿箱失败。请先完成服务器短信登录。"));
+    setError(normalizeErrorMessage(error, "保存到小红书官方草稿箱失败。"));
+    await refreshDistributionTasks();
     await refreshXiaohongshuServerSession();
   } finally {
     busy.xiaohongshuServerDraft = "";
@@ -2939,14 +2967,33 @@ onBeforeUnmount(() => {
             <span>{{ draft.xiaohongshu?.draft_saved_at || draft.updated_at }}</span>
           </div>
           <p>{{ draft.xiaohongshu?.body }}</p>
+          <p class="meta">{{ xiaohongshuStatusLabel(draft) }}</p>
+          <p v-if="draft.xiaohongshu?.save_error" class="warning-text">
+            {{ draft.xiaohongshu.save_error }}
+          </p>
+          <a
+            v-if="draft.xiaohongshu?.result_screenshot_url"
+            class="inline-link"
+            :href="mediaUrl(draft.xiaohongshu.result_screenshot_url)"
+            target="_blank"
+            rel="noreferrer"
+          >查看服务器保存结果截图</a>
           <div class="publish-buttons">
             <button class="btn secondary small" @click="copyText(draft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
             <a class="btn secondary small" :href="mediaUrl(draft.xiaohongshu?.package_url)" download>下载备用图文包</a>
             <button
               class="btn primary small"
-              :disabled="busy.xiaohongshuServerDraft === String(draft.id)"
+              :disabled="
+                busy.xiaohongshuServerDraft === String(draft.id)
+                || draft.xiaohongshu?.status === 'platform_draft_saving'
+              "
               @click="saveXiaohongshuPlatformDraft(draft, applySavedDistributionTask)"
-            >{{ busy.xiaohongshuServerDraft === String(draft.id) ? "服务器保存中..." : "保存到小红书官方草稿箱" }}</button>
+            >{{
+              busy.xiaohongshuServerDraft === String(draft.id)
+              || draft.xiaohongshu?.status === "platform_draft_saving"
+                ? "服务器保存中..."
+                : "保存到小红书官方草稿箱"
+            }}</button>
           </div>
         </article>
       </div>

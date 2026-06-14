@@ -101,6 +101,9 @@ from .xiaohongshu_automation import (
     verify_sms_code,
 )
 
+_XIAOHONGSHU_DRAFT_LOCK = threading.Lock()
+_XIAOHONGSHU_DRAFT_TASKS: set[str] = set()
+
 
 def _resolve_script_revision_provider(provider: str) -> str:
     normalized = str(provider or "").strip().lower()
@@ -2720,23 +2723,88 @@ def update_distribution_xiaohongshu_status(
 
 
 @app.post("/api/distribution/tasks/{task_id}/xiaohongshu/server-draft")
-def create_server_xiaohongshu_draft(task_id: str) -> dict[str, Any]:
+def create_server_xiaohongshu_draft(
+    task_id: str,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
     task = store.find_record("distribution_tasks", task_id)
     if not task:
         raise HTTPException(status_code=404, detail="分发任务不存在。")
-    try:
-        result = save_platform_draft(task)
-    except XiaohongshuLoginRequired as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=str(exc)[:500]) from exc
+
+    with _XIAOHONGSHU_DRAFT_LOCK:
+        if task_id in _XIAOHONGSHU_DRAFT_TASKS:
+            return task
+        _XIAOHONGSHU_DRAFT_TASKS.add(task_id)
+
     xiaohongshu = {
         **(task.get("xiaohongshu") if isinstance(task.get("xiaohongshu"), dict) else {}),
-        **result,
-        "draft_saved_at": now_iso(),
-        "draft_location": "xiaohongshu_platform",
+        "status": "platform_draft_saving",
+        "save_started_at": now_iso(),
+        "save_error": "",
+        "platform_confirmation": "",
     }
-    return store.update_record(
+    updated = store.update_record(
+        "distribution_tasks",
+        task_id,
+        {"xiaohongshu": xiaohongshu, "updated_at": now_iso()},
+    )
+    background_tasks.add_task(_save_xiaohongshu_platform_draft, task_id)
+    return updated
+
+
+def _save_xiaohongshu_platform_draft(task_id: str) -> None:
+    try:
+        task = store.find_record("distribution_tasks", task_id)
+        if not task:
+            return
+        result = save_platform_draft(task)
+    except XiaohongshuLoginRequired as exc:
+        _record_xiaohongshu_draft_failure(task_id, str(exc), login_required=True)
+    except Exception as exc:
+        _record_xiaohongshu_draft_failure(task_id, str(exc))
+    else:
+        current = store.find_record("distribution_tasks", task_id) or task
+        xiaohongshu = {
+            **(
+                current.get("xiaohongshu")
+                if isinstance(current.get("xiaohongshu"), dict)
+                else {}
+            ),
+            **result,
+            "draft_saved_at": now_iso(),
+            "draft_location": "xiaohongshu_platform",
+            "save_error": "",
+        }
+        store.update_record(
+            "distribution_tasks",
+            task_id,
+            {"xiaohongshu": xiaohongshu, "updated_at": now_iso()},
+        )
+    finally:
+        with _XIAOHONGSHU_DRAFT_LOCK:
+            _XIAOHONGSHU_DRAFT_TASKS.discard(task_id)
+
+
+def _record_xiaohongshu_draft_failure(
+    task_id: str,
+    message: str,
+    *,
+    login_required: bool = False,
+) -> None:
+    task = store.find_record("distribution_tasks", task_id)
+    if not task:
+        return
+    xiaohongshu = {
+        **(task.get("xiaohongshu") if isinstance(task.get("xiaohongshu"), dict) else {}),
+        "status": "login_required" if login_required else "platform_draft_failed",
+        "save_failed_at": now_iso(),
+        "save_error": str(message or "保存失败。")[:500],
+        "result_screenshot_url": (
+            f"{to_media_url(STUDIO_DIR / 'xiaohongshu_session' / 'latest.png')}"
+            f"?v={int(time.time() * 1000)}"
+        ),
+    }
+    store.update_record(
         "distribution_tasks",
         task_id,
         {"xiaohongshu": xiaohongshu, "updated_at": now_iso()},
