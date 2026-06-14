@@ -196,6 +196,12 @@ function normalizeErrorMessage(error, fallback = "请求失败。") {
   if (!error) return fallback;
   if (typeof error === "string") return error || fallback;
   if (error instanceof Error) {
+    if (/504 Gateway Time-out|504 Gateway Timeout/i.test(error.message || "")) {
+      return "服务器这次处理超时了，请稍后重试。页面和已有数据不会丢失。";
+    }
+    if (/502 Bad Gateway/i.test(error.message || "")) {
+      return "服务器正在重启或暂时不可用，请等待几秒后重试。";
+    }
     if (/failed to fetch/i.test(error.message || "")) {
       return "后端没连上：请确认后台服务已启动，或者刷新页面后重试。";
     }
@@ -266,7 +272,15 @@ async function requestApi(path, options = {}, timeoutMs = 20000) {
         const payload = text ? JSON.parse(text) : null;
         message = payload.detail || payload.error || JSON.stringify(payload);
       } catch {
-        if (text) message = text;
+        if (response.status === 504) {
+          message = "服务器这次处理超时了，请稍后重试。页面和已有数据不会丢失。";
+        } else if (response.status === 502) {
+          message = "服务器正在重启或暂时不可用，请等待几秒后重试。";
+        } else if (text && !/<html[\s>]/i.test(text)) {
+          message = text;
+        } else {
+          message = `服务器请求失败（HTTP ${response.status}）。`;
+        }
       }
       throw new Error(message);
     }
@@ -1798,6 +1812,20 @@ const modulePageMeta = computed(() => {
 
 function openStudioModule(tab, targetId = "") {
   activeTab.value = tab;
+  if (tab === "trends" && !aiTrends.value.length && !busy.refreshTrends) {
+    refreshAiTrends();
+  }
+  if (tab === "materials" && !busy.refreshWechat) {
+    refreshWechatMaterials();
+  }
+  if (tab === "stocks" && !stockMarket.value && !busy.stockMarket) {
+    Promise.allSettled([
+      refreshStockWatchlist(),
+      refreshStockMarket(),
+      refreshStockHistory(),
+      refreshStockSkills()
+    ]);
+  }
   if (!targetId) return;
   nextTick(() => {
     const target = document.getElementById(targetId);
@@ -1807,13 +1835,10 @@ function openStudioModule(tab, targetId = "") {
 
 let pollTimer = null;
 onMounted(async () => {
-  await refreshJobs();
-  await refreshWechatMaterials();
-  await refreshAiTrends();
-  await refreshStockWatchlist();
-  await refreshStockMarket();
-  await refreshStockHistory();
-  await refreshStockSkills();
+  await Promise.allSettled([
+    refreshJobs(),
+    refreshWechatMaterials()
+  ]);
   pollTimer = window.setInterval(() => {
     if (runningKidsJobs.value.length) refreshJobs();
   }, 3000);
