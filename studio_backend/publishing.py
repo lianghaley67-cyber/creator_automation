@@ -139,7 +139,21 @@ def _write_xiaohongshu_package(
     source_artifacts: dict[str, Any],
 ) -> Path:
     xhs = record["xiaohongshu"]
-    assistant = r'''from pathlib import Path
+    public_base = os.getenv("CREATOR_STUDIO_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if public_base and not public_base.startswith("https://"):
+        qr_url = os.getenv("WECHAT_QR_IMAGE_URL", "").strip()
+        parsed_qr = urllib.parse.urlsplit(qr_url)
+        if parsed_qr.scheme == "https" and parsed_qr.netloc:
+            public_base = f"{parsed_qr.scheme}://{parsed_qr.netloc}"
+    task_id = str(record.get("id") or "")
+    platform_saved_url = (
+        f"{public_base}/api/distribution/tasks/{task_id}/xiaohongshu/status"
+        if public_base and task_id
+        else ""
+    )
+    assistant = r'''import json
+import urllib.request
+from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
@@ -151,6 +165,7 @@ BODY = NOTE.removeprefix(TITLE).strip()
 CARDS = sorted((ROOT / "xiaohongshu_cards").glob("*.png"))
 MEDIA = sorted((ROOT / "media").glob("*")) if (ROOT / "media").exists() else []
 UPLOADS = CARDS or [path for path in MEDIA if path.is_file()]
+PLATFORM_SAVED_URL = __PLATFORM_SAVED_URL__
 
 
 def first_visible(page, selectors):
@@ -182,6 +197,11 @@ with sync_playwright() as playwright:
     page = context.pages[0] if context.pages else context.new_page()
     page.goto("https://creator.xiaohongshu.com/publish/publish")
     input("请在打开的浏览器里完成登录并进入“发布图文”页面，然后回到这里按 Enter：")
+
+    image_tab = first_visible_button(page, ["上传图文"])
+    if image_tab:
+        image_tab.click()
+        page.wait_for_timeout(1200)
 
     upload = first_visible(page, ["input[type=file]"])
     if upload and UPLOADS:
@@ -217,11 +237,29 @@ with sync_playwright() as playwright:
             save_button.click()
             page.wait_for_timeout(2000)
             print("已点击小红书的草稿保存按钮，请在页面确认草稿是否出现。")
+            if PLATFORM_SAVED_URL:
+                payload = json.dumps(
+                    {
+                        "status": "platform_draft_saved",
+                        "notes": "本地自动填充助手已点击小红书平台草稿保存按钮。",
+                    }
+                ).encode("utf-8")
+                request = urllib.request.Request(
+                    PLATFORM_SAVED_URL,
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                try:
+                    urllib.request.urlopen(request, timeout=15).read()
+                    print("系统状态已同步为“小红书平台草稿已保存”。")
+                except Exception as exc:
+                    print(f"平台草稿已点击保存，但系统状态回写失败：{exc}")
         else:
             print("没有识别到草稿按钮。小红书页面可能已改版，请手动点击“暂存离开”或“保存草稿”。")
     input("检查完成后按 Enter 关闭助手：")
     context.close()
-'''
+'''.replace("__PLATFORM_SAVED_URL__", repr(platform_saved_url))
     checklist = "\n".join(
         [
             "小红书半自动发布清单",
@@ -248,6 +286,20 @@ with sync_playwright() as playwright:
     (package_dir / "xiaohongshu_fill_assistant.py").write_text(
         assistant, encoding="utf-8"
     )
+    launcher = "\r\n".join(
+        [
+            "@echo off",
+            "chcp 65001 >nul",
+            "cd /d %~dp0",
+            "python -m pip install playwright",
+            "python -m playwright install chromium",
+            "python xiaohongshu_fill_assistant.py",
+            "pause",
+        ]
+    )
+    (package_dir / "一键保存到小红书草稿箱.bat").write_text(
+        launcher, encoding="utf-8-sig"
+    )
 
     archive = package_dir / "xiaohongshu_publish_package.zip"
     used_names: set[str] = set()
@@ -258,6 +310,7 @@ with sync_playwright() as playwright:
             "xiaohongshu_checklist.txt",
             "xiaohongshu_cover_text.txt",
             "xiaohongshu_fill_assistant.py",
+            "一键保存到小红书草稿箱.bat",
         ):
             file_path = package_dir / filename
             if file_path.exists():

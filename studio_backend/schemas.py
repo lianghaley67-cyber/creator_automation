@@ -207,6 +207,7 @@ class XiaohongshuPublishStatusRequest(BaseModel):
     status: Literal[
         "ready_for_manual_confirm",
         "draft_saved",
+        "platform_draft_saved",
         "publishing",
         "published",
         "failed",

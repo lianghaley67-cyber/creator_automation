@@ -1094,6 +1094,7 @@ async function uploadWechatCover(event) {
 function xiaohongshuStatusLabel(draft) {
   const status = draft?.xiaohongshu?.status;
   if (status === "draft_saved") return "已保存到系统草稿箱";
+  if (status === "platform_draft_saved") return "已保存到小红书平台草稿箱";
   if (status === "publishing") return "发布中，等待你确认";
   if (status === "published") return "已发布";
   if (status === "failed") return "发布失败，可重新尝试";
@@ -1721,7 +1722,9 @@ const selectedWechatMaterial = computed(() => (
   wechatMaterials.value.find((item) => item.id === selectedWechatMaterialId.value) || latestWechatMaterial.value
 ));
 const xiaohongshuSystemDrafts = computed(() => (
-  distributionTasks.value.filter((item) => item?.xiaohongshu?.status === "draft_saved")
+  distributionTasks.value.filter((item) => (
+    ["draft_saved", "platform_draft_saved"].includes(item?.xiaohongshu?.status)
+  ))
 ));
 const latestWechatCallbackEvent = computed(() => wechatCallbackEvents.value[0] || null);
 const workflowCards = [
@@ -2089,6 +2092,15 @@ onBeforeUnmount(() => {
           兜底转写：{{ wechatEntry.voice_fallback_configured ? "已配置 AppID/AppSecret，微信不返回识别文本时会尝试下载语音转写。" : "未配置 AppID/AppSecret，只能依赖微信 Recognition 识别文本。" }}
         </p>
         <p class="meta">回调地址：{{ wechatEntry?.callback_url || "/api/integrations/wechat/callback" }}</p>
+        <p v-if="wechatEntry && !wechatEntry.callback_token_configured" class="error-text">
+          微信回调 Token 未配置。请先设置 WECHAT_CALLBACK_TOKEN，并在公众号后台“设置与开发 → 基本配置 → 服务器配置”填写同一个 Token。
+        </p>
+        <p v-else-if="wechatEntry && !wechatEntry.callback_received" class="error-text">
+          服务器还没有收到过微信回调。扫码关注并不会自动上传素材；必须在公众号后台启用服务器配置，URL 使用上面的回调地址，消息加解密方式先选“明文模式”。
+        </p>
+        <p v-else-if="wechatEntry?.callback_received" class="meta">
+          微信回调已接通，服务器已收到 {{ wechatEntry.callback_event_count }} 条回调记录。
+        </p>
         <p v-if="!wechatQrImageUrl" class="error-text">当前 AppID 已配置，但二维码未配置。请把同一个公众号的二维码图片地址写入 WECHAT_QR_IMAGE_URL，不能继续使用旧测试号二维码。</p>
       </div>
       </section>

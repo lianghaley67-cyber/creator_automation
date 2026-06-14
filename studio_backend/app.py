@@ -1983,6 +1983,9 @@ def get_wechat_entry(request: Request) -> dict[str, Any]:
         "draft_api_configured": bool(WECHAT_APP_ID and WECHAT_APP_SECRET),
         "app_id_masked": _masked_wechat_app_id(),
         "credentials_configured": bool(WECHAT_APP_ID and WECHAT_APP_SECRET),
+        "callback_token_configured": bool(WECHAT_CALLBACK_TOKEN),
+        "callback_received": bool(store.list_section("wechat_callback_events")),
+        "callback_event_count": len(store.list_section("wechat_callback_events")),
         "qr_configured": bool(WECHAT_QR_IMAGE_URL),
         "cover_configured": bool(saved_thumb or os.getenv("WECHAT_THUMB_MEDIA_ID", "").strip()),
     }
@@ -2528,9 +2531,13 @@ def update_distribution_xiaohongshu_status(
     }
     if payload.status == "publishing":
         xiaohongshu["started_at"] = now_iso()
-    if payload.status == "draft_saved":
+    if payload.status in {"draft_saved", "platform_draft_saved"}:
         xiaohongshu["draft_saved_at"] = now_iso()
-        xiaohongshu["draft_location"] = "creator_studio"
+        xiaohongshu["draft_location"] = (
+            "xiaohongshu_platform"
+            if payload.status == "platform_draft_saved"
+            else "creator_studio"
+        )
     if payload.status == "published":
         note_url = payload.note_url.strip()
         if not note_url:

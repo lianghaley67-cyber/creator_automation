@@ -49,9 +49,14 @@ class PublishingTests(unittest.TestCase):
                     "xiaohongshu_fill_assistant.py",
                     bundle.namelist(),
                 )
+                self.assertIn(
+                    "一键保存到小红书草稿箱.bat",
+                    bundle.namelist(),
+                )
                 assistant = bundle.read("xiaohongshu_fill_assistant.py").decode("utf-8")
                 self.assertIn('action == "SAVE"', assistant)
                 self.assertIn("保存草稿", assistant)
+                self.assertIn('["上传图文"]', assistant)
                 compile(assistant, "xiaohongshu_fill_assistant.py", "exec")
                 self.assertTrue(
                     any(
