@@ -99,6 +99,7 @@ const distributionDrafts = reactive({});
 const materialDistributionDrafts = reactive({});
 const distributionTasks = ref([]);
 const xiaohongshuPublishUrls = reactive({});
+const xiaohongshuServerSession = ref(null);
 const wechatDraftErrors = reactive({});
 const audioPreviews = reactive({});
 const stockWatchlist = ref([]);
@@ -155,6 +156,8 @@ const busy = reactive({
   audio: "",
   distribution: "",
   xiaohongshu: "",
+  xiaohongshuSession: false,
+  xiaohongshuServerDraft: "",
   wechatDraft: "",
   wechatCover: false,
   stockRefresh: false,
@@ -1136,20 +1139,41 @@ async function saveXiaohongshuDraft(task, applyResult) {
   }
 }
 
-async function startXiaohongshuPublishing(task, applyResult) {
+async function refreshXiaohongshuServerSession() {
+  busy.xiaohongshuSession = true;
+  try {
+    const result = await requestApi(
+      "/api/integrations/xiaohongshu/session",
+      { method: "POST" },
+      90000
+    );
+    xiaohongshuServerSession.value = result;
+    setNotice(result.message || "小红书服务器登录状态已刷新。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "检查小红书服务器登录状态失败。"));
+  } finally {
+    busy.xiaohongshuSession = false;
+  }
+}
+
+async function saveXiaohongshuPlatformDraft(task, applyResult) {
   if (!task?.id) return;
-  const xiaohongshu = task.xiaohongshu || {};
-  const creatorWindow = window.open(
-    xiaohongshu.creator_url || "https://creator.xiaohongshu.com/",
-    "_blank",
-    "noopener,noreferrer"
-  );
-  await copyText(
-    `${xiaohongshu.title || ""}\n\n${xiaohongshu.body || ""}`.trim(),
-    "标题和正文已复制，小红书创作中心已打开。"
-  );
-  const result = await updateXiaohongshuStatus(task, "publishing", applyResult);
-  if (result && creatorWindow) creatorWindow.focus();
+  busy.xiaohongshuServerDraft = String(task.id);
+  try {
+    const result = await requestApi(
+      `/api/distribution/tasks/${task.id}/xiaohongshu/server-draft`,
+      { method: "POST" },
+      150000
+    );
+    applyResult(result);
+    await refreshDistributionTasks();
+    setNotice("服务器已把图卡和文案保存到小红书官方草稿箱，请到小红书创作中心刷新查看。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "保存到小红书官方草稿箱失败。请先刷新登录二维码并扫码。"));
+    await refreshXiaohongshuServerSession();
+  } finally {
+    busy.xiaohongshuServerDraft = "";
+  }
 }
 
 async function finishXiaohongshuPublishing(task, applyResult) {
@@ -2201,7 +2225,7 @@ onBeforeUnmount(() => {
             <div class="publish-buttons">
               <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.title, '小红书标题已复制。')">复制标题</button>
               <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
-              <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.xiaohongshu?.package_url)" download>下载图文包 + 自动填充助手</a>
+              <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.xiaohongshu?.package_url)" download>下载备用图文包</a>
               <button
                 class="btn accent small"
                 :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
@@ -2209,10 +2233,10 @@ onBeforeUnmount(() => {
               >保存小红书系统草稿</button>
               <button
                 class="btn primary small"
-                :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
-                @click="startXiaohongshuPublishing(trendDistributionDraft, applyTrendDistributionResult)"
+                :disabled="busy.xiaohongshuServerDraft === String(trendDistributionDraft.id)"
+                @click="saveXiaohongshuPlatformDraft(trendDistributionDraft, applyTrendDistributionResult)"
               >
-                {{ busy.xiaohongshu === String(trendDistributionDraft.id) ? "处理中..." : "开始半自动发布" }}
+                {{ busy.xiaohongshuServerDraft === String(trendDistributionDraft.id) ? "服务器保存中..." : "直接保存到小红书草稿箱" }}
               </button>
               <label class="upload-audio-label">
                 {{ busy.wechatCover ? "上传中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
@@ -2582,7 +2606,7 @@ onBeforeUnmount(() => {
               </button>
               <button class="btn secondary small" @click="copyText(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.title, '小红书标题已复制。')">复制小红书标题</button>
               <button class="btn secondary small" @click="copyText(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.body, '小红书正文已复制。')">复制小红书正文</button>
-              <a class="btn secondary small" :href="mediaUrl(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.package_url)" download>下载图文包 + 自动填充助手</a>
+              <a class="btn secondary small" :href="mediaUrl(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.package_url)" download>下载备用图文包</a>
               <button
                 class="btn accent small"
                 :disabled="busy.xiaohongshu === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
@@ -2590,9 +2614,9 @@ onBeforeUnmount(() => {
               >保存小红书系统草稿</button>
               <button
                 class="btn primary small"
-                :disabled="busy.xiaohongshu === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
-                @click="startXiaohongshuPublishing(materialDistributionDrafts[selectedWechatMaterial.id], (result) => applyMaterialDistributionResult(selectedWechatMaterial.id, result))"
-              >开始半自动发布小红书</button>
+                :disabled="busy.xiaohongshuServerDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
+                @click="saveXiaohongshuPlatformDraft(materialDistributionDrafts[selectedWechatMaterial.id], (result) => applyMaterialDistributionResult(selectedWechatMaterial.id, result))"
+              >{{ busy.xiaohongshuServerDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id) ? "服务器保存中..." : "直接保存到小红书草稿箱" }}</button>
             </div>
             <p v-if="!wechatEntry?.cover_configured" class="error-text">
               当前没有公众号封面。请先上传一张 JPG/PNG 封面，上传成功后发送按钮会自动解锁。
@@ -2645,13 +2669,35 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
+    <section class="panel">
+      <div class="panel-header">
+        <h2>小红书服务器登录</h2>
+        <button
+          class="btn secondary small"
+          type="button"
+          :disabled="busy.xiaohongshuSession"
+          @click="refreshXiaohongshuServerSession"
+        >{{ busy.xiaohongshuSession ? "检查中..." : "刷新登录二维码 / 检查登录" }}</button>
+      </div>
+      <p class="meta">
+        首次使用或登录失效时，在这里扫描服务器浏览器的二维码。登录成功后，后续直接点击“保存到小红书草稿箱”，不需要下载本地助手。
+      </p>
+      <p v-if="xiaohongshuServerSession?.message" class="meta">{{ xiaohongshuServerSession.message }}</p>
+      <img
+        v-if="xiaohongshuServerSession?.screenshot_url"
+        class="xiaohongshu-login-preview"
+        :src="mediaUrl(xiaohongshuServerSession.screenshot_url)"
+        alt="小红书服务器登录页面"
+      />
+    </section>
+
     <section v-if="xiaohongshuSystemDrafts.length" class="panel">
       <div class="panel-header">
         <h2>小红书系统草稿箱</h2>
         <button class="btn secondary small" type="button" @click="refreshDistributionTasks">刷新草稿</button>
       </div>
       <p class="meta">
-        这里的草稿已保存在服务器 SQLite。下载自动填充助手并输入 SAVE，可同步到你登录的小红书平台草稿箱。
+        这里的草稿已保存在服务器 SQLite。服务器登录小红书后，点击按钮即可同步到小红书官方草稿箱。
       </p>
       <div class="draft-list">
         <article v-for="draft in xiaohongshuSystemDrafts" :key="draft.id" class="publish-card">
@@ -2662,12 +2708,12 @@ onBeforeUnmount(() => {
           <p>{{ draft.xiaohongshu?.body }}</p>
           <div class="publish-buttons">
             <button class="btn secondary small" @click="copyText(draft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
-            <a class="btn secondary small" :href="mediaUrl(draft.xiaohongshu?.package_url)" download>下载助手并同步平台草稿</a>
+            <a class="btn secondary small" :href="mediaUrl(draft.xiaohongshu?.package_url)" download>下载备用图文包</a>
             <button
               class="btn primary small"
-              :disabled="busy.xiaohongshu === String(draft.id)"
-              @click="startXiaohongshuPublishing(draft, applySavedDistributionTask)"
-            >打开小红书继续编辑</button>
+              :disabled="busy.xiaohongshuServerDraft === String(draft.id)"
+              @click="saveXiaohongshuPlatformDraft(draft, applySavedDistributionTask)"
+            >{{ busy.xiaohongshuServerDraft === String(draft.id) ? "服务器保存中..." : "保存到小红书官方草稿箱" }}</button>
           </div>
         </article>
       </div>
@@ -2941,7 +2987,7 @@ onBeforeUnmount(() => {
                 class="btn secondary small"
                 @click="copyText(distributionDrafts[job.id].xiaohongshu?.title, '小红书标题已复制。')"
               >复制标题</button>
-              <a class="btn secondary small" :href="mediaUrl(distributionDrafts[job.id].xiaohongshu?.package_url)" download>下载图文包 + 自动填充助手</a>
+              <a class="btn secondary small" :href="mediaUrl(distributionDrafts[job.id].xiaohongshu?.package_url)" download>下载备用图文包</a>
               <button
                 class="btn accent small"
                 :disabled="busy.xiaohongshu === String(distributionDrafts[job.id].id)"
@@ -2949,10 +2995,10 @@ onBeforeUnmount(() => {
               >保存小红书系统草稿</button>
               <button
                 class="btn primary small"
-                :disabled="busy.xiaohongshu === String(distributionDrafts[job.id].id)"
-                @click="startXiaohongshuPublishing(distributionDrafts[job.id], (result) => applyJobDistributionResult(job.id, result))"
+                :disabled="busy.xiaohongshuServerDraft === String(distributionDrafts[job.id].id)"
+                @click="saveXiaohongshuPlatformDraft(distributionDrafts[job.id], (result) => applyJobDistributionResult(job.id, result))"
               >
-                {{ busy.xiaohongshu === String(distributionDrafts[job.id].id) ? "处理中..." : "开始半自动发布" }}
+                {{ busy.xiaohongshuServerDraft === String(distributionDrafts[job.id].id) ? "服务器保存中..." : "直接保存到小红书草稿箱" }}
               </button>
               <button
                 class="btn accent small"
@@ -4397,6 +4443,16 @@ textarea {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.xiaohongshu-login-preview {
+  display: block;
+  width: min(100%, 960px);
+  max-height: 640px;
+  object-fit: contain;
+  margin-top: 14px;
+  border: 1px solid #263b50;
+  background: #ffffff;
 }
 
 .wechat-entry-copy {

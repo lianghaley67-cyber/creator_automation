@@ -88,6 +88,11 @@ from .storage import (
     now_iso,
     to_media_url,
 )
+from .xiaohongshu_automation import (
+    XiaohongshuLoginRequired,
+    capture_login_session,
+    save_platform_draft,
+)
 
 
 def _resolve_script_revision_provider(provider: str) -> str:
@@ -153,7 +158,6 @@ DOUYIN_CREATOR_UPLOAD_URL = os.getenv(
     "https://creator.douyin.com/creator-micro/content/post/video",
 ).strip() or "https://creator.douyin.com/"
 WECHAT_CALLBACK_TOKEN = os.getenv("WECHAT_CALLBACK_TOKEN", os.getenv("WECHAT_TOKEN", "")).strip()
-WECHAT_SYNC_REPLY = os.getenv("WECHAT_SYNC_REPLY", "false").strip().lower() in {"1", "true", "yes", "on"}
 WECHAT_QR_IMAGE_URL = os.getenv("WECHAT_QR_IMAGE_URL", "").strip()
 WECHAT_ACCOUNT_NAME = os.getenv("WECHAT_ACCOUNT_NAME", "微信素材测试号").strip() or "微信素材测试号"
 WECHAT_APP_ID = os.getenv("WECHAT_APP_ID", "").strip()
@@ -468,6 +472,42 @@ def _record_wechat_callback_event(
     return store.mutate(updater)
 
 
+def _wechat_message_key(message: dict[str, str]) -> str:
+    msg_id = str(message.get("MsgId") or "").strip()
+    if msg_id:
+        return f"msg:{msg_id}"
+    fallback = "|".join(
+        [
+            str(message.get("FromUserName") or "").strip(),
+            str(message.get("CreateTime") or "").strip(),
+            str(message.get("MsgType") or "").strip(),
+            str(message.get("MediaId") or message.get("Content") or "").strip(),
+        ]
+    )
+    return f"fallback:{hashlib.sha1(fallback.encode('utf-8')).hexdigest()}"
+
+
+def _claim_wechat_message(message: dict[str, str]) -> bool:
+    message_key = _wechat_message_key(message)
+
+    def updater(state: dict[str, Any]) -> bool:
+        claims = list(state.get("wechat_message_claims", []))
+        if any(str(item.get("key") or "") == message_key for item in claims):
+            return False
+        claims.append(
+            {
+                "key": message_key,
+                "created_at": now_iso(),
+                "source_message_id": str(message.get("MsgId") or "").strip(),
+                "msg_type": str(message.get("MsgType") or "").strip(),
+            }
+        )
+        state["wechat_message_claims"] = claims[-500:]
+        return True
+
+    return bool(store.mutate(updater))
+
+
 def _parse_wechat_xml(raw_body: bytes) -> dict[str, str]:
     if not raw_body:
         return {}
@@ -602,6 +642,31 @@ def _transcribe_wechat_voice_media(message: dict[str, str]) -> tuple[str, str]:
         return "", f"已下载语音但本地转写为空：{note}"
     except Exception as exc:  # noqa: BLE001
         return "", f"微信未返回 Recognition，下载/转写兜底失败：{exc}"
+
+
+def _process_wechat_voice_callback(message: dict[str, str]) -> None:
+    material_text, voice_fallback_note = _transcribe_wechat_voice_media(message)
+    if not material_text:
+        _record_wechat_callback_event(
+            message,
+            action="voice_transcription_failed",
+            reason=voice_fallback_note or "语音后台转写失败。",
+        )
+        return
+    payload = WeChatMaterialRequest(
+        text=material_text,
+        source_user=str(message.get("FromUserName") or "").strip(),
+        source_message_id=str(message.get("MsgId") or "").strip(),
+        source_type="wechat_voice",
+        auto_preview=True,
+    )
+    _record_wechat_callback_event(
+        message,
+        action="voice_transcribed",
+        reason=voice_fallback_note or "语音已在后台完成转写并进入文案生成队列。",
+        content_preview=material_text,
+    )
+    receive_wechat_material(payload)
 
 
 def _build_douyin_publish_draft(
@@ -1830,7 +1895,29 @@ def receive_wechat_material(payload: WeChatMaterialRequest) -> dict[str, Any]:
         "script_provider": payload.script_provider,
         "status": "received",
     }
-    store.add_record("wechat_materials", record)
+    def reserve_material(state: dict[str, Any]) -> dict[str, Any]:
+        records = list(state.get("wechat_materials", []))
+        source_message_id = str(payload.source_message_id or "").strip()
+        if source_message_id:
+            for existing in records:
+                if str(existing.get("source_message_id") or "").strip() == source_message_id:
+                    return {"record": dict(existing), "created": False}
+        records.append(record)
+        state["wechat_materials"] = records
+        return {"record": record, "created": True}
+
+    reservation = store.mutate(reserve_material)
+    if not reservation["created"]:
+        existing = reservation["record"]
+        return {
+            "status": "ok",
+            "material_id": existing.get("id"),
+            "material": existing,
+            "preview": None,
+            "wechat_reply": existing.get("reply") or {},
+            "deduplicated": True,
+            "next_step": "该微信消息已经处理过，本次重复回调已忽略。",
+        }
     preview: dict[str, Any] | None = None
     if payload.auto_preview:
         try:
@@ -2234,32 +2321,54 @@ async def receive_wechat_callback(
     recognition = _normalize_chinese_text(re.sub(r"\s+", " ", message.get("Recognition", "")).strip())
     msg_id = message.get("MsgId", "")
     material_text = content if msg_type == "text" else recognition if msg_type == "voice" else ""
-    voice_fallback_note = ""
-    if msg_type == "voice" and not material_text:
-        material_text, voice_fallback_note = _transcribe_wechat_voice_media(message)
-    if msg_type == "voice" and not material_text:
+    if msg_type not in {"text", "voice"}:
         _record_wechat_callback_event(
             message,
             action="ignored",
-            reason=voice_fallback_note or "已收到语音，但微信回调没有 Recognition 识别文本；请在微信后台开启语音识别。",
+            reason="已收到微信回调，但当前只把文字或语音写入素材箱。",
         )
-        reply = (
-            "语音已收到，但微信没有返回识别文字，本地兜底转写也没有成功。\n"
-            "请确认：1）语音识别已开启；2）重新关注测试号后再发；3）如需兜底下载转写，请配置 WECHAT_APP_ID 和 WECHAT_APP_SECRET。"
-        )
+        reply = "我现在支持文字素材和语音素材。你可以直接说：今天发生了什么、你的感想、剪辑心得。"
         return Response(
             content=_wechat_text_response(to_user=to_user, from_user=from_user, content=reply),
             media_type="application/xml",
         )
-    if msg_type not in {"text", "voice"} or not material_text:
+    if not _claim_wechat_message(message):
+        _record_wechat_callback_event(
+            message,
+            action="duplicate_ignored",
+            reason="微信重复推送了同一条消息，本次已去重，不会再次生成文案。",
+        )
+        return Response(
+            content=_wechat_text_response(
+                to_user=to_user,
+                from_user=from_user,
+                content="这条素材已经收到，正在后台处理，不会重复生成。",
+            ),
+            media_type="application/xml",
+        )
+    if msg_type == "voice" and not material_text:
+        _record_wechat_callback_event(
+            message,
+            action="voice_queued",
+            reason="语音已接收，接口先立即回复微信，下载、转写和文案生成转到后台执行。",
+        )
+        background_tasks.add_task(_process_wechat_voice_callback, dict(message))
+        return Response(
+            content=_wechat_text_response(
+                to_user=to_user,
+                from_user=from_user,
+                content="语音已收到，正在后台转成文字并生成文案。稍后刷新素材列表即可看到。",
+            ),
+            media_type="application/xml",
+        )
+    if not material_text:
         _record_wechat_callback_event(
             message,
             action="ignored",
-            reason="已收到微信回调，但当前只把文字或带识别文本的语音写入素材箱。",
+            reason="消息没有可处理的文字内容。",
         )
-        reply = "我现在支持文字素材，也支持开启语音识别后的语音素材。你可以直接说：今天发生了什么、你的感想、剪辑心得。"
         return Response(
-            content=_wechat_text_response(to_user=to_user, from_user=from_user, content=reply),
+            content=_wechat_text_response(to_user=to_user, from_user=from_user, content="没有识别到可处理的文字。"),
             media_type="application/xml",
         )
 
@@ -2273,18 +2382,14 @@ async def receive_wechat_callback(
     _record_wechat_callback_event(
         message,
         action="queued_material",
-        reason=(voice_fallback_note or "语音素材已识别并进入生成队列。") if msg_type == "voice" else "文字素材已进入生成队列。",
+        reason="语音识别文本已进入后台生成队列。" if msg_type == "voice" else "文字素材已进入后台生成队列。",
         content_preview=material_text,
     )
-    if WECHAT_SYNC_REPLY:
-        result = receive_wechat_material(payload)
-        reply_text = (result.get("wechat_reply") or {}).get("plain_text") or "素材已收到，文案已生成。"
-    else:
-        background_tasks.add_task(receive_wechat_material, payload)
-        reply_text = (
-            "素材已收到，我会按职场妈妈/AI 提效 IP 流水线生成文案。\n"
-            "为了避免微信回调超时，生成结果会先保存在系统里；后续接入客服消息/企业微信机器人后可自动推回聊天框。"
-        )
+    background_tasks.add_task(receive_wechat_material, payload)
+    reply_text = (
+        "素材已收到，文案正在后台生成。\n"
+        "稍后刷新网页素材列表即可看到结果；同一条微信消息只会处理一次。"
+    )
     return Response(
         content=_wechat_text_response(to_user=to_user, from_user=from_user, content=reply_text),
         media_type="application/xml",
@@ -2466,6 +2571,14 @@ def list_distribution_tasks() -> dict[str, Any]:
     return {"items": _sorted(store.list_section("distribution_tasks"), key="updated_at")[:50]}
 
 
+@app.post("/api/integrations/xiaohongshu/session")
+def refresh_xiaohongshu_session() -> dict[str, Any]:
+    try:
+        return capture_login_session()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"小红书服务器浏览器启动失败：{str(exc)[:400]}") from exc
+
+
 @app.post("/api/jobs/{job_id}/distribution")
 def prepare_job_distribution(
     job_id: str,
@@ -2550,6 +2663,30 @@ def update_distribution_xiaohongshu_status(
         {"xiaohongshu": xiaohongshu, "updated_at": now_iso()},
     )
     return refresh_distribution_manifest(updated)
+
+
+@app.post("/api/distribution/tasks/{task_id}/xiaohongshu/server-draft")
+def create_server_xiaohongshu_draft(task_id: str) -> dict[str, Any]:
+    task = store.find_record("distribution_tasks", task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="分发任务不存在。")
+    try:
+        result = save_platform_draft(task)
+    except XiaohongshuLoginRequired as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)[:500]) from exc
+    xiaohongshu = {
+        **(task.get("xiaohongshu") if isinstance(task.get("xiaohongshu"), dict) else {}),
+        **result,
+        "draft_saved_at": now_iso(),
+        "draft_location": "xiaohongshu_platform",
+    }
+    return store.update_record(
+        "distribution_tasks",
+        task_id,
+        {"xiaohongshu": xiaohongshu, "updated_at": now_iso()},
+    )
 
 
 @app.get("/api/jobs/{job_id}/publish/douyin-assistant")

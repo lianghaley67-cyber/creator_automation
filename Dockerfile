@@ -28,7 +28,8 @@ RUN apt-get update \
 
 COPY studio_backend/requirements.txt /app/studio_backend/requirements.txt
 RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && python -m pip install --no-cache-dir -r /app/studio_backend/requirements.txt
+    && python -m pip install --no-cache-dir -r /app/studio_backend/requirements.txt \
+    && python -m playwright install --with-deps chromium
 
 COPY . /app
 COPY --from=frontend /app/studio_frontend/dist /app/studio_frontend/dist

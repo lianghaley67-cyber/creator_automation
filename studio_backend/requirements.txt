@@ -7,3 +7,4 @@ pyttsx3>=2.98,<3.0
 pydantic>=2.7,<3.0
 Pillow>=10.4,<12.0
 faster-whisper>=1.1,<2.0
+playwright>=1.52,<2.0
