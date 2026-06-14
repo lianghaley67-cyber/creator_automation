@@ -49,6 +49,10 @@ class PublishingTests(unittest.TestCase):
                     "xiaohongshu_fill_assistant.py",
                     bundle.namelist(),
                 )
+                assistant = bundle.read("xiaohongshu_fill_assistant.py").decode("utf-8")
+                self.assertIn('action == "SAVE"', assistant)
+                self.assertIn("保存草稿", assistant)
+                compile(assistant, "xiaohongshu_fill_assistant.py", "exec")
                 self.assertTrue(
                     any(
                         name.startswith("xiaohongshu_cards/")

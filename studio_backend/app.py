@@ -2528,6 +2528,9 @@ def update_distribution_xiaohongshu_status(
     }
     if payload.status == "publishing":
         xiaohongshu["started_at"] = now_iso()
+    if payload.status == "draft_saved":
+        xiaohongshu["draft_saved_at"] = now_iso()
+        xiaohongshu["draft_location"] = "creator_studio"
     if payload.status == "published":
         note_url = payload.note_url.strip()
         if not note_url:

@@ -163,6 +163,16 @@ def first_visible(page, selectors):
     return None
 
 
+def first_visible_button(page, labels):
+    for label in labels:
+        matches = page.get_by_text(label, exact=True)
+        for index in range(matches.count()):
+            item = matches.nth(index)
+            if item.is_visible():
+                return item
+    return None
+
+
 with sync_playwright() as playwright:
     context = playwright.chromium.launch_persistent_context(
         str(ROOT / ".xiaohongshu_browser"),
@@ -196,8 +206,20 @@ with sync_playwright() as playwright:
     if body:
         body.fill(BODY)
 
-    print("图片、标题和正文已尽量自动填好。请在浏览器里审核，确认无误后由你本人点击发布。")
-    input("发布或检查完成后按 Enter 关闭助手：")
+    print("图片、标题和正文已尽量自动填好。请先在浏览器里审核。")
+    action = input("输入 SAVE 后按 Enter，助手会尝试保存到小红书草稿箱；直接按 Enter 则只保留填写页面：").strip().upper()
+    if action == "SAVE":
+        save_button = first_visible_button(
+            page,
+            ["暂存离开", "保存草稿", "存草稿", "暂存"],
+        )
+        if save_button:
+            save_button.click()
+            page.wait_for_timeout(2000)
+            print("已点击小红书的草稿保存按钮，请在页面确认草稿是否出现。")
+        else:
+            print("没有识别到草稿按钮。小红书页面可能已改版，请手动点击“暂存离开”或“保存草稿”。")
+    input("检查完成后按 Enter 关闭助手：")
     context.close()
 '''
     checklist = "\n".join(
@@ -208,8 +230,8 @@ with sync_playwright() as playwright:
             "2. 首次使用：pip install playwright，然后执行 playwright install chromium。",
             "3. 在解压目录执行：python xiaohongshu_fill_assistant.py。",
             "4. 按提示完成小红书登录，助手会上传图片并填写标题、正文。",
-            "5. 检查封面、话题和错别字，由你本人点击发布。",
-            "6. 发布后复制笔记链接，回填系统并标记“已发布”。",
+            "5. 检查封面、话题和错别字；输入 SAVE 可尝试保存到小红书平台草稿箱。",
+            "6. 正式发布仍由你本人确认；发布后复制链接，回填系统并标记“已发布”。",
             "",
             "不想运行助手时，也可以点击系统里的“开始半自动发布”，手动上传并粘贴。",
         ]

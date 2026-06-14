@@ -204,6 +204,12 @@ class TrendDistributionRequest(BaseModel):
 
 
 class XiaohongshuPublishStatusRequest(BaseModel):
-    status: Literal["ready_for_manual_confirm", "publishing", "published", "failed"]
+    status: Literal[
+        "ready_for_manual_confirm",
+        "draft_saved",
+        "publishing",
+        "published",
+        "failed",
+    ]
     note_url: str = ""
     notes: str = ""
