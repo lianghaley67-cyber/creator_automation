@@ -2680,7 +2680,7 @@ onBeforeUnmount(() => {
         >{{ busy.xiaohongshuSession ? "检查中..." : "刷新登录二维码 / 检查登录" }}</button>
       </div>
       <p class="meta">
-        首次使用或登录失效时，在这里扫描服务器浏览器的二维码。登录成功后，后续直接点击“保存到小红书草稿箱”，不需要下载本地助手。
+        首次使用或登录失效时，请用手机小红书 App 扫描下方二维码。下方是服务器截图，不能点击、不能输入手机号；登录成功后即可直接保存草稿。
       </p>
       <p v-if="xiaohongshuServerSession?.message" class="meta">{{ xiaohongshuServerSession.message }}</p>
       <img

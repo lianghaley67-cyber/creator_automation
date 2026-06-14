@@ -12,6 +12,7 @@ CREATOR_URL = "https://creator.xiaohongshu.com/publish/publish"
 PROFILE_DIR = STUDIO_DIR / "xiaohongshu_browser_profile"
 SCREENSHOT_DIR = STUDIO_DIR / "xiaohongshu_session"
 SESSION_SCREENSHOT = SCREENSHOT_DIR / "login.png"
+QR_SCREENSHOT = SCREENSHOT_DIR / "login_qr.png"
 RESULT_SCREENSHOT = SCREENSHOT_DIR / "latest.png"
 _BROWSER_LOCK = threading.Lock()
 _SESSION_STATE_LOCK = threading.Lock()
@@ -70,6 +71,67 @@ def _is_logged_in(page: Any) -> bool:
     )
 
 
+def _switch_to_qr_login(page: Any) -> bool:
+    qr_text = _first_visible_text(page, ["扫码登录", "二维码登录"])
+    if qr_text:
+        qr_text.click()
+        page.wait_for_timeout(1200)
+        return True
+
+    selectors = [
+        "[class*='qrcode-switch']",
+        "[class*='qr-code-switch']",
+        "[class*='login-switch']",
+        "[class*='switch-login']",
+        "[class*='qrcode'] button",
+        "img[alt*='二维码']",
+        "[aria-label*='二维码']",
+        "[title*='二维码']",
+    ]
+    candidate = _first_visible(page, selectors)
+    if candidate:
+        candidate.click()
+        page.wait_for_timeout(1200)
+        return True
+
+    sms_title = _first_visible_text(page, ["短信登录", "手机号登录"])
+    if sms_title:
+        box = sms_title.bounding_box()
+        if box:
+            # 小红书登录卡片的二维码切换入口位于“短信登录”标题右上方。
+            page.mouse.click(box["x"] + 170, max(8, box["y"] - 8))
+            page.wait_for_timeout(1200)
+            return True
+    return False
+
+
+def _capture_qr_image(page: Any) -> str:
+    qr_selectors = [
+        "[class*='qrcode'] canvas",
+        "[class*='qr-code'] canvas",
+        "[class*='qrcode'] img",
+        "[class*='qr-code'] img",
+        "img[alt*='二维码']",
+        "canvas",
+    ]
+    for selector in qr_selectors:
+        matches = page.locator(selector)
+        for index in range(matches.count()):
+            qr = matches.nth(index)
+            if not qr.is_visible():
+                continue
+            box = qr.bounding_box()
+            if (
+                box
+                and 100 <= box["width"] <= 500
+                and 100 <= box["height"] <= 500
+            ):
+                qr.screenshot(path=str(QR_SCREENSHOT))
+                return to_media_url(QR_SCREENSHOT)
+    page.screenshot(path=str(SESSION_SCREENSHOT), full_page=True)
+    return to_media_url(SESSION_SCREENSHOT)
+
+
 def _set_session_state(**patch: Any) -> None:
     with _SESSION_STATE_LOCK:
         _SESSION_STATE.update(patch)
@@ -88,15 +150,21 @@ def _login_session_worker() -> None:
                     page.goto(CREATOR_URL, wait_until="domcontentloaded", timeout=60000)
                     page.wait_for_timeout(2500)
                     logged_in = _is_logged_in(page)
-                    page.screenshot(path=str(SESSION_SCREENSHOT), full_page=True)
+                    screenshot_url = ""
+                    if logged_in:
+                        page.screenshot(path=str(SESSION_SCREENSHOT), full_page=True)
+                        screenshot_url = to_media_url(SESSION_SCREENSHOT)
+                    else:
+                        _switch_to_qr_login(page)
+                        screenshot_url = _capture_qr_image(page)
                     _set_session_state(
                         status="logged_in" if logged_in else "waiting_for_scan",
                         logged_in=logged_in,
-                        screenshot_url=to_media_url(SESSION_SCREENSHOT),
+                        screenshot_url=screenshot_url,
                         message=(
                             "服务器上的小红书登录态有效，可以直接保存草稿。"
                             if logged_in
-                            else "请扫描截图中的小红书登录二维码，服务器浏览器会等待 3 分钟。"
+                            else "请直接用小红书 App 扫描下方二维码。图片不能点击，也不需要在这里输入手机号。服务器会等待 3 分钟。"
                         ),
                     )
                     _SESSION_READY.set()
