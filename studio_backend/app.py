@@ -2596,7 +2596,10 @@ def verify_xiaohongshu_sms(payload: XiaohongshuSmsVerifyRequest) -> dict[str, An
     try:
         result = verify_sms_code(payload.phone, payload.code)
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=str(exc)[:500]) from exc
+        raise HTTPException(
+            status_code=409,
+            detail=f"验证码登录未完成：{str(exc)[:450]}",
+        ) from exc
     if not result.get("logged_in"):
         raise HTTPException(status_code=409, detail=result.get("message") or "小红书登录失败。")
     return result

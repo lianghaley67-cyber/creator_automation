@@ -309,9 +309,34 @@ def _verify_sms_on_page(page: Any, phone: str, code: str) -> dict[str, Any]:
     login_button = _first_visible_text(page, ["登录"])
     if not login_button:
         raise RuntimeError("没有找到小红书登录按钮。")
-    login_button.click()
-    page.wait_for_timeout(5000)
-    logged_in = _is_logged_in(page)
+    login_button.click(no_wait_after=True, timeout=10000)
+
+    logged_in = False
+    failure_message = ""
+    failure_labels = [
+        "验证码错误",
+        "验证码已过期",
+        "验证码失效",
+        "操作频繁",
+        "请稍后再试",
+        "请完成验证",
+        "手机号格式错误",
+        "登录失败",
+    ]
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        page.wait_for_timeout(1000)
+        if _is_logged_in(page):
+            logged_in = True
+            break
+        for label in failure_labels:
+            failure = _first_visible_text(page, [label])
+            if failure:
+                failure_message = label
+                break
+        if failure_message:
+            break
+
     screenshot_url = _login_page_screenshot(page)
     return {
         "status": "logged_in" if logged_in else "verification_failed",
@@ -320,7 +345,11 @@ def _verify_sms_on_page(page: Any, phone: str, code: str) -> dict[str, Any]:
         "message": (
             "小红书服务器登录成功，后续可以直接保存官方草稿。"
             if logged_in
-            else "验证码未通过，可能已过期、输入错误，或页面要求额外验证。"
+            else (
+                f"小红书提示：{failure_message}。请重新获取验证码后再试。"
+                if failure_message
+                else "点击登录后仍停留在登录页。验证码可能已过期，或页面要求滑块/设备验证，请查看诊断截图。"
+            )
         ),
     }
 

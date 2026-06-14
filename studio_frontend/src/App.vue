@@ -1210,6 +1210,7 @@ async function verifyXiaohongshuSms() {
     setNotice(result.message || "小红书服务器登录成功。");
   } catch (error) {
     setError(normalizeErrorMessage(error, "小红书验证码登录失败。"));
+    await refreshXiaohongshuServerSession();
   } finally {
     busy.xiaohongshuVerify = false;
   }
