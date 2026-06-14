@@ -344,6 +344,28 @@ def _visible_action_labels(page: Any) -> list[str]:
     return labels
 
 
+def _click_text_control(page: Any, labels: list[str]) -> str:
+    for label in labels:
+        matches = page.get_by_text(label, exact=True)
+        for index in range(matches.count()):
+            item = matches.nth(index)
+            if not item.is_visible():
+                continue
+            item.evaluate("(element) => element.click()")
+            return label
+    return ""
+
+
+def _first_visible_contains(page: Any, labels: list[str]) -> str:
+    for label in labels:
+        matches = page.get_by_text(label, exact=False)
+        for index in range(matches.count()):
+            item = matches.nth(index)
+            if item.is_visible():
+                return " ".join(str(item.inner_text() or label).split())[:160]
+    return ""
+
+
 def _click_login_button(page: Any, code_input: Any) -> str:
     selectors = [
         "button[type='submit']",
@@ -760,7 +782,7 @@ def save_platform_draft(task: dict[str, Any]) -> dict[str, Any]:
 
                 image_tab = _first_visible_text(page, ["上传图文"])
                 if image_tab:
-                    image_tab.click()
+                    image_tab.evaluate("(element) => element.click()")
                     page.wait_for_timeout(1500)
 
                 upload = _first_visible(page, ["input[type=file]"])
@@ -796,14 +818,49 @@ def save_platform_draft(task: dict[str, Any]) -> dict[str, Any]:
                 if not save_button:
                     page.screenshot(path=str(RESULT_SCREENSHOT), full_page=True)
                     raise RuntimeError("内容已经填好，但没有识别到“暂存离开”按钮，请查看服务器截图。")
-                save_button.click()
-                page.wait_for_timeout(3000)
+                save_button.evaluate("(element) => element.click()")
+                page.wait_for_timeout(800)
+
+                confirm_label = _click_text_control(
+                    page,
+                    ["保存并离开", "暂存并离开", "确认保存", "确定"],
+                )
+                if confirm_label:
+                    page.wait_for_timeout(800)
+
+                success_message = ""
+                deadline = time.time() + 12
+                while time.time() < deadline:
+                    page.wait_for_timeout(600)
+                    success_message = _first_visible_contains(
+                        page,
+                        [
+                            "已保存至草稿箱",
+                            "保存至草稿箱",
+                            "草稿保存成功",
+                            "保存成功",
+                            "已保存",
+                        ],
+                    )
+                    if success_message:
+                        break
+                    if not title_input.is_visible() and "publish/publish" not in str(page.url):
+                        success_message = "保存后已离开编辑页面"
+                        break
+
                 page.screenshot(path=str(RESULT_SCREENSHOT), full_page=True)
+                if not success_message:
+                    labels = "、".join(_visible_action_labels(page)[:10]) or "无"
+                    raise RuntimeError(
+                        "小红书页面已点击保存，但没有返回草稿保存成功信号。"
+                        f"当前页面按钮：{labels}。请查看保存结果截图。"
+                    )
                 return {
                     "status": "platform_draft_saved",
-                    "screenshot_url": to_media_url(RESULT_SCREENSHOT),
+                    "screenshot_url": _versioned_media_url(RESULT_SCREENSHOT),
                     "uploaded_images": len(uploads),
-                    "message": "服务器已上传图卡、填写文案并点击保存草稿。",
+                    "platform_confirmation": success_message,
+                    "message": f"小红书平台已确认草稿保存成功：{success_message}",
                 }
             finally:
                 context.close()

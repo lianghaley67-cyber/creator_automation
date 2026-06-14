@@ -84,6 +84,25 @@ class XiaohongshuAutomationTests(unittest.TestCase):
             force=True,
         )
 
+    def test_click_text_control_uses_dom_click_for_visible_tab(self):
+        page = MagicMock()
+        hidden = MagicMock()
+        hidden.is_visible.return_value = False
+        visible = MagicMock()
+        visible.is_visible.return_value = True
+        matches = MagicMock()
+        matches.count.return_value = 2
+        matches.nth.side_effect = [hidden, visible]
+        page.get_by_text.return_value = matches
+
+        clicked = xiaohongshu_automation._click_text_control(
+            page,
+            ["上传图文"],
+        )
+
+        self.assertEqual(clicked, "上传图文")
+        visible.evaluate.assert_called_once_with("(element) => element.click()")
+
 
 if __name__ == "__main__":
     unittest.main()
