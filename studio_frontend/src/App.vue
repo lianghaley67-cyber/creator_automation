@@ -1181,6 +1181,7 @@ async function sendXiaohongshuSms() {
     setNotice(result.message || "验证码请求已提交。");
   } catch (error) {
     setError(normalizeErrorMessage(error, "发送小红书验证码失败。"));
+    await refreshXiaohongshuServerSession();
   } finally {
     busy.xiaohongshuSms = false;
   }

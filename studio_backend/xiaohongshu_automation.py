@@ -258,8 +258,27 @@ def _send_sms_on_page(page: Any, phone: str) -> dict[str, Any]:
     if not send_button:
         raise RuntimeError("没有找到“发送验证码”按钮，页面可能已改版。")
     send_button.click()
-    page.wait_for_timeout(1800)
+    page.wait_for_timeout(800)
+
+    consent_button = _first_visible_text(page, ["同意并继续", "同意并登录"])
+    if consent_button:
+        consent_button.click()
+        page.wait_for_timeout(700)
+        send_button = _first_visible_text(page, ["发送验证码", "获取验证码"])
+        if not send_button:
+            raise RuntimeError("同意用户协议后，没有重新找到“发送验证码”按钮。")
+        send_button.click()
+        page.wait_for_timeout(1800)
+    else:
+        page.wait_for_timeout(1000)
+
     screenshot_url = _login_page_screenshot(page)
+    consent_still_visible = _first_visible_text(page, ["同意并继续", "同意并登录"])
+    if consent_still_visible:
+        raise RuntimeError("小红书用户协议确认弹窗仍未关闭，请查看服务器诊断截图。")
+    active_send_button = _first_visible_text(page, ["发送验证码", "获取验证码"])
+    if active_send_button and active_send_button.is_enabled():
+        raise RuntimeError("小红书没有确认验证码已发送，可能触发了风控或滑块验证，请查看诊断截图。")
     return {
         "status": "sms_sent",
         "logged_in": False,
@@ -357,6 +376,13 @@ def _login_session_worker() -> None:
                                 result_holder["event"].set()
                                 return
                         except Exception as exc:
+                            screenshot_url = _login_page_screenshot(page)
+                            _set_session_state(
+                                status="sms_failed",
+                                logged_in=False,
+                                screenshot_url=screenshot_url,
+                                message=str(exc)[:300],
+                            )
                             result_holder["error"] = str(exc)
                         finally:
                             result_holder["event"].set()
