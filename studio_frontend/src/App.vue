@@ -5,15 +5,20 @@ const configuredApiBase = (import.meta.env.VITE_API_BASE || "").trim().replace(/
 const browserApiBase = window.location.origin && window.location.protocol.startsWith("http")
   ? window.location.origin.replace(/\/$/, "")
   : "";
+const isLocalBrowser = ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
 const apiCandidates = Array.from(
   new Set(
     [
       configuredApiBase,
       browserApiBase,
-      "http://127.0.0.1:8000",
-      "http://127.0.0.1:8011",
-      "http://localhost:8000",
-      "http://localhost:8011"
+      ...(isLocalBrowser
+        ? [
+            "http://127.0.0.1:8000",
+            "http://127.0.0.1:8011",
+            "http://localhost:8000",
+            "http://localhost:8011"
+          ]
+        : [])
     ].filter(Boolean)
   )
 );
@@ -40,7 +45,9 @@ const wechatCallbackEvents = ref([]);
 const wechatEntry = ref(null);
 const wechatQrImageUrl = computed(() => {
   const entry = wechatEntry.value || {};
-  return entry.qr_proxy_url || entry.qr_image_url || "";
+  const directUrl = String(entry.qr_image_url || "");
+  if (directUrl.startsWith("https://") || directUrl.startsWith("/")) return directUrl;
+  return entry.qr_proxy_url || directUrl || "";
 });
 const selectedWechatMaterialId = ref("");
 const aiTrends = ref([]);
@@ -199,7 +206,7 @@ function normalizeErrorMessage(error, fallback = "请求失败。") {
 
 async function pingApi(base) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 2500);
+  const timer = window.setTimeout(() => controller.abort(), 6000);
   try {
     const response = await fetch(`${base}/api/health`, { signal: controller.signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -213,21 +220,35 @@ async function pingApi(base) {
   }
 }
 
+let verifiedApiBase = "";
+let apiResolutionPromise = null;
+
 async function resolveApiBase() {
+  if (verifiedApiBase) return verifiedApiBase;
+  if (apiResolutionPromise) return apiResolutionPromise;
   busy.connect = true;
-  try {
+  apiResolutionPromise = (async () => {
     for (const candidate of [activeApiBase.value, ...apiCandidates]) {
       if (!candidate) continue;
       try {
         await pingApi(candidate);
         activeApiBase.value = candidate;
+        verifiedApiBase = candidate;
         return candidate;
       } catch {
-        // Try the next local API.
+        // Try the next API candidate.
       }
     }
-    throw new Error("后端未连接，请先启动 8000 端口服务。");
+    throw new Error(
+      isLocalBrowser
+        ? "本地后端未连接，请确认 8000 端口服务已启动。"
+        : "线上服务暂时不可用，请刷新页面；如果仍失败，请检查服务器容器和 Nginx。"
+    );
+  })();
+  try {
+    return await apiResolutionPromise;
   } finally {
+    apiResolutionPromise = null;
     busy.connect = false;
   }
 }

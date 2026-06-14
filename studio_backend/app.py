@@ -1956,8 +1956,14 @@ async def receive_web_audio_material(
 
 
 @app.get("/api/integrations/wechat/entry")
-def get_wechat_entry() -> dict[str, Any]:
-    public_base = os.getenv("CREATOR_STUDIO_PUBLIC_BASE_URL", "").strip().rstrip("/")
+def get_wechat_entry(request: Request) -> dict[str, Any]:
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    forwarded_host = str(request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+    request_proto = forwarded_proto or request.url.scheme
+    request_host = forwarded_host or str(request.headers.get("host") or request.url.netloc)
+    request_base = f"{request_proto}://{request_host}".rstrip("/")
+    configured_base = os.getenv("CREATOR_STUDIO_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    public_base = request_base if request_proto == "https" else (configured_base or request_base)
     callback_path = "/api/integrations/wechat/callback"
     qr_path = "/api/integrations/wechat/qr"
     integration_settings = store.get_state().get("integration_settings") or {}
@@ -1968,8 +1974,8 @@ def get_wechat_entry() -> dict[str, Any]:
         "receiver_label": WECHAT_ACCOUNT_NAME or "当前 AppID 对应的公众号",
         "receiver_description": "微信文字、微信语音和公众号草稿都使用这里显示的同一组 WECHAT_APP_ID / WECHAT_APP_SECRET。",
         "qr_image_url": WECHAT_QR_IMAGE_URL,
-        "qr_proxy_url": f"{public_base}{qr_path}" if public_base else qr_path,
-        "callback_url": f"{public_base}{callback_path}" if public_base else callback_path,
+        "qr_proxy_url": qr_path,
+        "callback_url": f"{public_base}{callback_path}",
         "voice_supported": True,
         "voice_requirement": "微信后台需要开启语音识别，语音消息回调里才会带 Recognition 文本。",
         "voice_fallback_enabled": WECHAT_VOICE_FALLBACK_TRANSCRIBE,
