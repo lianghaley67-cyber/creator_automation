@@ -71,6 +71,37 @@ def _is_logged_in(page: Any) -> bool:
     )
 
 
+def _phone_login_input(page: Any) -> Any | None:
+    return _first_visible(
+        page,
+        [
+            "input[placeholder*='手机号']",
+            "input[placeholder*='手机']",
+            "input[type='tel']",
+        ],
+    )
+
+
+def _login_card_box(page: Any) -> dict[str, float] | None:
+    phone_input = _phone_login_input(page)
+    if not phone_input:
+        return None
+    candidate: dict[str, float] | None = None
+    parent = phone_input
+    for _ in range(8):
+        parent = parent.locator("xpath=..")
+        if parent.count() != 1:
+            break
+        box = parent.bounding_box()
+        if not box:
+            continue
+        if 180 <= box["width"] <= 460 and 180 <= box["height"] <= 560:
+            candidate = box
+        if box["width"] > 500 or box["height"] > 650:
+            break
+    return candidate
+
+
 def _switch_to_qr_login(page: Any) -> bool:
     qr_text = _first_visible_text(page, ["扫码登录", "二维码登录"])
     if qr_text:
@@ -94,15 +125,26 @@ def _switch_to_qr_login(page: Any) -> bool:
         page.wait_for_timeout(1200)
         return True
 
+    card_box = _login_card_box(page)
+    if card_box:
+        # 登录方式切换按钮固定在登录卡片右上角。以手机号输入框是否消失判断切换成功。
+        for inset_x, inset_y in ((16, 16), (24, 16), (16, 24), (30, 24)):
+            page.mouse.click(
+                card_box["x"] + card_box["width"] - inset_x,
+                card_box["y"] + inset_y,
+            )
+            page.wait_for_timeout(900)
+            if not _phone_login_input(page):
+                return True
+
     sms_title = _first_visible_text(page, ["短信登录", "手机号登录"])
     if sms_title:
         box = sms_title.bounding_box()
         if box:
-            # 小红书登录卡片的二维码切换入口位于“短信登录”标题右上方。
-            for offset_x, offset_y in ((170, 10), (185, 10), (170, 20)):
-                page.mouse.click(box["x"] + offset_x, box["y"] + offset_y)
+            for offset_x, offset_y in ((170, -14), (185, -14), (170, -4)):
+                page.mouse.click(box["x"] + offset_x, max(8, box["y"] + offset_y))
                 page.wait_for_timeout(900)
-                if _find_qr_element(page):
+                if not _phone_login_input(page):
                     return True
     return False
 
@@ -136,11 +178,40 @@ def _versioned_media_url(path: Path) -> str:
     return f"{to_media_url(path)}?v={int(time.time() * 1000)}"
 
 
-def _capture_qr_image(page: Any) -> str:
+def _capture_qr_image(
+    page: Any,
+    fallback_box: dict[str, float] | None = None,
+) -> str:
     qr = _find_qr_element(page)
     if qr:
         qr.screenshot(path=str(QR_SCREENSHOT))
         return _versioned_media_url(QR_SCREENSHOT)
+    # 二维码可能由背景图或 Shadow DOM 绘制。只要手机号输入框已消失，
+    # 就裁剪登录卡片区域，保留一个可扫码的小图。
+    if not _phone_login_input(page):
+        card_candidates = [
+            "[class*='login-container']",
+            "[class*='login-box']",
+            "[class*='login-panel']",
+            "[class*='login-card']",
+        ]
+        card = _first_visible(page, card_candidates)
+        if card:
+            box = card.bounding_box()
+            if box and 180 <= box["width"] <= 600 and 180 <= box["height"] <= 700:
+                card.screenshot(path=str(QR_SCREENSHOT))
+                return _versioned_media_url(QR_SCREENSHOT)
+        if fallback_box:
+            page.screenshot(
+                path=str(QR_SCREENSHOT),
+                clip={
+                    "x": max(0, fallback_box["x"]),
+                    "y": max(0, fallback_box["y"]),
+                    "width": fallback_box["width"],
+                    "height": fallback_box["height"],
+                },
+            )
+            return _versioned_media_url(QR_SCREENSHOT)
     page.screenshot(path=str(SESSION_SCREENSHOT), full_page=True)
     return _versioned_media_url(SESSION_SCREENSHOT)
 
@@ -168,8 +239,9 @@ def _login_session_worker() -> None:
                         page.screenshot(path=str(SESSION_SCREENSHOT), full_page=True)
                         screenshot_url = _versioned_media_url(SESSION_SCREENSHOT)
                     else:
+                        login_card_box = _login_card_box(page)
                         _switch_to_qr_login(page)
-                        screenshot_url = _capture_qr_image(page)
+                        screenshot_url = _capture_qr_image(page, login_card_box)
                     _set_session_state(
                         status="logged_in" if logged_in else "waiting_for_scan",
                         logged_in=logged_in,
