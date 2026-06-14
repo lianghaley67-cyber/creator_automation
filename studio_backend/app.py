@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .analysis import analyze_media_file, detect_media_kind, transcribe_audio
+from .channel_skills import list_channel_skills
 from .ai_trends import (
     archive_markdown_to_obsidian,
     build_notebooklm_import_package,
@@ -67,6 +68,7 @@ from .schemas import (
     KidsGenerateRequest,
     KidsScriptPreviewRequest,
     KidsScriptReviseRequest,
+    MaterialTextRequest,
     PersonaUpdate,
     SadTalkerConfigPayload,
     SchedulePayload,
@@ -1873,6 +1875,78 @@ def receive_wechat_material(payload: WeChatMaterialRequest) -> dict[str, Any]:
     }
 
 
+@app.get("/api/channel-skills")
+def get_channel_skills() -> dict[str, Any]:
+    return {"items": list_channel_skills()}
+
+
+@app.post("/api/materials/text")
+def receive_web_text_material(payload: MaterialTextRequest) -> dict[str, Any]:
+    result = receive_wechat_material(
+        WeChatMaterialRequest(
+            text=payload.text,
+            source_type=payload.source_type or "web_text",
+            content_mode=payload.content_mode,
+            script_provider=payload.script_provider,
+            auto_preview=payload.auto_preview,
+        )
+    )
+    material = store.find_record("wechat_materials", str(result.get("material_id") or ""))
+    return {"status": "ok", "material": material or result.get("material")}
+
+
+@app.post("/api/materials/audio")
+async def receive_web_audio_material(
+    file: UploadFile = File(...),
+    content_mode: str = Form("working_mom"),
+    script_provider: str = Form("gemini_minimax"),
+    source_type: str = Form("web_audio"),
+) -> dict[str, Any]:
+    content_type = str(file.content_type or "").lower()
+    if content_type and not (
+        content_type.startswith("audio/")
+        or content_type.startswith("video/")
+        or content_type == "application/octet-stream"
+    ):
+        raise HTTPException(status_code=400, detail="请上传音频或视频文件。")
+    body = await file.read()
+    if not body:
+        raise HTTPException(status_code=400, detail="上传的音频为空。")
+    if len(body) > 100 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="音频或视频不能超过 100MB。")
+    suffix = Path(str(file.filename or "material.webm")).suffix or ".webm"
+    target_dir = UPLOADS_DIR / "material_intake"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"{make_id('material_audio')}{suffix}"
+    target.write_bytes(body)
+    transcript, note = transcribe_audio(
+        target,
+        model_name=os.getenv("MATERIAL_VOICE_WHISPER_MODEL", WECHAT_VOICE_WHISPER_MODEL),
+    )
+    transcript = _normalize_chinese_text(str(transcript or "").strip())
+    if not transcript:
+        raise HTTPException(
+            status_code=503,
+            detail=f"语音转文字失败：{note or '服务器没有获得可用文字'}",
+        )
+    result = receive_wechat_material(
+        WeChatMaterialRequest(
+            text=transcript,
+            source_type=source_type or "web_audio",
+            content_mode=content_mode,
+            script_provider=script_provider,
+            auto_preview=True,
+        )
+    )
+    material = store.find_record("wechat_materials", str(result.get("material_id") or ""))
+    return {
+        "status": "ok",
+        "transcript": transcript,
+        "transcribe_note": note,
+        "material": material or result.get("material"),
+    }
+
+
 @app.get("/api/integrations/wechat/entry")
 def get_wechat_entry() -> dict[str, Any]:
     public_base = os.getenv("CREATOR_STUDIO_PUBLIC_BASE_URL", "").strip().rstrip("/")
@@ -1883,6 +1957,8 @@ def get_wechat_entry() -> dict[str, Any]:
     return {
         "status": "ok",
         "account_name": WECHAT_ACCOUNT_NAME,
+        "receiver_label": WECHAT_ACCOUNT_NAME or "当前 AppID 对应的公众号",
+        "receiver_description": "微信文字、微信语音和公众号草稿都使用这里显示的同一组 WECHAT_APP_ID / WECHAT_APP_SECRET。",
         "qr_image_url": WECHAT_QR_IMAGE_URL,
         "qr_proxy_url": f"{public_base}{qr_path}" if public_base else qr_path,
         "callback_url": f"{public_base}{callback_path}" if public_base else callback_path,
@@ -1892,6 +1968,8 @@ def get_wechat_entry() -> dict[str, Any]:
         "voice_fallback_configured": bool(WECHAT_APP_ID and WECHAT_APP_SECRET),
         "draft_api_configured": bool(WECHAT_APP_ID and WECHAT_APP_SECRET),
         "app_id_masked": _masked_wechat_app_id(),
+        "credentials_configured": bool(WECHAT_APP_ID and WECHAT_APP_SECRET),
+        "qr_configured": bool(WECHAT_QR_IMAGE_URL),
         "cover_configured": bool(saved_thumb or os.getenv("WECHAT_THUMB_MEDIA_ID", "").strip()),
     }
 

@@ -45,10 +45,31 @@ class PublishingTests(unittest.TestCase):
                 self.assertIn("xiaohongshu_note.txt", bundle.namelist())
                 self.assertIn("xiaohongshu_checklist.txt", bundle.namelist())
                 self.assertIn("xiaohongshu_cover_text.txt", bundle.namelist())
+                self.assertIn(
+                    "xiaohongshu_fill_assistant.py",
+                    bundle.namelist(),
+                )
+                self.assertTrue(
+                    any(
+                        name.startswith("xiaohongshu_cards/")
+                        and name.endswith(".png")
+                        for name in bundle.namelist()
+                    )
+                )
 
         self.assertEqual(result["trend_id"], "trend_1")
         self.assertTrue(result["xiaohongshu"]["recommended"])
         self.assertTrue(result["xiaohongshu"]["cover_text"])
+        self.assertTrue(result["xiaohongshu"]["card_urls"])
+        self.assertEqual(
+            result["xiaohongshu"]["skill_id"],
+            "xiaohongshu_note_v1",
+        )
+        self.assertEqual(result["wechat"]["skill_id"], "wechat_article_v1")
+        self.assertNotEqual(
+            result["wechat"]["markdown"],
+            result["xiaohongshu"]["body"],
+        )
         self.assertEqual(len(result["xiaohongshu"]["publish_steps"]), 4)
 
     def test_prepare_material_distribution_without_video_job(self):
@@ -73,6 +94,11 @@ class PublishingTests(unittest.TestCase):
         self.assertEqual(result["material_id"], "wechat_1")
         self.assertEqual(result["source_type"], "wechat_material")
         self.assertEqual(result["wechat"]["status"], "ready")
+        self.assertTrue(result["xiaohongshu"]["card_urls"])
+        self.assertNotEqual(
+            result["wechat"]["markdown"],
+            result["xiaohongshu"]["body"],
+        )
 
     def test_prepare_distribution_package_writes_channel_files(self):
         job = {
@@ -101,8 +127,13 @@ class PublishingTests(unittest.TestCase):
             self.assertTrue((package_dir / "wechat_article.html").exists())
             self.assertTrue((package_dir / "xiaohongshu_note.txt").exists())
             self.assertTrue((package_dir / "manifest.json").exists())
+            self.assertTrue((package_dir / "xiaohongshu_cards" / "01.png").exists())
             self.assertIn("#职场妈妈", result["xiaohongshu"]["body"])
             self.assertEqual(result["wechat"]["status"], "ready")
+            self.assertEqual(
+                result["channel_skills"]["wechat"],
+                "wechat_article_v1",
+            )
 
     def test_submit_wechat_draft_uses_saved_cover(self):
         task = {

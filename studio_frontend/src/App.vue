@@ -9,11 +9,11 @@ const apiCandidates = Array.from(
   new Set(
     [
       configuredApiBase,
+      browserApiBase,
       "http://127.0.0.1:8000",
       "http://127.0.0.1:8011",
       "http://localhost:8000",
-      "http://localhost:8011",
-      browserApiBase
+      "http://localhost:8011"
     ].filter(Boolean)
   )
 );
@@ -31,7 +31,7 @@ if (typeof document !== "undefined") {
   document.head.appendChild(icon);
 }
 
-const activeApiBase = ref(configuredApiBase || "http://127.0.0.1:8000");
+const activeApiBase = ref(configuredApiBase || browserApiBase || "http://127.0.0.1:8000");
 const notice = ref("");
 const errorMessage = ref("");
 const jobs = ref([]);
@@ -46,6 +46,12 @@ const selectedWechatMaterialId = ref("");
 const aiTrends = ref([]);
 const notebookLmPackage = ref(null);
 const trendSearchQuery = ref("");
+const materialTextInput = ref("");
+const materialVoiceNote = ref("");
+const materialRecording = ref(false);
+let materialRecorder = null;
+let materialRecorderChunks = [];
+let materialRecorderStream = null;
 const deletingJobId = ref("");
 const previewStoryboard = ref([]);
 const hardRules = ref([]);
@@ -127,6 +133,8 @@ const busy = reactive({
   trendInterview: false,
   trendVoice: false,
   trendDistribution: false,
+  materialIntake: false,
+  materialVoice: false,
   notebooklm: false,
   archive: "",
   cleanup: false,
@@ -476,6 +484,99 @@ async function clearHumanData() {
   } finally {
     busy.cleanup = false;
   }
+}
+
+async function acceptCreatedMaterial(material, successMessage) {
+  await refreshWechatMaterials();
+  if (material?.id) selectedWechatMaterialId.value = material.id;
+  materialTextInput.value = "";
+  setNotice(successMessage);
+}
+
+async function submitTextMaterial() {
+  const text = materialTextInput.value.trim();
+  if (!text) {
+    setError("请先输入一段文字素材。");
+    return;
+  }
+  busy.materialIntake = true;
+  try {
+    const result = await requestApi(
+      "/api/materials/text",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          text,
+          source_type: "web_text",
+          content_mode: kidsForm.content_mode,
+          script_provider: kidsForm.script_provider,
+          auto_preview: true
+        })
+      },
+      240000
+    );
+    await acceptCreatedMaterial(result.material, "文字素材已进入收件箱，并开始生成文案。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "文字素材提交失败。"));
+  } finally {
+    busy.materialIntake = false;
+  }
+}
+
+async function uploadMaterialAudioFile(file, sourceType = "web_audio") {
+  if (!file) return;
+  busy.materialVoice = true;
+  materialVoiceNote.value = "正在上传并转成文字...";
+  try {
+    const form = new FormData();
+    form.append("file", file, file.name || "material.webm");
+    form.append("content_mode", kidsForm.content_mode);
+    form.append("script_provider", kidsForm.script_provider);
+    form.append("source_type", sourceType);
+    const result = await requestApi("/api/materials/audio", { method: "POST", body: form }, 240000);
+    materialVoiceNote.value = result.transcribe_note || "语音已转成文字。";
+    await acceptCreatedMaterial(result.material, "语音素材已转成文字并进入收件箱。");
+  } catch (error) {
+    materialVoiceNote.value = "";
+    setError(normalizeErrorMessage(error, "语音素材处理失败。"));
+  } finally {
+    busy.materialVoice = false;
+  }
+}
+
+async function uploadMaterialAudio(event) {
+  const file = event?.target?.files?.[0];
+  await uploadMaterialAudioFile(file, "web_audio_upload");
+  if (event?.target) event.target.value = "";
+}
+
+async function startMaterialRecording() {
+  try {
+    materialRecorderStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    materialRecorderChunks = [];
+    materialRecorder = new MediaRecorder(materialRecorderStream);
+    materialRecorder.ondataavailable = (event) => {
+      if (event.data?.size) materialRecorderChunks.push(event.data);
+    };
+    materialRecorder.onstop = async () => {
+      const blob = new Blob(materialRecorderChunks, { type: materialRecorder?.mimeType || "audio/webm" });
+      materialRecorderStream?.getTracks().forEach((track) => track.stop());
+      materialRecorderStream = null;
+      materialRecording.value = false;
+      const file = new File([blob], "web_recording.webm", { type: blob.type || "audio/webm" });
+      await uploadMaterialAudioFile(file, "web_microphone");
+    };
+    materialRecorder.start();
+    materialRecording.value = true;
+    materialVoiceNote.value = "正在录音，讲完后点击“停止并提交”。";
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "无法使用麦克风，请检查浏览器权限或改用音频上传。"));
+  }
+}
+
+function stopMaterialRecording() {
+  if (materialRecorder?.state === "recording") materialRecorder.stop();
 }
 
 async function deleteHistoryJob(jobId) {
@@ -907,6 +1008,10 @@ async function createMaterialWechatDraft(material) {
   await submitWechatDraftTask(task, (result) => {
     materialDistributionDrafts[material.id] = result;
   });
+}
+
+function applyMaterialDistributionResult(materialId, result) {
+  materialDistributionDrafts[materialId] = result;
 }
 
 async function uploadWechatCover(event) {
@@ -1698,6 +1803,10 @@ onBeforeUnmount(() => {
   if (trendInterviewRecorder && trendInterviewRecorder.state !== "inactive") {
     trendInterviewRecorder.stop();
   }
+  if (materialRecorder && materialRecorder.state !== "inactive") {
+    materialRecorder.stop();
+  }
+  materialRecorderStream?.getTracks().forEach((track) => track.stop());
 });
 </script>
 
@@ -1891,13 +2000,18 @@ onBeforeUnmount(() => {
         <span v-else>二维码未配置</span>
       </div>
       <div class="wechat-entry-copy">
-        <strong>扫码用微信语音提供素材</strong>
-        <p>关注 {{ wechatEntry?.account_name || "微信测试号/公众号" }} 后，直接按住说话：今天发生了什么、你的感想、剪辑心得。页面点击“刷新微信素材”即可加载。</p>
+        <strong>当前微信素材接收账号</strong>
+        <p>
+          {{ wechatEntry?.receiver_label || "当前 AppID 对应的公众号" }}
+          · AppID {{ wechatEntry?.app_id_masked || "未配置" }}
+        </p>
+        <p>{{ wechatEntry?.receiver_description }}</p>
+        <p>关注这个 AppID 对应的真实公众号后，可以发送文字或语音；页面点击“刷新微信素材”即可加载。</p>
         <p v-if="wechatEntry?.voice_fallback_enabled" class="meta">
           兜底转写：{{ wechatEntry.voice_fallback_configured ? "已配置 AppID/AppSecret，微信不返回识别文本时会尝试下载语音转写。" : "未配置 AppID/AppSecret，只能依赖微信 Recognition 识别文本。" }}
         </p>
         <p class="meta">回调地址：{{ wechatEntry?.callback_url || "/api/integrations/wechat/callback" }}</p>
-        <p v-if="!wechatQrImageUrl" class="error-text">请在 .env 配置 WECHAT_QR_IMAGE_URL 为微信测试号/公众号二维码图片地址，然后重启后端。</p>
+        <p v-if="!wechatQrImageUrl" class="error-text">当前 AppID 已配置，但二维码未配置。请把同一个公众号的二维码图片地址写入 WECHAT_QR_IMAGE_URL，不能继续使用旧测试号二维码。</p>
       </div>
       </section>
 
@@ -1967,10 +2081,25 @@ onBeforeUnmount(() => {
               <strong>实时资讯分发</strong>
               <span>{{ trendDistributionDraft.xiaohongshu?.recommendation_reason }}</span>
             </div>
+            <p class="meta">
+              公众号 Skill：{{ trendDistributionDraft.wechat?.skill_id }}
+              · 小红书 Skill：{{ trendDistributionDraft.xiaohongshu?.skill_id }}
+              · 图文 Skill：{{ trendDistributionDraft.xiaohongshu?.image_skill_id }}
+            </p>
             <label class="field">
               <span>小红书推荐标题</span>
               <input readonly :value="trendDistributionDraft.xiaohongshu?.title" />
             </label>
+            <div v-if="trendDistributionDraft.xiaohongshu?.card_urls?.length" class="xiaohongshu-card-preview">
+              <a
+                v-for="(cardUrl, cardIndex) in trendDistributionDraft.xiaohongshu.card_urls"
+                :key="cardUrl"
+                :href="mediaUrl(cardUrl)"
+                target="_blank"
+              >
+                <img :src="mediaUrl(cardUrl)" :alt="`实时新闻小红书图文第 ${cardIndex + 1} 页`" />
+              </a>
+            </div>
             <label class="field">
               <span>封面短句</span>
               <input readonly :value="trendDistributionDraft.xiaohongshu?.cover_text" />
@@ -1982,7 +2111,7 @@ onBeforeUnmount(() => {
             <div class="publish-buttons">
               <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.title, '小红书标题已复制。')">复制标题</button>
               <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
-              <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.xiaohongshu?.package_url)" download>下载小红书素材包</a>
+              <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.xiaohongshu?.package_url)" download>下载图文包 + 自动填充助手</a>
               <button
                 class="btn primary small"
                 :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
@@ -2179,9 +2308,54 @@ onBeforeUnmount(() => {
 
     <!-- 素材与生成 Tab -->
     <div v-if="activeTab === 'materials'">
+      <section class="panel material-intake-panel">
+        <div class="panel-header">
+          <h2>添加素材</h2>
+          <span class="eyebrow">网页文字 · 网页录音 · 音频文件 · 微信文字/语音</span>
+        </div>
+        <div class="material-intake-grid">
+          <label class="field material-text-field">
+            <span>直接输入文字</span>
+            <textarea
+              v-model="materialTextInput"
+              rows="5"
+              placeholder="写下今天发生的事、你的判断、剪辑心得，或者粘贴一段待整理素材。"
+            ></textarea>
+          </label>
+          <div class="material-intake-actions">
+            <button class="btn accent" type="button" :disabled="busy.materialIntake" @click="submitTextMaterial">
+              {{ busy.materialIntake ? "提交中..." : "提交文字素材" }}
+            </button>
+            <button
+              v-if="!materialRecording"
+              class="btn primary"
+              type="button"
+              :disabled="busy.materialVoice || !canRecordTrendVoice"
+              @click="startMaterialRecording"
+            >
+              {{ canRecordTrendVoice ? "开始语音录入" : "浏览器录音不可用" }}
+            </button>
+            <button
+              v-else
+              class="btn accent"
+              type="button"
+              :disabled="busy.materialVoice"
+              @click="stopMaterialRecording"
+            >停止并提交</button>
+            <label class="upload-audio-label">
+              {{ busy.materialVoice ? "处理中..." : "上传音频/视频转文字" }}
+              <input type="file" accept="audio/*,video/*" :disabled="busy.materialVoice" @change="uploadMaterialAudio" />
+            </label>
+            <span v-if="materialVoiceNote" class="meta">{{ materialVoiceNote }}</span>
+          </div>
+        </div>
+        <p class="meta">
+          四种入口最终进入同一个素材收件箱，但会保留来源标记。微信入口使用上方显示的真实 AppID 对应公众号。
+        </p>
+      </section>
       <section id="wechat-inbox" class="panel">
       <div class="panel-header">
-        <h2>微信素材收件箱</h2>
+        <h2>统一素材收件箱</h2>
         <div class="top-actions">
           <button class="btn secondary" :disabled="busy.refreshWechat" @click="refreshWechatMaterials">
             {{ busy.refreshWechat ? "刷新中..." : "刷新微信素材" }}
@@ -2194,7 +2368,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
-      <div class="meta">微信发新消息后，点击“刷新微信素材”加载；页面不会自动轮询刷新。</div>
+      <div class="meta">网页提交会立即刷新；微信发新消息后点击“刷新微信素材”。</div>
       <div v-if="!wechatMaterials.length" class="meta">
         还没有收到微信素材。你可以在微信测试号里发一句真实经历。
         <span v-if="latestWechatCallbackEvent">
@@ -2218,6 +2392,7 @@ onBeforeUnmount(() => {
             <span class="mail-status">{{ item.status === "preview_generated" ? "已生成文案" : item.status === "preview_failed" ? "生成失败" : "已收到素材" }}</span>
             <span class="mail-time">{{ item.created_at }}</span>
             <span class="mail-summary">{{ item.text }}</span>
+            <span class="mail-source">{{ item.source_type || "unknown" }}</span>
           </button>
         </div>
         <div v-if="selectedWechatMaterial" class="mail-detail" :class="{ ready: selectedWechatMaterial.script, failed: selectedWechatMaterial.status === 'preview_failed' }">
@@ -2247,19 +2422,45 @@ onBeforeUnmount(() => {
               :disabled="busy.distribution === String(selectedWechatMaterial.id)"
               @click="prepareMaterialDistribution(selectedWechatMaterial)"
             >
-              {{ busy.distribution === String(selectedWechatMaterial.id) ? "准备中..." : "准备公众号文章" }}
+              {{ busy.distribution === String(selectedWechatMaterial.id) ? "准备中..." : "生成公众号 + 小红书发布包" }}
             </button>
             <button class="btn secondary small danger-action" type="button" :disabled="busy.refreshWechat" @click="deleteWechatMaterial(selectedWechatMaterial)">删除本条</button>
           </div>
           <div v-if="materialDistributionDrafts[selectedWechatMaterial.id]" class="publish-card material-publish-card">
             <div class="publish-card-head">
-              <strong>微信公众号自动化</strong>
-              <span>文章已排版，下一步发送到公众号草稿箱</span>
+              <strong>双渠道发布工作台</strong>
+              <span>公众号与小红书使用两套独立 Skill 生成</span>
             </div>
-            <label class="field">
-              <span>文章标题</span>
-              <input readonly :value="materialDistributionDrafts[selectedWechatMaterial.id].title" />
-            </label>
+            <div class="channel-pipeline-grid">
+              <div class="channel-pipeline">
+                <strong>微信公众号</strong>
+                <span class="meta">Skill：{{ materialDistributionDrafts[selectedWechatMaterial.id].wechat?.skill_id }}</span>
+                <label class="field">
+                  <span>文章标题</span>
+                  <input readonly :value="materialDistributionDrafts[selectedWechatMaterial.id].title" />
+                </label>
+                <p class="meta">长文章结构：背景、判断、行动建议。不会直接复用小红书正文。</p>
+              </div>
+              <div class="channel-pipeline">
+                <strong>小红书</strong>
+                <span class="meta">Skill：{{ materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.skill_id }} + {{ materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.image_skill_id }}</span>
+                <label class="field">
+                  <span>笔记标题</span>
+                  <input readonly :value="materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.title" />
+                </label>
+                <textarea class="caption-box" readonly :value="materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.body"></textarea>
+              </div>
+            </div>
+            <div v-if="materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.card_urls?.length" class="xiaohongshu-card-preview">
+              <a
+                v-for="(cardUrl, cardIndex) in materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu.card_urls"
+                :key="cardUrl"
+                :href="mediaUrl(cardUrl)"
+                target="_blank"
+              >
+                <img :src="mediaUrl(cardUrl)" :alt="`小红书图文第 ${cardIndex + 1} 页`" />
+              </a>
+            </div>
             <div class="publish-buttons">
               <label class="upload-audio-label">
                 {{ busy.wechatCover ? "上传封面中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "先上传公众号封面") }}
@@ -2284,6 +2485,14 @@ onBeforeUnmount(() => {
                       : "发送到公众号草稿箱"
                 }}
               </button>
+              <button class="btn secondary small" @click="copyText(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.title, '小红书标题已复制。')">复制小红书标题</button>
+              <button class="btn secondary small" @click="copyText(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.body, '小红书正文已复制。')">复制小红书正文</button>
+              <a class="btn secondary small" :href="mediaUrl(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.package_url)" download>下载图文包 + 自动填充助手</a>
+              <button
+                class="btn primary small"
+                :disabled="busy.xiaohongshu === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
+                @click="startXiaohongshuPublishing(materialDistributionDrafts[selectedWechatMaterial.id], (result) => applyMaterialDistributionResult(selectedWechatMaterial.id, result))"
+              >开始半自动发布小红书</button>
             </div>
             <p v-if="!wechatEntry?.cover_configured" class="error-text">
               当前没有公众号封面。请先上传一张 JPG/PNG 封面，上传成功后发送按钮会自动解锁。
@@ -2298,6 +2507,19 @@ onBeforeUnmount(() => {
                 · 草稿ID {{ materialDistributionDrafts[selectedWechatMaterial.id].wechat?.draft_media_id }}
               </template>
             </p>
+            <div class="xiaohongshu-progress">
+              <strong>小红书状态：{{ xiaohongshuStatusLabel(materialDistributionDrafts[selectedWechatMaterial.id]) }}</strong>
+              <template v-if="['publishing', 'failed'].includes(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.status)">
+                <input
+                  v-model="xiaohongshuPublishUrls[materialDistributionDrafts[selectedWechatMaterial.id].id]"
+                  placeholder="发布后粘贴小红书笔记链接"
+                />
+                <button
+                  class="btn accent small"
+                  @click="finishXiaohongshuPublishing(materialDistributionDrafts[selectedWechatMaterial.id], (result) => applyMaterialDistributionResult(selectedWechatMaterial.id, result))"
+                >标记已发布</button>
+              </template>
+            </div>
           </div>
         </div>
       </div>
@@ -2591,7 +2813,7 @@ onBeforeUnmount(() => {
                 class="btn secondary small"
                 @click="copyText(distributionDrafts[job.id].xiaohongshu?.title, '小红书标题已复制。')"
               >复制标题</button>
-              <a class="btn secondary small" :href="mediaUrl(distributionDrafts[job.id].xiaohongshu?.package_url)" download>下载小红书素材包</a>
+              <a class="btn secondary small" :href="mediaUrl(distributionDrafts[job.id].xiaohongshu?.package_url)" download>下载图文包 + 自动填充助手</a>
               <button
                 class="btn primary small"
                 :disabled="busy.xiaohongshu === String(distributionDrafts[job.id].id)"
@@ -4532,8 +4754,63 @@ textarea {
   font-weight: 800;
 }
 
+.material-intake-grid,
+.channel-pipeline-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: 14px;
+}
+
+.material-text-field textarea {
+  min-height: 132px;
+}
+
+.material-intake-actions,
+.channel-pipeline {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.channel-pipeline {
+  border: 1px solid #d7e2f1;
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.mail-source {
+  color: #00a6b5;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.xiaohongshu-card-preview {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.xiaohongshu-card-preview a {
+  display: block;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border: 1px solid #d7e2f1;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.xiaohongshu-card-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 @media (max-width: 860px) {
-  .xiaohongshu-progress {
+  .xiaohongshu-progress,
+  .material-intake-grid,
+  .channel-pipeline-grid {
     grid-template-columns: 1fr;
   }
 }

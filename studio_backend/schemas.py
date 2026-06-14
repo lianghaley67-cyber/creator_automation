@@ -163,6 +163,14 @@ class WeChatMaterialRequest(BaseModel):
     auto_preview: bool = True
 
 
+class MaterialTextRequest(BaseModel):
+    text: str
+    source_type: str = "web_text"
+    content_mode: str = "working_mom"
+    script_provider: str = "gemini_minimax"
+    auto_preview: bool = True
+
+
 class DouyinPublishAssistantRequest(BaseModel):
     title: str = ""
     hashtags: list[str] = Field(default_factory=list)

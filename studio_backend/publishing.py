@@ -10,6 +10,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Callable
 
+from .channel_skills import build_channel_drafts, render_xiaohongshu_cards
 from .storage import OUTPUTS_DIR, STUDIO_DIR, make_id, now_iso, to_media_url
 
 
@@ -74,6 +75,32 @@ def _wechat_html(title: str, summary: str, script: str) -> str:
     )
 
 
+def _wechat_channel_html(markdown: str) -> str:
+    blocks: list[str] = []
+    for raw in str(markdown or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("# "):
+            blocks.append(
+                f'<h1 style="font-size:24px;line-height:1.45;color:#132431;">{html.escape(line[2:])}</h1>'
+            )
+        elif line.startswith("## "):
+            blocks.append(
+                f'<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">{html.escape(line[3:])}</h2>'
+            )
+        else:
+            blocks.append(
+                f'<p style="font-size:16px;line-height:1.9;color:#243241;margin:0 0 16px;">{html.escape(line)}</p>'
+            )
+    return (
+        '<section style="max-width:100%;font-family:-apple-system,BlinkMacSystemFont,'
+        "'Segoe UI','Microsoft YaHei',sans-serif;\">"
+        + "".join(blocks)
+        + "</section>"
+    )
+
+
 def _source_media_files(artifacts: dict[str, Any]) -> list[Path]:
     candidates: list[str] = []
 
@@ -112,16 +139,79 @@ def _write_xiaohongshu_package(
     source_artifacts: dict[str, Any],
 ) -> Path:
     xhs = record["xiaohongshu"]
+    assistant = r'''from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+
+
+ROOT = Path(__file__).resolve().parent
+TITLE = (ROOT / "xiaohongshu_title.txt").read_text(encoding="utf-8").strip()
+NOTE = (ROOT / "xiaohongshu_note.txt").read_text(encoding="utf-8").strip()
+BODY = NOTE.removeprefix(TITLE).strip()
+CARDS = sorted((ROOT / "xiaohongshu_cards").glob("*.png"))
+MEDIA = sorted((ROOT / "media").glob("*")) if (ROOT / "media").exists() else []
+UPLOADS = CARDS or [path for path in MEDIA if path.is_file()]
+
+
+def first_visible(page, selectors):
+    for selector in selectors:
+        matches = page.locator(selector)
+        for index in range(matches.count()):
+            item = matches.nth(index)
+            if item.is_visible():
+                return item
+    return None
+
+
+with sync_playwright() as playwright:
+    context = playwright.chromium.launch_persistent_context(
+        str(ROOT / ".xiaohongshu_browser"),
+        headless=False,
+        channel="chrome",
+    )
+    page = context.pages[0] if context.pages else context.new_page()
+    page.goto("https://creator.xiaohongshu.com/publish/publish")
+    input("请在打开的浏览器里完成登录并进入“发布图文”页面，然后回到这里按 Enter：")
+
+    upload = first_visible(page, ["input[type=file]"])
+    if upload and UPLOADS:
+        upload.set_input_files([str(path) for path in UPLOADS])
+        page.wait_for_timeout(2500)
+
+    title = first_visible(
+        page,
+        ["input[placeholder*='标题']", "textarea[placeholder*='标题']"],
+    )
+    if title:
+        title.fill(TITLE)
+
+    body = first_visible(
+        page,
+        [
+            "textarea[placeholder*='正文']",
+            "textarea[placeholder*='描述']",
+            "[contenteditable=true]",
+        ],
+    )
+    if body:
+        body.fill(BODY)
+
+    print("图片、标题和正文已尽量自动填好。请在浏览器里审核，确认无误后由你本人点击发布。")
+    input("发布或检查完成后按 Enter 关闭助手：")
+    context.close()
+'''
     checklist = "\n".join(
         [
             "小红书半自动发布清单",
             "",
             "1. 下载并解压这个素材包。",
-            "2. 点击系统里的“开始半自动发布”，系统会复制标题和正文并打开创作中心。",
-            "3. 在创作中心上传 media 文件夹里的图片或视频。",
-            "4. 粘贴标题和正文，检查封面、话题和错别字。",
-            "5. 由你本人点击发布。",
+            "2. 首次使用：pip install playwright，然后执行 playwright install chromium。",
+            "3. 在解压目录执行：python xiaohongshu_fill_assistant.py。",
+            "4. 按提示完成小红书登录，助手会上传图片并填写标题、正文。",
+            "5. 检查封面、话题和错别字，由你本人点击发布。",
             "6. 发布后复制笔记链接，回填系统并标记“已发布”。",
+            "",
+            "不想运行助手时，也可以点击系统里的“开始半自动发布”，手动上传并粘贴。",
         ]
     )
     (package_dir / "xiaohongshu_title.txt").write_text(
@@ -133,6 +223,9 @@ def _write_xiaohongshu_package(
         (package_dir / "xiaohongshu_cover_text.txt").write_text(
             cover_text, encoding="utf-8"
         )
+    (package_dir / "xiaohongshu_fill_assistant.py").write_text(
+        assistant, encoding="utf-8"
+    )
 
     archive = package_dir / "xiaohongshu_publish_package.zip"
     used_names: set[str] = set()
@@ -142,6 +235,7 @@ def _write_xiaohongshu_package(
             "xiaohongshu_note.txt",
             "xiaohongshu_checklist.txt",
             "xiaohongshu_cover_text.txt",
+            "xiaohongshu_fill_assistant.py",
         ):
             file_path = package_dir / filename
             if file_path.exists():
@@ -152,6 +246,10 @@ def _write_xiaohongshu_package(
                 name = f"{index}_{name}"
             used_names.add(name)
             bundle.write(media_path, f"media/{name}")
+        cards_dir = package_dir / "xiaohongshu_cards"
+        if cards_dir.exists():
+            for card_path in sorted(cards_dir.glob("*.png")):
+                bundle.write(card_path, f"xiaohongshu_cards/{card_path.name}")
     return archive
 
 
@@ -193,16 +291,38 @@ def prepare_distribution_package(
         final_title = "今天这件事，我终于想明白了"
     final_summary = _compact(summary or script, 120)
     final_tags = hashtags or _default_hashtags(job)
-    xhs_title = _compact(final_title, 20)
-    xhs_body = f"{script}\n\n" + " ".join(f"#{tag}" for tag in final_tags)
+    source_type = str(job.get("source_type") or request_payload.get("source_type") or "generated_job")
+    channel_drafts = build_channel_drafts(
+        source_text=script,
+        title=final_title,
+        summary=final_summary,
+        source_type=source_type,
+        hashtags=final_tags,
+    )
+    wechat_draft = channel_drafts["wechat"]
+    xhs_draft = channel_drafts["xiaohongshu"]
+    final_title = str(wechat_draft["title"])
+    final_summary = str(wechat_draft["summary"])
+    xhs_title = str(xhs_draft["title"])
+    xhs_body = str(xhs_draft["body"])
 
     task_id = make_id("distribution")
     package_dir = OUTPUTS_DIR / "distribution" / task_id
     package_dir.mkdir(parents=True, exist_ok=True)
     wechat_file = package_dir / "wechat_article.html"
     xhs_file = package_dir / "xiaohongshu_note.txt"
-    wechat_file.write_text(_wechat_html(final_title, final_summary, script), encoding="utf-8")
+    wechat_file.write_text(
+        _wechat_channel_html(str(wechat_draft["markdown"])), encoding="utf-8"
+    )
     xhs_file.write_text(f"{xhs_title}\n\n{xhs_body}", encoding="utf-8")
+    card_files: list[Path] = []
+    card_error = ""
+    try:
+        card_files = render_xiaohongshu_cards(
+            package_dir, list(xhs_draft.get("card_pages") or [])
+        )
+    except Exception as exc:
+        card_error = str(exc)[:300]
 
     artifacts = job.get("artifacts") if isinstance(job.get("artifacts"), dict) else {}
     record = {
@@ -217,17 +337,29 @@ def prepare_distribution_package(
         "hashtags": final_tags,
         "script": script,
         "source_artifacts": artifacts,
+        "channel_skills": {
+            "wechat": wechat_draft["skill_id"],
+            "xiaohongshu": xhs_draft["skill_id"],
+            "xiaohongshu_images": xhs_draft["image_skill_id"],
+        },
         "wechat": {
             "status": "ready",
+            "skill_id": wechat_draft["skill_id"],
+            "markdown": wechat_draft["markdown"],
             "article_html_url": to_media_url(wechat_file),
             "draft_media_id": "",
             "publish_id": "",
         },
         "xiaohongshu": {
             "status": "ready_for_manual_confirm",
+            "skill_id": xhs_draft["skill_id"],
+            "image_skill_id": xhs_draft["image_skill_id"],
             "creator_url": XIAOHONGSHU_CREATOR_URL,
             "title": xhs_title,
             "body": xhs_body,
+            "cover_text": xhs_draft["cover_text"],
+            "card_urls": [to_media_url(path) for path in card_files],
+            "card_generation_error": card_error,
             "note_url": to_media_url(xhs_file),
             "published_note_url": "",
             "started_at": "",
@@ -262,6 +394,7 @@ def prepare_material_distribution_package(
             "keywords": list(material.get("keywords") or []),
         },
         "artifacts": {},
+        "source_type": "wechat_material",
     }
     record = prepare_distribution_package(
         synthetic_job,
@@ -313,6 +446,7 @@ def prepare_trend_distribution_package(
             "keywords": list(hashtags or ["AI工具", "效率提升", "职场成长"]),
         },
         "artifacts": {},
+        "source_type": "ai_trends",
     }
     record = prepare_distribution_package(
         synthetic_job,

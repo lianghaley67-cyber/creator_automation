@@ -22,6 +22,7 @@ RUN apt-get update \
         libespeak1 \
         libglib2.0-0 \
         libgomp1 \
+        fonts-noto-cjk \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
