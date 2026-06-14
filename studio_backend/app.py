@@ -95,6 +95,7 @@ from .xiaohongshu_automation import (
     XiaohongshuLoginRequired,
     capture_login_session,
     drag_login_slider,
+    refresh_login_frame,
     send_sms_code,
     save_platform_draft,
     verify_sms_code,
@@ -2620,6 +2621,17 @@ def drag_xiaohongshu_login(payload: XiaohongshuDragRequest) -> dict[str, Any]:
         raise HTTPException(
             status_code=409,
             detail=f"滑块拖动未完成：{str(exc)[:450]}",
+        ) from exc
+
+
+@app.post("/api/integrations/xiaohongshu/frame")
+def refresh_xiaohongshu_login_frame() -> dict[str, Any]:
+    try:
+        return refresh_login_frame()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"服务器登录画面刷新失败：{str(exc)[:450]}",
         ) from exc
 
 

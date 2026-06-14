@@ -24,6 +24,8 @@ _SESSION_STATE: dict[str, Any] = {
     "status": "not_started",
     "logged_in": False,
     "screenshot_url": "",
+    "viewport_width": 1440,
+    "viewport_height": 1000,
     "message": "尚未启动小红书服务器登录。",
 }
 
@@ -237,6 +239,23 @@ def _login_page_screenshot(page: Any) -> str:
     return _versioned_media_url(SESSION_SCREENSHOT)
 
 
+def _session_snapshot(page: Any) -> dict[str, Any]:
+    viewport = page.viewport_size or {"width": 1440, "height": 1000}
+    logged_in = _is_logged_in(page)
+    return {
+        "status": "logged_in" if logged_in else "phone_required",
+        "logged_in": logged_in,
+        "screenshot_url": _login_page_screenshot(page),
+        "viewport_width": int(viewport["width"]),
+        "viewport_height": int(viewport["height"]),
+        "message": (
+            "服务器上的小红书登录态有效，可以直接保存草稿。"
+            if logged_in
+            else "服务器实时画面已刷新。遇到滑块时，请在画面中直接拖动。"
+        ),
+    }
+
+
 def _ensure_phone_login(page: Any) -> Any:
     phone_input = _phone_login_input(page)
     if phone_input:
@@ -407,18 +426,11 @@ def _login_session_worker() -> None:
                     page = context.pages[0] if context.pages else context.new_page()
                     page.goto(CREATOR_URL, wait_until="domcontentloaded", timeout=60000)
                     page.wait_for_timeout(2500)
-                    logged_in = _is_logged_in(page)
-                    screenshot_url = _login_page_screenshot(page)
-                    _set_session_state(
-                        status="logged_in" if logged_in else "phone_required",
-                        logged_in=logged_in,
-                        screenshot_url=screenshot_url,
-                        message=(
-                            "服务器上的小红书登录态有效，可以直接保存草稿。"
-                            if logged_in
-                            else "请输入手机号，通过短信验证码登录服务器浏览器。"
-                        ),
-                    )
+                    initial_state = _session_snapshot(page)
+                    logged_in = bool(initial_state["logged_in"])
+                    if not logged_in:
+                        initial_state["message"] = "请输入手机号，通过短信验证码登录服务器浏览器。"
+                    _set_session_state(**initial_state)
                     _SESSION_READY.set()
                     if logged_in:
                         return
@@ -446,6 +458,8 @@ def _login_session_worker() -> None:
                                     command["end_x"],
                                     command["end_y"],
                                 )
+                            elif command["action"] == "refresh":
+                                result = _session_snapshot(page)
                             else:
                                 result = {"status": "failed", "message": "未知登录操作。"}
                             _set_session_state(**result)
@@ -549,6 +563,10 @@ def drag_login_slider(
         end_x=end_x,
         end_y=end_y,
     )
+
+
+def refresh_login_frame() -> dict[str, Any]:
+    return _run_login_command("refresh")
 
 
 def _resolve_media_paths(task: dict[str, Any]) -> list[Path]:

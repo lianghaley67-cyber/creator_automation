@@ -104,6 +104,7 @@ const xiaohongshuPhone = ref("");
 const xiaohongshuSmsCode = ref("");
 const xiaohongshuDragStart = ref(null);
 const xiaohongshuDragLine = ref(null);
+let xiaohongshuFrameTimer = null;
 const wechatDraftErrors = reactive({});
 const audioPreviews = reactive({});
 const stockWatchlist = ref([]);
@@ -1161,6 +1162,34 @@ async function refreshXiaohongshuServerSession() {
   } finally {
     busy.xiaohongshuSession = false;
   }
+}
+
+async function refreshXiaohongshuFrame(silent = true) {
+  if (busy.xiaohongshuDrag || xiaohongshuServerSession.value?.logged_in) return;
+  try {
+    const result = await requestApi(
+      "/api/integrations/xiaohongshu/frame",
+      { method: "POST" },
+      15000
+    );
+    xiaohongshuServerSession.value = result;
+  } catch (error) {
+    if (!silent) {
+      setError(normalizeErrorMessage(error, "刷新服务器登录画面失败。"));
+    }
+  }
+}
+
+function toggleXiaohongshuRemote(event) {
+  if (xiaohongshuFrameTimer) {
+    window.clearInterval(xiaohongshuFrameTimer);
+    xiaohongshuFrameTimer = null;
+  }
+  if (!event.currentTarget.open) return;
+  refreshXiaohongshuFrame(false);
+  xiaohongshuFrameTimer = window.setInterval(() => {
+    refreshXiaohongshuFrame(true);
+  }, 1500);
 }
 
 async function sendXiaohongshuSms() {
@@ -2836,10 +2865,13 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <p v-else class="success-text">服务器小红书已登录，可以直接保存官方草稿。</p>
-      <details v-if="xiaohongshuServerSession?.screenshot_url && !xiaohongshuServerSession?.logged_in">
-        <summary>操作服务器登录画面</summary>
+      <details
+        v-if="xiaohongshuServerSession?.screenshot_url && !xiaohongshuServerSession?.logged_in"
+        @toggle="toggleXiaohongshuRemote"
+      >
+        <summary>打开服务器实时操作画面</summary>
         <p class="meta">
-          遇到滑块时，直接在下方画面中从滑块中心按住并向右拖动。松手后服务器会执行同样动作并刷新画面。
+          画面每 1.5 秒自动刷新。遇到滑块时，从滑块中心按住并拖到缺口位置，松手后等待验证结果。
         </p>
         <div class="xiaohongshu-remote-frame" :class="{ busy: busy.xiaohongshuDrag }">
           <img
@@ -4639,9 +4671,13 @@ textarea {
 
 .xiaohongshu-login-preview.interactive {
   width: 100%;
+  height: auto;
+  max-height: none;
   margin-top: 0;
   cursor: crosshair;
   touch-action: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .xiaohongshu-remote-frame.busy .xiaohongshu-login-preview {
