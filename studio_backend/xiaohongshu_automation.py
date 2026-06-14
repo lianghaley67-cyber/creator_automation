@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import re
 from queue import Empty, Queue
 from pathlib import Path
 from typing import Any
@@ -330,6 +331,89 @@ def _ensure_phone_login(page: Any) -> Any:
     return phone_input
 
 
+def _visible_action_labels(page: Any) -> list[str]:
+    labels: list[str] = []
+    candidates = page.locator("button, [role='button']")
+    for index in range(min(candidates.count(), 40)):
+        item = candidates.nth(index)
+        if not item.is_visible():
+            continue
+        label = " ".join(str(item.inner_text() or "").split())
+        if label and label not in labels:
+            labels.append(label[:40])
+    return labels
+
+
+def _click_login_button(page: Any, code_input: Any) -> str:
+    selectors = [
+        "button[type='submit']",
+        "button:has-text('登录')",
+        "[role='button']:has-text('登录')",
+        "[class*='login-btn']",
+        "[class*='loginBtn']",
+        "[class*='login-button']",
+        "[class*='loginButton']",
+    ]
+    candidate = _first_visible(page, selectors)
+    if candidate:
+        candidate.scroll_into_view_if_needed()
+        candidate.click(no_wait_after=True, timeout=10000, force=True)
+        return "selector"
+
+    role_candidates = page.get_by_role(
+        "button",
+        name=re.compile(r"^\s*登\s*录\s*$"),
+    )
+    for index in range(role_candidates.count()):
+        item = role_candidates.nth(index)
+        if item.is_visible():
+            item.scroll_into_view_if_needed()
+            item.click(no_wait_after=True, timeout=10000, force=True)
+            return "role"
+
+    # 小红书偶尔把登录控件渲染成没有语义的 div。以验证码输入框为锚点，
+    # 在同一登录卡片内寻找位于其下方的宽按钮。
+    input_box = code_input.bounding_box()
+    card_box = _login_card_box(page)
+    if input_box and card_box:
+        controls = page.locator("button, [role='button'], div")
+        candidates: list[tuple[float, Any]] = []
+        for index in range(min(controls.count(), 200)):
+            item = controls.nth(index)
+            if not item.is_visible():
+                continue
+            box = item.bounding_box()
+            if not box:
+                continue
+            label = " ".join(str(item.inner_text() or "").split())
+            inside_card = (
+                card_box["x"] <= box["x"]
+                and box["x"] + box["width"] <= card_box["x"] + card_box["width"]
+                and input_box["y"] + input_box["height"] < box["y"]
+                and box["y"] + box["height"] <= card_box["y"] + card_box["height"]
+            )
+            looks_like_button = box["width"] >= 120 and 28 <= box["height"] <= 80
+            if inside_card and looks_like_button and "登录" in label:
+                candidates.append((box["y"], item))
+        if candidates:
+            _, item = sorted(candidates, key=lambda entry: entry[0])[0]
+            item.click(no_wait_after=True, timeout=10000, force=True)
+            return "card"
+
+        # 最后按登录卡片中验证码框下方的标准按钮位置点击。
+        page.mouse.click(
+            card_box["x"] + card_box["width"] / 2,
+            min(
+                card_box["y"] + card_box["height"] - 55,
+                input_box["y"] + input_box["height"] + 75,
+            ),
+        )
+        return "coordinates"
+
+    labels = "、".join(_visible_action_labels(page)[:8]) or "无"
+    raise RuntimeError(f"没有识别到小红书登录控件。当前可见按钮：{labels}")
+
+
 def _send_sms_on_page(page: Any, phone: str) -> dict[str, Any]:
     phone_input = _ensure_phone_login(page)
     phone_input.fill(phone)
@@ -385,11 +469,7 @@ def _verify_sms_on_page(page: Any, phone: str, code: str) -> dict[str, Any]:
     if checkbox and not checkbox.is_checked():
         checkbox.check(force=True)
 
-    login_button = _first_visible_text(page, ["登录"])
-    if not login_button:
-        raise RuntimeError("没有找到小红书登录按钮。")
-    login_button.scroll_into_view_if_needed()
-    login_button.click(no_wait_after=True, timeout=10000, force=True)
+    click_method = _click_login_button(page, code_input)
 
     logged_in = False
     failure_message = ""
@@ -412,6 +492,7 @@ def _verify_sms_on_page(page: Any, phone: str, code: str) -> dict[str, Any]:
         "status": "logged_in" if logged_in else "verification_failed",
         "logged_in": logged_in,
         "challenge_visible": challenge_visible,
+        "login_click_method": click_method,
         "screenshot_url": screenshot_url,
         "message": (
             "小红书服务器登录成功，后续可以直接保存官方草稿。"

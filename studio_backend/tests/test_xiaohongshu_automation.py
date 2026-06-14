@@ -64,6 +64,26 @@ class XiaohongshuAutomationTests(unittest.TestCase):
         self.assertEqual(result["status"], "drag_completed")
         self.assertEqual(result["viewport_width"], 1440)
 
+    def test_click_login_button_prefers_visible_submit_control(self):
+        page = MagicMock()
+        code_input = MagicMock()
+        button = MagicMock()
+
+        with patch.object(
+            xiaohongshu_automation,
+            "_first_visible",
+            return_value=button,
+        ):
+            method = xiaohongshu_automation._click_login_button(page, code_input)
+
+        self.assertEqual(method, "selector")
+        button.scroll_into_view_if_needed.assert_called_once_with()
+        button.click.assert_called_once_with(
+            no_wait_after=True,
+            timeout=10000,
+            force=True,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
