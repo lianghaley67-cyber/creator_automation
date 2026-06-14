@@ -366,6 +366,71 @@ def _first_visible_contains(page: Any, labels: list[str]) -> str:
     return ""
 
 
+def _image_upload_input(page: Any) -> Any | None:
+    selectors = [
+        "input[type='file'][accept*='image']",
+        "input[type='file'][multiple][accept*='image']",
+        "input[type='file'][multiple]",
+    ]
+    for selector in selectors:
+        matches = page.locator(selector)
+        if matches.count():
+            return matches.nth(0)
+    return None
+
+
+def _activate_image_upload(page: Any) -> Any:
+    if _image_upload_input(page):
+        return _image_upload_input(page)
+
+    image_tab = _first_visible_text(page, ["上传图文"])
+    if image_tab:
+        image_tab.evaluate(
+            """(element) => {
+                const target = element.closest(
+                    "button, a, [role='tab'], [role='button'], li"
+                ) || element.parentElement || element;
+                target.click();
+            }"""
+        )
+        page.wait_for_timeout(1800)
+        upload = _image_upload_input(page)
+        if upload:
+            return upload
+
+        box = image_tab.bounding_box()
+        if box:
+            page.mouse.click(
+                box["x"] + box["width"] / 2,
+                box["y"] + box["height"] / 2,
+            )
+            page.wait_for_timeout(1800)
+            upload = _image_upload_input(page)
+            if upload:
+                return upload
+
+    current_url = str(page.url or "")
+    if "creator.xiaohongshu.com/publish/publish" in current_url:
+        page.goto(
+            "https://creator.xiaohongshu.com/publish/publish"
+            "?from=tab_switch&target=image",
+            wait_until="domcontentloaded",
+            timeout=60000,
+        )
+        page.wait_for_timeout(2500)
+        upload = _image_upload_input(page)
+        if upload:
+            return upload
+
+    page.screenshot(path=str(RESULT_SCREENSHOT), full_page=True)
+    tabs = "、".join(_visible_action_labels(page)[:10]) or "无"
+    raise RuntimeError(
+        "没有找到小红书图片上传入口。"
+        f"当前地址：{str(page.url)[:180]}；当前可见按钮：{tabs}。"
+        "请查看服务器保存结果截图。"
+    )
+
+
 def _click_login_button(page: Any, code_input: Any) -> str:
     selectors = [
         "button[type='submit']",
@@ -780,14 +845,7 @@ def save_platform_draft(task: dict[str, Any]) -> dict[str, Any]:
                     )
                     raise XiaohongshuLoginRequired("服务器的小红书登录已失效，请先扫码登录。")
 
-                image_tab = _first_visible_text(page, ["上传图文"])
-                if image_tab:
-                    image_tab.evaluate("(element) => element.click()")
-                    page.wait_for_timeout(1500)
-
-                upload = _first_visible(page, ["input[type=file]"])
-                if not upload:
-                    raise RuntimeError("没有找到小红书图片上传入口，页面可能已改版。")
+                upload = _activate_image_upload(page)
                 upload.set_input_files([str(path) for path in uploads])
                 page.wait_for_timeout(4000)
 
