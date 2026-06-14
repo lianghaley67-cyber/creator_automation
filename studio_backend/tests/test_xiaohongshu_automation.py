@@ -3,7 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from studio_backend import xiaohongshu_automation
 
@@ -36,6 +36,33 @@ class XiaohongshuAutomationTests(unittest.TestCase):
                 result = xiaohongshu_automation._resolve_media_paths(task)
 
         self.assertEqual(result, [card.resolve()])
+
+    def test_drag_on_page_replays_pointer_gesture(self):
+        page = MagicMock()
+        page.viewport_size = {"width": 1440, "height": 1000}
+
+        with (
+            patch.object(xiaohongshu_automation, "_is_logged_in", return_value=False),
+            patch.object(
+                xiaohongshu_automation,
+                "_login_page_screenshot",
+                return_value="/studio-files/xiaohongshu_session/login.png?v=1",
+            ),
+        ):
+            result = xiaohongshu_automation._drag_on_page(
+                page,
+                800,
+                600,
+                1050,
+                600,
+            )
+
+        page.mouse.move.assert_any_call(800, 600)
+        page.mouse.down.assert_called_once_with()
+        page.mouse.move.assert_any_call(1050, 600, steps=35)
+        page.mouse.up.assert_called_once_with()
+        self.assertEqual(result["status"], "drag_completed")
+        self.assertEqual(result["viewport_width"], 1440)
 
 
 if __name__ == "__main__":

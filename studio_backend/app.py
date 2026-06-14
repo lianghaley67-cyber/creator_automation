@@ -76,6 +76,7 @@ from .schemas import (
     WeChatDraftRequest,
     TrendDistributionRequest,
     XiaohongshuPublishStatusRequest,
+    XiaohongshuDragRequest,
     XiaohongshuSmsRequest,
     XiaohongshuSmsVerifyRequest,
 )
@@ -93,6 +94,7 @@ from .storage import (
 from .xiaohongshu_automation import (
     XiaohongshuLoginRequired,
     capture_login_session,
+    drag_login_slider,
     send_sms_code,
     save_platform_draft,
     verify_sms_code,
@@ -2603,6 +2605,22 @@ def verify_xiaohongshu_sms(payload: XiaohongshuSmsVerifyRequest) -> dict[str, An
     if not result.get("logged_in"):
         raise HTTPException(status_code=409, detail=result.get("message") or "小红书登录失败。")
     return result
+
+
+@app.post("/api/integrations/xiaohongshu/drag")
+def drag_xiaohongshu_login(payload: XiaohongshuDragRequest) -> dict[str, Any]:
+    try:
+        return drag_login_slider(
+            payload.start_x,
+            payload.start_y,
+            payload.end_x,
+            payload.end_y,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"滑块拖动未完成：{str(exc)[:450]}",
+        ) from exc
 
 
 @app.post("/api/jobs/{job_id}/distribution")

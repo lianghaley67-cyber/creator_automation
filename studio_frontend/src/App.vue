@@ -102,6 +102,8 @@ const xiaohongshuPublishUrls = reactive({});
 const xiaohongshuServerSession = ref(null);
 const xiaohongshuPhone = ref("");
 const xiaohongshuSmsCode = ref("");
+const xiaohongshuDragStart = ref(null);
+const xiaohongshuDragLine = ref(null);
 const wechatDraftErrors = reactive({});
 const audioPreviews = reactive({});
 const stockWatchlist = ref([]);
@@ -161,6 +163,7 @@ const busy = reactive({
   xiaohongshuSession: false,
   xiaohongshuSms: false,
   xiaohongshuVerify: false,
+  xiaohongshuDrag: false,
   xiaohongshuServerDraft: "",
   wechatDraft: "",
   wechatCover: false,
@@ -1214,6 +1217,79 @@ async function verifyXiaohongshuSms() {
   } finally {
     busy.xiaohongshuVerify = false;
   }
+}
+
+function xiaohongshuImagePoint(event) {
+  const image = event.currentTarget;
+  const rect = image.getBoundingClientRect();
+  const viewportWidth = Number(xiaohongshuServerSession.value?.viewport_width || image.naturalWidth || 1440);
+  const viewportHeight = Number(xiaohongshuServerSession.value?.viewport_height || image.naturalHeight || 1000);
+  return {
+    x: Math.max(0, Math.min(viewportWidth, ((event.clientX - rect.left) / rect.width) * viewportWidth)),
+    y: Math.max(0, Math.min(viewportHeight, ((event.clientY - rect.top) / rect.height) * viewportHeight)),
+    displayX: event.clientX - rect.left,
+    displayY: event.clientY - rect.top
+  };
+}
+
+function startXiaohongshuDrag(event) {
+  if (busy.xiaohongshuDrag) return;
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  const point = xiaohongshuImagePoint(event);
+  xiaohongshuDragStart.value = point;
+  xiaohongshuDragLine.value = {
+    x1: point.displayX,
+    y1: point.displayY,
+    x2: point.displayX,
+    y2: point.displayY
+  };
+}
+
+function moveXiaohongshuDrag(event) {
+  if (!xiaohongshuDragStart.value || busy.xiaohongshuDrag) return;
+  const point = xiaohongshuImagePoint(event);
+  xiaohongshuDragLine.value = {
+    ...xiaohongshuDragLine.value,
+    x2: point.displayX,
+    y2: point.displayY
+  };
+}
+
+async function finishXiaohongshuDrag(event) {
+  const start = xiaohongshuDragStart.value;
+  if (!start || busy.xiaohongshuDrag) return;
+  const end = xiaohongshuImagePoint(event);
+  xiaohongshuDragStart.value = null;
+  xiaohongshuDragLine.value = null;
+  busy.xiaohongshuDrag = true;
+  try {
+    const result = await requestApi(
+      "/api/integrations/xiaohongshu/drag",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          start_x: start.x,
+          start_y: start.y,
+          end_x: end.x,
+          end_y: end.y
+        })
+      },
+      30000
+    );
+    xiaohongshuServerSession.value = result;
+    setNotice(result.message || "服务器已执行滑块拖动。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "服务器滑块拖动失败。"));
+    await refreshXiaohongshuServerSession();
+  } finally {
+    busy.xiaohongshuDrag = false;
+  }
+}
+
+function cancelXiaohongshuDrag() {
+  xiaohongshuDragStart.value = null;
+  xiaohongshuDragLine.value = null;
 }
 
 async function saveXiaohongshuPlatformDraft(task, applyResult) {
@@ -2761,12 +2837,32 @@ onBeforeUnmount(() => {
       </div>
       <p v-else class="success-text">服务器小红书已登录，可以直接保存官方草稿。</p>
       <details v-if="xiaohongshuServerSession?.screenshot_url && !xiaohongshuServerSession?.logged_in">
-        <summary>查看服务器登录诊断截图</summary>
-        <img
-          class="xiaohongshu-login-preview"
-          :src="mediaUrl(xiaohongshuServerSession.screenshot_url)"
-          alt="小红书服务器登录诊断"
-        />
+        <summary>操作服务器登录画面</summary>
+        <p class="meta">
+          遇到滑块时，直接在下方画面中从滑块中心按住并向右拖动。松手后服务器会执行同样动作并刷新画面。
+        </p>
+        <div class="xiaohongshu-remote-frame" :class="{ busy: busy.xiaohongshuDrag }">
+          <img
+            class="xiaohongshu-login-preview interactive"
+            :src="mediaUrl(xiaohongshuServerSession.screenshot_url)"
+            alt="可拖动的小红书服务器登录画面"
+            draggable="false"
+            @pointerdown.prevent="startXiaohongshuDrag"
+            @pointermove.prevent="moveXiaohongshuDrag"
+            @pointerup.prevent="finishXiaohongshuDrag"
+            @pointercancel="cancelXiaohongshuDrag"
+          />
+          <svg v-if="xiaohongshuDragLine" class="xiaohongshu-drag-overlay">
+            <line
+              :x1="xiaohongshuDragLine.x1"
+              :y1="xiaohongshuDragLine.y1"
+              :x2="xiaohongshuDragLine.x2"
+              :y2="xiaohongshuDragLine.y2"
+            />
+            <circle :cx="xiaohongshuDragLine.x1" :cy="xiaohongshuDragLine.y1" r="8" />
+          </svg>
+          <span v-if="busy.xiaohongshuDrag" class="xiaohongshu-remote-loading">服务器正在拖动并刷新画面...</span>
+        </div>
       </details>
     </section>
 
@@ -4532,6 +4628,59 @@ textarea {
   margin-top: 14px;
   border: 1px solid #263b50;
   background: #ffffff;
+}
+
+.xiaohongshu-remote-frame {
+  position: relative;
+  width: min(100%, 960px);
+  margin-top: 14px;
+  user-select: none;
+}
+
+.xiaohongshu-login-preview.interactive {
+  width: 100%;
+  margin-top: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.xiaohongshu-remote-frame.busy .xiaohongshu-login-preview {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.xiaohongshu-drag-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.xiaohongshu-drag-overlay line {
+  stroke: #ff7139;
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.xiaohongshu-drag-overlay circle {
+  fill: #00cfe8;
+  stroke: #ffffff;
+  stroke-width: 2;
+}
+
+.xiaohongshu-remote-loading {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 12px 16px;
+  border-radius: 6px;
+  background: #081521;
+  color: #ffffff;
+  font-weight: 800;
+  pointer-events: none;
 }
 
 .xiaohongshu-sms-login {

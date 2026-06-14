@@ -233,7 +233,7 @@ def _normalize_phone(phone: str) -> str:
 
 
 def _login_page_screenshot(page: Any) -> str:
-    page.screenshot(path=str(SESSION_SCREENSHOT), full_page=True)
+    page.screenshot(path=str(SESSION_SCREENSHOT))
     return _versioned_media_url(SESSION_SCREENSHOT)
 
 
@@ -354,6 +354,47 @@ def _verify_sms_on_page(page: Any, phone: str, code: str) -> dict[str, Any]:
     }
 
 
+def _drag_on_page(
+    page: Any,
+    start_x: float,
+    start_y: float,
+    end_x: float,
+    end_y: float,
+) -> dict[str, Any]:
+    viewport = page.viewport_size or {"width": 1440, "height": 1000}
+    width = float(viewport["width"])
+    height = float(viewport["height"])
+    points = (start_x, start_y, end_x, end_y)
+    if not all(value >= 0 for value in points):
+        raise ValueError("拖动坐标不能小于 0。")
+    if start_x > width or end_x > width or start_y > height or end_y > height:
+        raise ValueError("拖动位置超出服务器浏览器画面，请刷新截图后重试。")
+    if abs(end_x - start_x) < 20 and abs(end_y - start_y) < 10:
+        raise ValueError("拖动距离太短，请从滑块中心按住并向右拖动。")
+
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(end_x, end_y, steps=35)
+    page.wait_for_timeout(350)
+    page.mouse.up()
+    page.wait_for_timeout(1800)
+
+    logged_in = _is_logged_in(page)
+    screenshot_url = _login_page_screenshot(page)
+    return {
+        "status": "logged_in" if logged_in else "drag_completed",
+        "logged_in": logged_in,
+        "screenshot_url": screenshot_url,
+        "viewport_width": int(width),
+        "viewport_height": int(height),
+        "message": (
+            "滑块验证后已登录成功。"
+            if logged_in
+            else "服务器已经执行拖动并刷新画面。请查看滑块是否通过；通过后继续发送验证码或登录。"
+        ),
+    }
+
+
 def _login_session_worker() -> None:
     from playwright.sync_api import sync_playwright
 
@@ -396,6 +437,14 @@ def _login_session_worker() -> None:
                                     page,
                                     command["phone"],
                                     command["code"],
+                                )
+                            elif command["action"] == "drag":
+                                result = _drag_on_page(
+                                    page,
+                                    command["start_x"],
+                                    command["start_y"],
+                                    command["end_x"],
+                                    command["end_y"],
                                 )
                             else:
                                 result = {"status": "failed", "message": "未知登录操作。"}
@@ -484,6 +533,21 @@ def verify_sms_code(phone: str, code: str) -> dict[str, Any]:
         "verify_sms",
         phone=_normalize_phone(phone),
         code=normalized_code,
+    )
+
+
+def drag_login_slider(
+    start_x: float,
+    start_y: float,
+    end_x: float,
+    end_y: float,
+) -> dict[str, Any]:
+    return _run_login_command(
+        "drag",
+        start_x=start_x,
+        start_y=start_y,
+        end_x=end_x,
+        end_y=end_y,
     )
 
 

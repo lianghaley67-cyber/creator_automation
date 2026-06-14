@@ -223,3 +223,10 @@ class XiaohongshuSmsRequest(BaseModel):
 class XiaohongshuSmsVerifyRequest(BaseModel):
     phone: str = Field(min_length=11, max_length=20)
     code: str = Field(min_length=4, max_length=10)
+
+
+class XiaohongshuDragRequest(BaseModel):
+    start_x: float = Field(ge=0, le=1440)
+    start_y: float = Field(ge=0, le=1000)
+    end_x: float = Field(ge=0, le=1440)
+    end_y: float = Field(ge=0, le=1000)
