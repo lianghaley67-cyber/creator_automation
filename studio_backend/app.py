@@ -189,6 +189,14 @@ def frontend_index() -> FileResponse:
     return FileResponse(str(index_file))
 
 
+@app.get("/wechat-official-account-qr.jpg", include_in_schema=False)
+def wechat_official_account_qr() -> FileResponse:
+    qr_file = FRONTEND_DIST_DIR / "wechat-official-account-qr.jpg"
+    if not qr_file.exists():
+        raise HTTPException(status_code=404, detail="WeChat official account QR code not found.")
+    return FileResponse(str(qr_file), media_type="image/jpeg")
+
+
 def _sorted(records: list[dict[str, Any]], key: str = "created_at") -> list[dict[str, Any]]:
     return sorted(records, key=lambda item: str(item.get(key, "")), reverse=True)
 
