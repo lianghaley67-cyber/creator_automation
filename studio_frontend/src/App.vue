@@ -1165,7 +1165,12 @@ async function refreshXiaohongshuServerSession() {
 }
 
 async function refreshXiaohongshuFrame(silent = true) {
-  if (busy.xiaohongshuDrag || xiaohongshuServerSession.value?.logged_in) return;
+  if (
+    busy.xiaohongshuDrag ||
+    busy.xiaohongshuSms ||
+    busy.xiaohongshuVerify ||
+    xiaohongshuServerSession.value?.logged_in
+  ) return;
   try {
     const result = await requestApi(
       "/api/integrations/xiaohongshu/frame",
@@ -1198,6 +1203,10 @@ async function sendXiaohongshuSms() {
     setError("请输入 11 位手机号。");
     return;
   }
+  if (xiaohongshuFrameTimer) {
+    window.clearInterval(xiaohongshuFrameTimer);
+    xiaohongshuFrameTimer = null;
+  }
   busy.xiaohongshuSms = true;
   try {
     const result = await requestApi(
@@ -1226,6 +1235,10 @@ async function verifyXiaohongshuSms() {
     setError("请填写手机号和短信验证码。");
     return;
   }
+  if (xiaohongshuFrameTimer) {
+    window.clearInterval(xiaohongshuFrameTimer);
+    xiaohongshuFrameTimer = null;
+  }
   busy.xiaohongshuVerify = true;
   try {
     const result = await requestApi(
@@ -1238,8 +1251,12 @@ async function verifyXiaohongshuSms() {
       90000
     );
     xiaohongshuServerSession.value = result;
-    xiaohongshuSmsCode.value = "";
-    setNotice(result.message || "小红书服务器登录成功。");
+    if (result.logged_in) {
+      xiaohongshuSmsCode.value = "";
+      setNotice(result.message || "小红书服务器登录成功。");
+    } else {
+      setError(result.message || "小红书登录没有完成，请重新获取验证码。");
+    }
   } catch (error) {
     setError(normalizeErrorMessage(error, "小红书验证码登录失败。"));
     await refreshXiaohongshuServerSession();
@@ -1262,7 +1279,10 @@ function xiaohongshuImagePoint(event) {
 }
 
 function startXiaohongshuDrag(event) {
-  if (busy.xiaohongshuDrag) return;
+  if (busy.xiaohongshuDrag || !xiaohongshuServerSession.value?.challenge_visible) {
+    setError("当前没有检测到滑块，请不要拖动画面，直接使用新验证码登录。");
+    return;
+  }
   event.currentTarget.setPointerCapture?.(event.pointerId);
   const point = xiaohongshuImagePoint(event);
   xiaohongshuDragStart.value = point;
@@ -2870,10 +2890,16 @@ onBeforeUnmount(() => {
         @toggle="toggleXiaohongshuRemote"
       >
         <summary>打开服务器实时操作画面</summary>
-        <p class="meta">
-          画面每 1.5 秒自动刷新。遇到滑块时，从滑块中心按住并拖到缺口位置，松手后等待验证结果。
+        <p v-if="xiaohongshuServerSession?.challenge_visible" class="warning-text">
+          已检测到滑块：从滑块中心按住并拖到缺口位置，松手后等待验证结果。
         </p>
-        <div class="xiaohongshu-remote-frame" :class="{ busy: busy.xiaohongshuDrag }">
+        <p v-else class="meta">
+          当前没有滑块，不需要操作下方画面。请重新发送验证码，并在收到后 60 秒内点击一次“验证码登录”。
+        </p>
+        <div
+          class="xiaohongshu-remote-frame"
+          :class="{ busy: busy.xiaohongshuDrag, interactive: xiaohongshuServerSession?.challenge_visible }"
+        >
           <img
             class="xiaohongshu-login-preview interactive"
             :src="mediaUrl(xiaohongshuServerSession.screenshot_url)"
@@ -4674,10 +4700,14 @@ textarea {
   height: auto;
   max-height: none;
   margin-top: 0;
-  cursor: crosshair;
+  cursor: default;
   touch-action: none;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+.xiaohongshu-remote-frame.interactive .xiaohongshu-login-preview {
+  cursor: crosshair;
 }
 
 .xiaohongshu-remote-frame.busy .xiaohongshu-login-preview {

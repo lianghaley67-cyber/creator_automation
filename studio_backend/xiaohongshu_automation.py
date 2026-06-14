@@ -239,19 +239,79 @@ def _login_page_screenshot(page: Any) -> str:
     return _versioned_media_url(SESSION_SCREENSHOT)
 
 
+def _challenge_visible(page: Any) -> bool:
+    challenge_selectors = [
+        "[class*='captcha']",
+        "[class*='geetest']",
+        "[class*='slide-verify']",
+        "[class*='slider']",
+        "iframe[src*='captcha']",
+    ]
+    if _first_visible(page, challenge_selectors):
+        return True
+    return bool(
+        _first_visible_text(
+            page,
+            ["请完成验证", "拖动滑块", "向右拖动滑块填充拼图"],
+        )
+    )
+
+
+def _login_failure_text(page: Any) -> str:
+    keywords = [
+        "验证码错误",
+        "验证码不正确",
+        "验证码已过期",
+        "验证码失效",
+        "验证码错误或已过期",
+        "操作频繁",
+        "请求频繁",
+        "请稍后再试",
+        "请完成验证",
+        "手机号格式错误",
+        "登录失败",
+        "账号存在风险",
+        "当前环境存在风险",
+    ]
+    candidates = page.locator(
+        "[role='alert'], [class*='error'], [class*='toast'], "
+        "[class*='message'], [class*='tip']"
+    )
+    for index in range(min(candidates.count(), 30)):
+        item = candidates.nth(index)
+        if not item.is_visible():
+            continue
+        text = " ".join(str(item.inner_text() or "").split())
+        if text and any(keyword in text for keyword in keywords):
+            return text[:160]
+
+    body_text = str(page.locator("body").inner_text() or "")
+    for line in body_text.splitlines():
+        normalized = " ".join(line.split())
+        if normalized and any(keyword in normalized for keyword in keywords):
+            return normalized[:160]
+    return ""
+
+
 def _session_snapshot(page: Any) -> dict[str, Any]:
     viewport = page.viewport_size or {"width": 1440, "height": 1000}
     logged_in = _is_logged_in(page)
+    challenge_visible = _challenge_visible(page)
     return {
         "status": "logged_in" if logged_in else "phone_required",
         "logged_in": logged_in,
+        "challenge_visible": challenge_visible,
         "screenshot_url": _login_page_screenshot(page),
         "viewport_width": int(viewport["width"]),
         "viewport_height": int(viewport["height"]),
         "message": (
             "服务器上的小红书登录态有效，可以直接保存草稿。"
             if logged_in
-            else "服务器实时画面已刷新。遇到滑块时，请在画面中直接拖动。"
+            else (
+                "检测到滑块验证，请在服务器画面中拖动滑块。"
+                if challenge_visible
+                else "当前没有检测到滑块。请直接发送新验证码并登录，不要在画面上拖动。"
+            )
         ),
     }
 
@@ -328,38 +388,30 @@ def _verify_sms_on_page(page: Any, phone: str, code: str) -> dict[str, Any]:
     login_button = _first_visible_text(page, ["登录"])
     if not login_button:
         raise RuntimeError("没有找到小红书登录按钮。")
-    login_button.click(no_wait_after=True, timeout=10000)
+    login_button.scroll_into_view_if_needed()
+    login_button.click(no_wait_after=True, timeout=10000, force=True)
 
     logged_in = False
     failure_message = ""
-    failure_labels = [
-        "验证码错误",
-        "验证码已过期",
-        "验证码失效",
-        "操作频繁",
-        "请稍后再试",
-        "请完成验证",
-        "手机号格式错误",
-        "登录失败",
-    ]
+    challenge_visible = False
     deadline = time.time() + 20
     while time.time() < deadline:
         page.wait_for_timeout(1000)
         if _is_logged_in(page):
             logged_in = True
             break
-        for label in failure_labels:
-            failure = _first_visible_text(page, [label])
-            if failure:
-                failure_message = label
-                break
+        failure_message = _login_failure_text(page)
+        challenge_visible = _challenge_visible(page)
         if failure_message:
+            break
+        if challenge_visible:
             break
 
     screenshot_url = _login_page_screenshot(page)
     return {
         "status": "logged_in" if logged_in else "verification_failed",
         "logged_in": logged_in,
+        "challenge_visible": challenge_visible,
         "screenshot_url": screenshot_url,
         "message": (
             "小红书服务器登录成功，后续可以直接保存官方草稿。"
@@ -367,7 +419,11 @@ def _verify_sms_on_page(page: Any, phone: str, code: str) -> dict[str, Any]:
             else (
                 f"小红书提示：{failure_message}。请重新获取验证码后再试。"
                 if failure_message
-                else "点击登录后仍停留在登录页。验证码可能已过期，或页面要求滑块/设备验证，请查看诊断截图。"
+                else (
+                    "小红书要求先完成滑块验证。请在下方服务器画面中拖动滑块，然后重新获取验证码。"
+                    if challenge_visible
+                    else "小红书点击登录后仍停留在原页面，但没有显示滑块或错误文字。请重新发送一个新验证码，并在收到后 60 秒内只点击一次登录。"
+                )
             )
         ),
     }
@@ -380,6 +436,8 @@ def _drag_on_page(
     end_x: float,
     end_y: float,
 ) -> dict[str, Any]:
+    if not _challenge_visible(page):
+        raise RuntimeError("当前小红书页面没有检测到滑块，请不要拖动画面，直接使用新验证码登录。")
     viewport = page.viewport_size or {"width": 1440, "height": 1000}
     width = float(viewport["width"])
     height = float(viewport["height"])
@@ -403,6 +461,7 @@ def _drag_on_page(
     return {
         "status": "logged_in" if logged_in else "drag_completed",
         "logged_in": logged_in,
+        "challenge_visible": _challenge_visible(page),
         "screenshot_url": screenshot_url,
         "viewport_width": int(width),
         "viewport_height": int(height),
