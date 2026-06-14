@@ -99,13 +99,15 @@ def _switch_to_qr_login(page: Any) -> bool:
         box = sms_title.bounding_box()
         if box:
             # 小红书登录卡片的二维码切换入口位于“短信登录”标题右上方。
-            page.mouse.click(box["x"] + 170, max(8, box["y"] - 8))
-            page.wait_for_timeout(1200)
-            return True
+            for offset_x, offset_y in ((170, 10), (185, 10), (170, 20)):
+                page.mouse.click(box["x"] + offset_x, box["y"] + offset_y)
+                page.wait_for_timeout(900)
+                if _find_qr_element(page):
+                    return True
     return False
 
 
-def _capture_qr_image(page: Any) -> str:
+def _find_qr_element(page: Any) -> Any | None:
     qr_selectors = [
         "[class*='qrcode'] canvas",
         "[class*='qr-code'] canvas",
@@ -126,10 +128,21 @@ def _capture_qr_image(page: Any) -> str:
                 and 100 <= box["width"] <= 500
                 and 100 <= box["height"] <= 500
             ):
-                qr.screenshot(path=str(QR_SCREENSHOT))
-                return to_media_url(QR_SCREENSHOT)
+                return qr
+    return None
+
+
+def _versioned_media_url(path: Path) -> str:
+    return f"{to_media_url(path)}?v={int(time.time() * 1000)}"
+
+
+def _capture_qr_image(page: Any) -> str:
+    qr = _find_qr_element(page)
+    if qr:
+        qr.screenshot(path=str(QR_SCREENSHOT))
+        return _versioned_media_url(QR_SCREENSHOT)
     page.screenshot(path=str(SESSION_SCREENSHOT), full_page=True)
-    return to_media_url(SESSION_SCREENSHOT)
+    return _versioned_media_url(SESSION_SCREENSHOT)
 
 
 def _set_session_state(**patch: Any) -> None:
@@ -153,7 +166,7 @@ def _login_session_worker() -> None:
                     screenshot_url = ""
                     if logged_in:
                         page.screenshot(path=str(SESSION_SCREENSHOT), full_page=True)
-                        screenshot_url = to_media_url(SESSION_SCREENSHOT)
+                        screenshot_url = _versioned_media_url(SESSION_SCREENSHOT)
                     else:
                         _switch_to_qr_login(page)
                         screenshot_url = _capture_qr_image(page)
@@ -178,7 +191,7 @@ def _login_session_worker() -> None:
                             _set_session_state(
                                 status="logged_in",
                                 logged_in=True,
-                                screenshot_url=to_media_url(SESSION_SCREENSHOT),
+                                screenshot_url=_versioned_media_url(SESSION_SCREENSHOT),
                                 message="扫码成功，服务器已保存小红书登录状态。",
                             )
                             return
@@ -264,7 +277,7 @@ def save_platform_draft(task: dict[str, Any]) -> dict[str, Any]:
                     _set_session_state(
                         status="login_required",
                         logged_in=False,
-                        screenshot_url=to_media_url(SESSION_SCREENSHOT),
+                        screenshot_url=_versioned_media_url(SESSION_SCREENSHOT),
                         message="服务器的小红书登录已失效，请刷新二维码并重新扫码。",
                     )
                     raise XiaohongshuLoginRequired("服务器的小红书登录已失效，请先扫码登录。")
