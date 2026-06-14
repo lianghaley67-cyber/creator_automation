@@ -214,3 +214,12 @@ class XiaohongshuPublishStatusRequest(BaseModel):
     ]
     note_url: str = ""
     notes: str = ""
+
+
+class XiaohongshuSmsRequest(BaseModel):
+    phone: str = Field(min_length=11, max_length=20)
+
+
+class XiaohongshuSmsVerifyRequest(BaseModel):
+    phone: str = Field(min_length=11, max_length=20)
+    code: str = Field(min_length=4, max_length=10)

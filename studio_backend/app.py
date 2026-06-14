@@ -76,6 +76,8 @@ from .schemas import (
     WeChatDraftRequest,
     TrendDistributionRequest,
     XiaohongshuPublishStatusRequest,
+    XiaohongshuSmsRequest,
+    XiaohongshuSmsVerifyRequest,
 )
 from .storage import (
     OUTPUTS_DIR,
@@ -91,7 +93,9 @@ from .storage import (
 from .xiaohongshu_automation import (
     XiaohongshuLoginRequired,
     capture_login_session,
+    send_sms_code,
     save_platform_draft,
+    verify_sms_code,
 )
 
 
@@ -2577,6 +2581,25 @@ def refresh_xiaohongshu_session() -> dict[str, Any]:
         return capture_login_session()
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"小红书服务器浏览器启动失败：{str(exc)[:400]}") from exc
+
+
+@app.post("/api/integrations/xiaohongshu/send-sms")
+def send_xiaohongshu_sms(payload: XiaohongshuSmsRequest) -> dict[str, Any]:
+    try:
+        return send_sms_code(payload.phone)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)[:500]) from exc
+
+
+@app.post("/api/integrations/xiaohongshu/verify-sms")
+def verify_xiaohongshu_sms(payload: XiaohongshuSmsVerifyRequest) -> dict[str, Any]:
+    try:
+        result = verify_sms_code(payload.phone, payload.code)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)[:500]) from exc
+    if not result.get("logged_in"):
+        raise HTTPException(status_code=409, detail=result.get("message") or "小红书登录失败。")
+    return result
 
 
 @app.post("/api/jobs/{job_id}/distribution")

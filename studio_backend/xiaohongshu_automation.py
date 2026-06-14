@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from queue import Empty, Queue
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ _BROWSER_LOCK = threading.Lock()
 _SESSION_STATE_LOCK = threading.Lock()
 _SESSION_READY = threading.Event()
 _LOGIN_THREAD: threading.Thread | None = None
+_LOGIN_COMMANDS: Queue[dict[str, Any]] = Queue()
 _SESSION_STATE: dict[str, Any] = {
     "status": "not_started",
     "logged_in": False,
@@ -221,6 +223,89 @@ def _set_session_state(**patch: Any) -> None:
         _SESSION_STATE.update(patch)
 
 
+def _normalize_phone(phone: str) -> str:
+    normalized = "".join(character for character in str(phone or "") if character.isdigit())
+    if normalized.startswith("86") and len(normalized) == 13:
+        normalized = normalized[2:]
+    if len(normalized) != 11:
+        raise ValueError("请输入 11 位中国大陆手机号。")
+    return normalized
+
+
+def _login_page_screenshot(page: Any) -> str:
+    page.screenshot(path=str(SESSION_SCREENSHOT), full_page=True)
+    return _versioned_media_url(SESSION_SCREENSHOT)
+
+
+def _ensure_phone_login(page: Any) -> Any:
+    phone_input = _phone_login_input(page)
+    if phone_input:
+        return phone_input
+    sms_login = _first_visible_text(page, ["短信登录", "手机号登录"])
+    if sms_login:
+        sms_login.click()
+        page.wait_for_timeout(1000)
+    phone_input = _phone_login_input(page)
+    if not phone_input:
+        raise RuntimeError("没有找到小红书手机号登录框，页面可能已改版。")
+    return phone_input
+
+
+def _send_sms_on_page(page: Any, phone: str) -> dict[str, Any]:
+    phone_input = _ensure_phone_login(page)
+    phone_input.fill(phone)
+    send_button = _first_visible_text(page, ["发送验证码", "获取验证码"])
+    if not send_button:
+        raise RuntimeError("没有找到“发送验证码”按钮，页面可能已改版。")
+    send_button.click()
+    page.wait_for_timeout(1800)
+    screenshot_url = _login_page_screenshot(page)
+    return {
+        "status": "sms_sent",
+        "logged_in": False,
+        "screenshot_url": screenshot_url,
+        "phone_masked": f"{phone[:3]}****{phone[-4:]}",
+        "message": "验证码请求已提交，请查看手机短信。若页面要求滑块验证，请查看截图提示。",
+    }
+
+
+def _verify_sms_on_page(page: Any, phone: str, code: str) -> dict[str, Any]:
+    phone_input = _ensure_phone_login(page)
+    phone_input.fill(phone)
+    code_input = _first_visible(
+        page,
+        [
+            "input[placeholder*='验证码']",
+            "input[placeholder*='短信']",
+        ],
+    )
+    if not code_input:
+        raise RuntimeError("没有找到验证码输入框，页面可能已改版。")
+    code_input.fill(code)
+
+    checkbox = _first_visible(page, ["input[type='checkbox']"])
+    if checkbox and not checkbox.is_checked():
+        checkbox.check(force=True)
+
+    login_button = _first_visible_text(page, ["登录"])
+    if not login_button:
+        raise RuntimeError("没有找到小红书登录按钮。")
+    login_button.click()
+    page.wait_for_timeout(5000)
+    logged_in = _is_logged_in(page)
+    screenshot_url = _login_page_screenshot(page)
+    return {
+        "status": "logged_in" if logged_in else "verification_failed",
+        "logged_in": logged_in,
+        "screenshot_url": screenshot_url,
+        "message": (
+            "小红书服务器登录成功，后续可以直接保存官方草稿。"
+            if logged_in
+            else "验证码未通过，可能已过期、输入错误，或页面要求额外验证。"
+        ),
+    }
+
+
 def _login_session_worker() -> None:
     from playwright.sync_api import sync_playwright
 
@@ -234,43 +319,51 @@ def _login_session_worker() -> None:
                     page.goto(CREATOR_URL, wait_until="domcontentloaded", timeout=60000)
                     page.wait_for_timeout(2500)
                     logged_in = _is_logged_in(page)
-                    screenshot_url = ""
-                    if logged_in:
-                        page.screenshot(path=str(SESSION_SCREENSHOT), full_page=True)
-                        screenshot_url = _versioned_media_url(SESSION_SCREENSHOT)
-                    else:
-                        login_card_box = _login_card_box(page)
-                        _switch_to_qr_login(page)
-                        screenshot_url = _capture_qr_image(page, login_card_box)
+                    screenshot_url = _login_page_screenshot(page)
                     _set_session_state(
-                        status="logged_in" if logged_in else "waiting_for_scan",
+                        status="logged_in" if logged_in else "phone_required",
                         logged_in=logged_in,
                         screenshot_url=screenshot_url,
                         message=(
                             "服务器上的小红书登录态有效，可以直接保存草稿。"
                             if logged_in
-                            else "请直接用小红书 App 扫描下方二维码。图片不能点击，也不需要在这里输入手机号。服务器会等待 3 分钟。"
+                            else "请输入手机号，通过短信验证码登录服务器浏览器。"
                         ),
                     )
                     _SESSION_READY.set()
                     if logged_in:
                         return
-                    deadline = time.time() + 180
+                    deadline = time.time() + 600
                     while time.time() < deadline:
-                        page.wait_for_timeout(2000)
-                        if _is_logged_in(page):
-                            page.screenshot(path=str(SESSION_SCREENSHOT), full_page=True)
-                            _set_session_state(
-                                status="logged_in",
-                                logged_in=True,
-                                screenshot_url=_versioned_media_url(SESSION_SCREENSHOT),
-                                message="扫码成功，服务器已保存小红书登录状态。",
-                            )
-                            return
+                        try:
+                            command = _LOGIN_COMMANDS.get(timeout=2)
+                        except Empty:
+                            continue
+                        result_holder = command["result"]
+                        try:
+                            if command["action"] == "send_sms":
+                                result = _send_sms_on_page(page, command["phone"])
+                            elif command["action"] == "verify_sms":
+                                result = _verify_sms_on_page(
+                                    page,
+                                    command["phone"],
+                                    command["code"],
+                                )
+                            else:
+                                result = {"status": "failed", "message": "未知登录操作。"}
+                            _set_session_state(**result)
+                            result_holder["result"] = result
+                            if result.get("logged_in"):
+                                result_holder["event"].set()
+                                return
+                        except Exception as exc:
+                            result_holder["error"] = str(exc)
+                        finally:
+                            result_holder["event"].set()
                     _set_session_state(
                         status="expired",
                         logged_in=False,
-                        message="登录二维码已过期，请点击按钮重新生成。",
+                        message="短信登录会话已过期，请重新检查登录状态。",
                     )
                 finally:
                     context.close()
@@ -303,6 +396,40 @@ def capture_login_session() -> dict[str, Any]:
         _SESSION_READY.wait(timeout=15)
     with _SESSION_STATE_LOCK:
         return dict(_SESSION_STATE)
+
+
+def _run_login_command(action: str, **payload: str) -> dict[str, Any]:
+    session = capture_login_session()
+    if session.get("logged_in"):
+        return session
+    holder: dict[str, Any] = {"event": threading.Event()}
+    _LOGIN_COMMANDS.put(
+        {
+            "action": action,
+            "result": holder,
+            **payload,
+        }
+    )
+    if not holder["event"].wait(timeout=75):
+        raise RuntimeError("小红书登录操作超时，请稍后重试。")
+    if holder.get("error"):
+        raise RuntimeError(str(holder["error"]))
+    return dict(holder.get("result") or {})
+
+
+def send_sms_code(phone: str) -> dict[str, Any]:
+    return _run_login_command("send_sms", phone=_normalize_phone(phone))
+
+
+def verify_sms_code(phone: str, code: str) -> dict[str, Any]:
+    normalized_code = "".join(character for character in str(code or "") if character.isdigit())
+    if not 4 <= len(normalized_code) <= 10:
+        raise ValueError("请输入短信中的验证码。")
+    return _run_login_command(
+        "verify_sms",
+        phone=_normalize_phone(phone),
+        code=normalized_code,
+    )
 
 
 def _resolve_media_paths(task: dict[str, Any]) -> list[Path]:

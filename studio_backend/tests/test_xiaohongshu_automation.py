@@ -9,6 +9,14 @@ from studio_backend import xiaohongshu_automation
 
 
 class XiaohongshuAutomationTests(unittest.TestCase):
+    def test_normalize_mainland_phone(self):
+        self.assertEqual(
+            xiaohongshu_automation._normalize_phone("+86 138-0013-8000"),
+            "13800138000",
+        )
+        with self.assertRaisesRegex(ValueError, "11 位"):
+            xiaohongshu_automation._normalize_phone("123")
+
     def test_resolve_media_paths_keeps_files_inside_runtime(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             studio_dir = Path(temp_dir)

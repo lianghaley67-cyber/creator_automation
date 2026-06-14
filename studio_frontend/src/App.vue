@@ -100,6 +100,8 @@ const materialDistributionDrafts = reactive({});
 const distributionTasks = ref([]);
 const xiaohongshuPublishUrls = reactive({});
 const xiaohongshuServerSession = ref(null);
+const xiaohongshuPhone = ref("");
+const xiaohongshuSmsCode = ref("");
 const wechatDraftErrors = reactive({});
 const audioPreviews = reactive({});
 const stockWatchlist = ref([]);
@@ -157,6 +159,8 @@ const busy = reactive({
   distribution: "",
   xiaohongshu: "",
   xiaohongshuSession: false,
+  xiaohongshuSms: false,
+  xiaohongshuVerify: false,
   xiaohongshuServerDraft: "",
   wechatDraft: "",
   wechatCover: false,
@@ -1156,6 +1160,60 @@ async function refreshXiaohongshuServerSession() {
   }
 }
 
+async function sendXiaohongshuSms() {
+  const phone = xiaohongshuPhone.value.replace(/\D/g, "");
+  if (phone.length !== 11) {
+    setError("请输入 11 位手机号。");
+    return;
+  }
+  busy.xiaohongshuSms = true;
+  try {
+    const result = await requestApi(
+      "/api/integrations/xiaohongshu/send-sms",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ phone })
+      },
+      90000
+    );
+    xiaohongshuServerSession.value = result;
+    setNotice(result.message || "验证码请求已提交。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "发送小红书验证码失败。"));
+  } finally {
+    busy.xiaohongshuSms = false;
+  }
+}
+
+async function verifyXiaohongshuSms() {
+  const phone = xiaohongshuPhone.value.replace(/\D/g, "");
+  const code = xiaohongshuSmsCode.value.replace(/\D/g, "");
+  if (phone.length !== 11 || code.length < 4) {
+    setError("请填写手机号和短信验证码。");
+    return;
+  }
+  busy.xiaohongshuVerify = true;
+  try {
+    const result = await requestApi(
+      "/api/integrations/xiaohongshu/verify-sms",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ phone, code })
+      },
+      90000
+    );
+    xiaohongshuServerSession.value = result;
+    xiaohongshuSmsCode.value = "";
+    setNotice(result.message || "小红书服务器登录成功。");
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "小红书验证码登录失败。"));
+  } finally {
+    busy.xiaohongshuVerify = false;
+  }
+}
+
 async function saveXiaohongshuPlatformDraft(task, applyResult) {
   if (!task?.id) return;
   busy.xiaohongshuServerDraft = String(task.id);
@@ -1169,7 +1227,7 @@ async function saveXiaohongshuPlatformDraft(task, applyResult) {
     await refreshDistributionTasks();
     setNotice("服务器已把图卡和文案保存到小红书官方草稿箱，请到小红书创作中心刷新查看。");
   } catch (error) {
-    setError(normalizeErrorMessage(error, "保存到小红书官方草稿箱失败。请先刷新登录二维码并扫码。"));
+    setError(normalizeErrorMessage(error, "保存到小红书官方草稿箱失败。请先完成服务器短信登录。"));
     await refreshXiaohongshuServerSession();
   } finally {
     busy.xiaohongshuServerDraft = "";
@@ -2671,24 +2729,43 @@ onBeforeUnmount(() => {
 
     <section class="panel">
       <div class="panel-header">
-        <h2>小红书服务器登录</h2>
+        <h2>小红书服务器短信登录</h2>
         <button
           class="btn secondary small"
           type="button"
           :disabled="busy.xiaohongshuSession"
           @click="refreshXiaohongshuServerSession"
-        >{{ busy.xiaohongshuSession ? "检查中..." : "刷新登录二维码 / 检查登录" }}</button>
+        >{{ busy.xiaohongshuSession ? "检查中..." : "检查登录状态" }}</button>
       </div>
       <p class="meta">
-        首次使用或登录失效时，请用手机小红书 App 扫描下方二维码。下方是服务器截图，不能点击、不能输入手机号；登录成功后即可直接保存草稿。
+        手机号和验证码只用于本次服务器登录，不写入数据库。登录成功后，后续可直接保存到小红书官方草稿箱。
       </p>
       <p v-if="xiaohongshuServerSession?.message" class="meta">{{ xiaohongshuServerSession.message }}</p>
-      <img
-        v-if="xiaohongshuServerSession?.screenshot_url"
-        class="xiaohongshu-login-preview"
-        :src="mediaUrl(xiaohongshuServerSession.screenshot_url)"
-        alt="小红书服务器登录页面"
-      />
+      <div v-if="!xiaohongshuServerSession?.logged_in" class="xiaohongshu-sms-login">
+        <label class="field">
+          <span>小红书绑定手机号</span>
+          <input v-model="xiaohongshuPhone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入 11 位手机号" />
+        </label>
+        <button class="btn secondary" type="button" :disabled="busy.xiaohongshuSms" @click="sendXiaohongshuSms">
+          {{ busy.xiaohongshuSms ? "发送中..." : "发送验证码" }}
+        </button>
+        <label class="field">
+          <span>短信验证码</span>
+          <input v-model="xiaohongshuSmsCode" inputmode="numeric" maxlength="10" placeholder="输入短信验证码" />
+        </label>
+        <button class="btn primary" type="button" :disabled="busy.xiaohongshuVerify" @click="verifyXiaohongshuSms">
+          {{ busy.xiaohongshuVerify ? "登录中..." : "验证码登录" }}
+        </button>
+      </div>
+      <p v-else class="success-text">服务器小红书已登录，可以直接保存官方草稿。</p>
+      <details v-if="xiaohongshuServerSession?.screenshot_url && !xiaohongshuServerSession?.logged_in">
+        <summary>查看服务器登录诊断截图</summary>
+        <img
+          class="xiaohongshu-login-preview"
+          :src="mediaUrl(xiaohongshuServerSession.screenshot_url)"
+          alt="小红书服务器登录诊断"
+        />
+      </details>
     </section>
 
     <section v-if="xiaohongshuSystemDrafts.length" class="panel">
@@ -4453,6 +4530,26 @@ textarea {
   margin-top: 14px;
   border: 1px solid #263b50;
   background: #ffffff;
+}
+
+.xiaohongshu-sms-login {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto minmax(180px, 0.7fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.success-text {
+  color: #2bd99f;
+  font-weight: 800;
+}
+
+@media (max-width: 900px) {
+  .xiaohongshu-sms-login {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
 }
 
 .wechat-entry-copy {
