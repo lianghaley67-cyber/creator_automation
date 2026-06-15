@@ -16,7 +16,7 @@ from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -75,6 +75,7 @@ from .schemas import (
     WeChatMaterialRequest,
     WeChatDraftRequest,
     TrendDistributionRequest,
+    XiaohongshuDirectPublishRequest,
     XiaohongshuPublishStatusRequest,
     XiaohongshuDragRequest,
     XiaohongshuSmsRequest,
@@ -96,6 +97,7 @@ from .xiaohongshu_automation import (
     capture_login_session,
     drag_login_slider,
     refresh_login_frame,
+    publish_platform_note,
     send_sms_code,
     save_platform_draft,
     verify_sms_code,
@@ -175,6 +177,7 @@ WECHAT_APP_SECRET = os.getenv("WECHAT_APP_SECRET", "").strip()
 WECHAT_VOICE_FALLBACK_TRANSCRIBE = os.getenv("WECHAT_VOICE_FALLBACK_TRANSCRIBE", "true").strip().lower() in {"1", "true", "yes", "on"}
 WECHAT_VOICE_WHISPER_MODEL = os.getenv("WECHAT_VOICE_WHISPER_MODEL", "small").strip() or "small"
 WECHAT_NORMALIZE_SIMPLIFIED = os.getenv("WECHAT_NORMALIZE_SIMPLIFIED", "true").strip().lower() in {"1", "true", "yes", "on"}
+XIAOHONGSHU_PUBLISH_TOKEN = os.getenv("XIAOHONGSHU_PUBLISH_TOKEN", "").strip()
 AI_TRENDS_ENABLED = os.getenv("AI_TRENDS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 AI_TRENDS_TIME = os.getenv("AI_TRENDS_TIME", "07:30").strip() or "07:30"
 app.add_middleware(
@@ -2814,6 +2817,89 @@ def _record_xiaohongshu_draft_failure(
         task_id,
         {"xiaohongshu": xiaohongshu, "updated_at": now_iso()},
     )
+
+
+@app.post("/api/distribution/tasks/{task_id}/xiaohongshu/direct-publish")
+def direct_publish_xiaohongshu_note(
+    task_id: str,
+    payload: XiaohongshuDirectPublishRequest,
+    x_publish_token: str = Header(default="", alias="X-Publish-Token"),
+) -> dict[str, Any]:
+    if not XIAOHONGSHU_PUBLISH_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="服务器尚未配置 XIAOHONGSHU_PUBLISH_TOKEN，直接发布功能未启用。",
+        )
+    if not hashlib.sha256(x_publish_token.encode("utf-8")).digest() == hashlib.sha256(
+        XIAOHONGSHU_PUBLISH_TOKEN.encode("utf-8")
+    ).digest():
+        raise HTTPException(status_code=403, detail="直接发布密钥错误。")
+    task = store.find_record("distribution_tasks", task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="分发任务不存在。")
+    expected_title = str(
+        (task.get("xiaohongshu") or {}).get("title") or task.get("title") or ""
+    ).strip()
+    if payload.confirm_title.strip() != expected_title:
+        raise HTTPException(
+            status_code=409,
+            detail=f"确认标题不一致。当前待发布标题是：{expected_title}",
+        )
+    current_xiaohongshu = (
+        task.get("xiaohongshu")
+        if isinstance(task.get("xiaohongshu"), dict)
+        else {}
+    )
+    if current_xiaohongshu.get("status") == "published":
+        raise HTTPException(status_code=409, detail="这篇内容已经标记为已发布，请勿重复发布。")
+
+    with _XIAOHONGSHU_DRAFT_LOCK:
+        if task_id in _XIAOHONGSHU_DRAFT_TASKS:
+            raise HTTPException(status_code=409, detail="这篇内容正在处理中，请稍后再试。")
+        _XIAOHONGSHU_DRAFT_TASKS.add(task_id)
+
+    try:
+        store.update_record(
+            "distribution_tasks",
+            task_id,
+            {
+                "xiaohongshu": {
+                    **current_xiaohongshu,
+                    "status": "publishing",
+                    "started_at": now_iso(),
+                    "save_error": "",
+                },
+                "updated_at": now_iso(),
+            },
+        )
+        result = publish_platform_note(task)
+        published_at = now_iso()
+        updated_xiaohongshu = {
+            **current_xiaohongshu,
+            **result,
+            "status": "published",
+            "published_at": published_at,
+            "platform_confirmation": result.get("platform_confirmation", ""),
+            "result_screenshot_url": result.get("screenshot_url", ""),
+            "save_error": "",
+        }
+        return store.update_record(
+            "distribution_tasks",
+            task_id,
+            {
+                "xiaohongshu": updated_xiaohongshu,
+                "updated_at": published_at,
+            },
+        )
+    except XiaohongshuLoginRequired as exc:
+        _record_xiaohongshu_draft_failure(task_id, str(exc), login_required=True)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        _record_xiaohongshu_draft_failure(task_id, str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        with _XIAOHONGSHU_DRAFT_LOCK:
+            _XIAOHONGSHU_DRAFT_TASKS.discard(task_id)
 
 
 @app.get("/api/jobs/{job_id}/publish/douyin-assistant")

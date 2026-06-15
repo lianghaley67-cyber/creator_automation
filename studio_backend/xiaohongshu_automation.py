@@ -410,6 +410,15 @@ def _click_draft_footer_fallback(page: Any) -> str:
     return "暂存离开（底部按钮）"
 
 
+def _click_publish_footer_fallback(page: Any) -> str:
+    viewport = page.viewport_size or {"width": 1440, "height": 1000}
+    width = float(viewport["width"])
+    height = float(viewport["height"])
+    # 小红书图文编辑页底部固定操作栏：右侧红色按钮是“发布”。
+    page.mouse.click(width * 0.78, height - 45)
+    return "发布（底部按钮）"
+
+
 def _first_visible_contains(page: Any, labels: list[str]) -> str:
     for label in labels:
         matches = page.get_by_text(label, exact=False)
@@ -904,6 +913,18 @@ def _resolve_media_paths(task: dict[str, Any]) -> list[Path]:
 
 
 def save_platform_draft(task: dict[str, Any]) -> dict[str, Any]:
+    return _submit_platform_content(task, publish=False)
+
+
+def publish_platform_note(task: dict[str, Any]) -> dict[str, Any]:
+    return _submit_platform_content(task, publish=True)
+
+
+def _submit_platform_content(
+    task: dict[str, Any],
+    *,
+    publish: bool,
+) -> dict[str, Any]:
     from playwright.sync_api import sync_playwright
 
     xiaohongshu = task.get("xiaohongshu") if isinstance(task.get("xiaohongshu"), dict) else {}
@@ -960,45 +981,57 @@ def save_platform_draft(task: dict[str, Any]) -> dict[str, Any]:
                 _wait_editor_idle(page)
                 _dismiss_editor_suggestions(page, body_input)
 
-                save_labels = [
-                    "暂存离开",
-                    "暂存并离开",
-                    "保存并离开",
-                    "保存并退出",
-                    "保存草稿",
-                    "存草稿",
-                    "暂存",
-                ]
-                save_button = _first_visible_action(page, save_labels)
-                if not save_button:
-                    save_button = _first_visible_text(
+                action_labels = (
+                    ["立即发布", "确认发布", "发布"]
+                    if publish
+                    else [
+                        "暂存离开",
+                        "暂存并离开",
+                        "保存并离开",
+                        "保存并退出",
+                        "保存草稿",
+                        "存草稿",
+                        "暂存",
+                    ]
+                )
+                action_button = _first_visible_action(page, action_labels)
+                if not action_button:
+                    action_button = _first_visible_text(
                         page,
-                        save_labels,
+                        action_labels,
                     )
-                if not save_button:
+                if not action_button:
                     # 新版偶尔把按钮渲染成普通 div，使用严格文本匹配兜底。
-                    for label in save_labels:
+                    for label in action_labels:
                         matches = page.get_by_text(label, exact=False)
                         for index in range(matches.count()):
                             candidate = matches.nth(index)
                             if candidate.is_visible() and "".join(
                                 str(candidate.inner_text() or "").split()
                             ) == label:
-                                save_button = candidate
+                                action_button = candidate
                                 break
-                        if save_button:
+                        if action_button:
                             break
-                if not save_button:
-                    clicked_label = _click_visible_text_dom(page, save_labels)
+                if not action_button:
+                    clicked_label = _click_visible_text_dom(page, action_labels)
                     if not clicked_label:
-                        clicked_label = _click_draft_footer_fallback(page)
+                        clicked_label = (
+                            _click_publish_footer_fallback(page)
+                            if publish
+                            else _click_draft_footer_fallback(page)
+                        )
                 else:
-                    save_button.evaluate("(element) => element.click()")
+                    action_button.evaluate("(element) => element.click()")
                 page.wait_for_timeout(800)
 
                 confirm_label = _click_text_control(
                     page,
-                    ["保存并离开", "暂存并离开", "确认保存", "确定"],
+                    (
+                        ["确认发布", "立即发布", "确定发布", "确定"]
+                        if publish
+                        else ["保存并离开", "暂存并离开", "确认保存", "确定"]
+                    ),
                 )
                 if confirm_label:
                     page.wait_for_timeout(800)
@@ -1009,27 +1042,44 @@ def save_platform_draft(task: dict[str, Any]) -> dict[str, Any]:
                     page.wait_for_timeout(600)
                     success_message = _first_visible_contains(
                         page,
-                        [
-                            "已保存至草稿箱",
-                            "保存至草稿箱",
-                            "草稿保存成功",
-                            "保存成功",
-                            "已保存",
-                        ],
+                        (
+                            ["发布成功", "发布审核中", "提交成功", "已发布"]
+                            if publish
+                            else [
+                                "已保存至草稿箱",
+                                "保存至草稿箱",
+                                "草稿保存成功",
+                                "保存成功",
+                                "已保存",
+                            ]
+                        ),
                     )
                     if success_message:
                         break
                     if not title_input.is_visible() and "publish/publish" not in str(page.url):
-                        success_message = "保存后已离开编辑页面"
+                        success_message = (
+                            "发布后已离开编辑页面"
+                            if publish
+                            else "保存后已离开编辑页面"
+                        )
                         break
 
                 page.screenshot(path=str(RESULT_SCREENSHOT), full_page=True)
                 if not success_message:
                     labels = "、".join(_visible_action_labels(page)[:10]) or "无"
+                    action_name = "发布" if publish else "保存"
                     raise RuntimeError(
-                        "小红书页面已点击保存，但没有返回草稿保存成功信号。"
-                        f"当前页面按钮：{labels}。请查看保存结果截图。"
+                        f"小红书页面已点击{action_name}，但没有返回{action_name}成功信号。"
+                        f"当前页面按钮：{labels}。请查看结果截图。"
                     )
+                if publish:
+                    return {
+                        "status": "published",
+                        "screenshot_url": _versioned_media_url(RESULT_SCREENSHOT),
+                        "uploaded_images": len(uploads),
+                        "platform_confirmation": success_message,
+                        "message": f"小红书已确认发布提交成功：{success_message}",
+                    }
                 return {
                     "status": "platform_draft_saved",
                     "screenshot_url": _versioned_media_url(RESULT_SCREENSHOT),

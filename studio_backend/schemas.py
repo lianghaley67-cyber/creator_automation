@@ -216,6 +216,11 @@ class XiaohongshuPublishStatusRequest(BaseModel):
     notes: str = ""
 
 
+class XiaohongshuDirectPublishRequest(BaseModel):
+    confirm_title: str = Field(min_length=1, max_length=100)
+    confirm_publish: Literal[True]
+
+
 class XiaohongshuSmsRequest(BaseModel):
     phone: str = Field(min_length=11, max_length=20)
 
