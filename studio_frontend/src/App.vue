@@ -1105,9 +1105,9 @@ async function uploadWechatCover(event) {
 function xiaohongshuStatusLabel(draft) {
   const status = draft?.xiaohongshu?.status;
   if (status === "draft_saved") return "已保存到系统草稿箱";
-  if (status === "platform_draft_saved") return "已保存到小红书平台草稿箱";
-  if (status === "platform_draft_saving") return "正在保存到小红书平台草稿箱";
-  if (status === "platform_draft_failed") return "保存到小红书平台草稿箱失败";
+  if (status === "platform_draft_saved") return "已保存到服务器浏览器草稿";
+  if (status === "platform_draft_saving") return "正在保存到服务器浏览器草稿";
+  if (status === "platform_draft_failed") return "保存到服务器浏览器草稿失败";
   if (status === "login_required") return "小红书登录已失效";
   if (status === "publishing") return "发布中，等待你确认";
   if (status === "published") return "已发布";
@@ -1146,7 +1146,7 @@ async function saveXiaohongshuDraft(task, applyResult) {
   const result = await updateXiaohongshuStatus(task, "draft_saved", applyResult);
   if (result) {
     await refreshDistributionTasks();
-    setNotice("小红书文案和图卡已保存到系统草稿箱。要同步到小红书平台草稿箱，请下载并运行自动填充助手，审核后输入 SAVE。");
+    setNotice("小红书文案和图卡已保存到本站系统草稿箱。");
   }
 }
 
@@ -1368,20 +1368,20 @@ async function saveXiaohongshuPlatformDraft(task, applyResult) {
         await refreshDistributionTasks();
         setNotice(
           result?.xiaohongshu?.message
-          || "服务器已确认保存到小红书官方草稿箱，请到小红书创作中心刷新查看。"
+          || "服务器浏览器已保存草稿。结果截图已显示在当前页面；它不会同步到你电脑的小红书草稿箱。"
         );
         return;
       }
       if (["platform_draft_failed", "login_required"].includes(status)) {
         throw new Error(
           result?.xiaohongshu?.save_error
-          || "保存到小红书官方草稿箱失败，请查看服务器保存结果。"
+          || "保存到服务器浏览器草稿失败，请查看当前页面的结果截图。"
         );
       }
     }
     throw new Error("小红书保存超过 8 分钟仍未完成，请检查服务器保存结果。");
   } catch (error) {
-    setError(normalizeErrorMessage(error, "保存到小红书官方草稿箱失败。"));
+    setError(normalizeErrorMessage(error, "保存到服务器浏览器草稿失败。"));
     await refreshDistributionTasks();
     await refreshXiaohongshuServerSession();
   } finally {
@@ -2462,7 +2462,7 @@ onBeforeUnmount(() => {
                 :disabled="busy.xiaohongshuServerDraft === String(trendDistributionDraft.id)"
                 @click="saveXiaohongshuPlatformDraft(trendDistributionDraft, applyTrendDistributionResult)"
               >
-                {{ busy.xiaohongshuServerDraft === String(trendDistributionDraft.id) ? "服务器保存中..." : "保存到小红书官网草稿箱" }}
+                {{ busy.xiaohongshuServerDraft === String(trendDistributionDraft.id) ? "服务器保存中..." : "保存到服务器浏览器草稿" }}
               </button>
               <label class="upload-audio-label">
                 {{ busy.wechatCover ? "上传中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
@@ -2842,7 +2842,7 @@ onBeforeUnmount(() => {
                 class="btn primary small"
                 :disabled="busy.xiaohongshuServerDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
                 @click="saveXiaohongshuPlatformDraft(materialDistributionDrafts[selectedWechatMaterial.id], (result) => applyMaterialDistributionResult(selectedWechatMaterial.id, result))"
-              >{{ busy.xiaohongshuServerDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id) ? "服务器保存中..." : "保存到小红书官网草稿箱" }}</button>
+              >{{ busy.xiaohongshuServerDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id) ? "服务器保存中..." : "保存到服务器浏览器草稿" }}</button>
             </div>
             <p v-if="!wechatEntry?.cover_configured" class="error-text">
               当前没有公众号封面。请先上传一张 JPG/PNG 封面，上传成功后发送按钮会自动解锁。
@@ -2906,7 +2906,8 @@ onBeforeUnmount(() => {
         >{{ busy.xiaohongshuSession ? "检查中..." : "检查登录状态" }}</button>
       </div>
       <p class="meta">
-        手机号和验证码只用于本次服务器登录，不写入数据库。登录成功后，后续可直接保存到小红书官方草稿箱。
+        手机号和验证码只用于本次服务器登录，不写入数据库。登录成功后，可保存到服务器上的小红书浏览器草稿。
+        小红书网页草稿保存在当前浏览器本地，因此不会出现在你电脑 Chrome 的草稿箱里。
       </p>
       <p v-if="xiaohongshuServerSession?.message" class="meta">{{ xiaohongshuServerSession.message }}</p>
       <div v-if="!xiaohongshuServerSession?.logged_in" class="xiaohongshu-sms-login">
@@ -2925,7 +2926,7 @@ onBeforeUnmount(() => {
           {{ busy.xiaohongshuVerify ? "登录中..." : "验证码登录" }}
         </button>
       </div>
-      <p v-else class="success-text">服务器小红书已登录，可以直接保存官方草稿。</p>
+      <p v-else class="success-text">服务器小红书已登录，可以保存服务器浏览器草稿；保存结果会直接显示在本页面。</p>
       <details
         v-if="xiaohongshuServerSession?.screenshot_url && !xiaohongshuServerSession?.logged_in"
         @toggle="toggleXiaohongshuRemote"
@@ -2971,7 +2972,8 @@ onBeforeUnmount(() => {
         <button class="btn secondary small" type="button" @click="refreshDistributionTasks">刷新草稿</button>
       </div>
       <p class="meta">
-        这里的草稿已保存在服务器 SQLite。服务器登录小红书后，点击按钮即可同步到小红书官方草稿箱。
+        这里的草稿已保存在服务器 SQLite。点击保存后，内容会进入服务器浏览器的小红书本地草稿。
+        它不会同步到你电脑的 Chrome；请直接查看下方自动刷新的服务器结果截图。
       </p>
       <div class="draft-list">
         <article v-for="draft in xiaohongshuSystemDrafts" :key="draft.id" class="publish-card">
@@ -2990,7 +2992,20 @@ onBeforeUnmount(() => {
             :href="mediaUrl(draft.xiaohongshu.result_screenshot_url)"
             target="_blank"
             rel="noreferrer"
-          >查看服务器保存结果截图</a>
+          >在新窗口查看服务器保存结果</a>
+          <a
+            v-if="draft.xiaohongshu?.result_screenshot_url"
+            class="xiaohongshu-result-preview"
+            :href="mediaUrl(draft.xiaohongshu.result_screenshot_url)"
+            target="_blank"
+            rel="noreferrer"
+            title="点击放大服务器草稿箱截图"
+          >
+            <img
+              :src="mediaUrl(draft.xiaohongshu.result_screenshot_url)"
+              alt="服务器小红书草稿保存结果"
+            />
+          </a>
           <div class="publish-buttons">
             <button class="btn secondary small" @click="copyText(draft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
             <a class="btn secondary small" :href="mediaUrl(draft.xiaohongshu?.package_url)" download>下载备用图文包</a>
@@ -3005,7 +3020,7 @@ onBeforeUnmount(() => {
               busy.xiaohongshuServerDraft === String(draft.id)
               || draft.xiaohongshu?.status === "platform_draft_saving"
                 ? "服务器保存中..."
-                : "保存到小红书官网草稿箱"
+                : "保存到服务器浏览器草稿"
             }}</button>
           </div>
         </article>
@@ -3291,7 +3306,7 @@ onBeforeUnmount(() => {
                 :disabled="busy.xiaohongshuServerDraft === String(distributionDrafts[job.id].id)"
                 @click="saveXiaohongshuPlatformDraft(distributionDrafts[job.id], (result) => applyJobDistributionResult(job.id, result))"
               >
-                {{ busy.xiaohongshuServerDraft === String(distributionDrafts[job.id].id) ? "服务器保存中..." : "保存到小红书官网草稿箱" }}
+                {{ busy.xiaohongshuServerDraft === String(distributionDrafts[job.id].id) ? "服务器保存中..." : "保存到服务器浏览器草稿" }}
               </button>
               <button
                 class="btn accent small"
@@ -5386,6 +5401,23 @@ textarea {
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+.xiaohongshu-result-preview {
+  display: block;
+  overflow: hidden;
+  width: min(100%, 960px);
+  max-height: 520px;
+  border: 1px solid #d7e2f1;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.xiaohongshu-result-preview img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
 }
 
 @media (max-width: 860px) {

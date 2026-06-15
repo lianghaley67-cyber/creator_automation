@@ -1035,7 +1035,10 @@ def save_platform_draft(task: dict[str, Any]) -> dict[str, Any]:
                     "screenshot_url": _versioned_media_url(RESULT_SCREENSHOT),
                     "uploaded_images": len(uploads),
                     "platform_confirmation": success_message,
-                    "message": f"小红书平台已确认草稿保存成功：{success_message}",
+                    "message": (
+                        f"服务器浏览器已确认草稿保存成功：{success_message}。"
+                        "该草稿保存在服务器浏览器本地，不会同步到你电脑的小红书草稿箱。"
+                    ),
                 }
             except Exception:
                 try:

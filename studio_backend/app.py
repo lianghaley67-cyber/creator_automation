@@ -2704,10 +2704,12 @@ def update_distribution_xiaohongshu_status(
     if payload.status in {"draft_saved", "platform_draft_saved"}:
         xiaohongshu["draft_saved_at"] = now_iso()
         xiaohongshu["draft_location"] = (
-            "xiaohongshu_platform"
+            "xiaohongshu_server_browser"
             if payload.status == "platform_draft_saved"
             else "creator_studio"
         )
+        xiaohongshu["save_error"] = ""
+        xiaohongshu.pop("save_failed_at", None)
     if payload.status == "published":
         note_url = payload.note_url.strip()
         if not note_url:
@@ -2772,9 +2774,12 @@ def _save_xiaohongshu_platform_draft(task_id: str) -> None:
             ),
             **result,
             "draft_saved_at": now_iso(),
-            "draft_location": "xiaohongshu_platform",
+            "draft_location": "xiaohongshu_server_browser",
+            "browser_scope": "server_local_storage",
             "save_error": "",
+            "result_screenshot_url": result.get("screenshot_url", ""),
         }
+        xiaohongshu.pop("save_failed_at", None)
         store.update_record(
             "distribution_tasks",
             task_id,

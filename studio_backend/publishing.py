@@ -268,7 +268,7 @@ with sync_playwright() as playwright:
             "2. 首次使用：pip install playwright，然后执行 playwright install chromium。",
             "3. 在解压目录执行：python xiaohongshu_fill_assistant.py。",
             "4. 按提示完成小红书登录，助手会上传图片并填写标题、正文。",
-            "5. 检查封面、话题和错别字；输入 SAVE 可尝试保存到小红书平台草稿箱。",
+            "5. 检查封面、话题和错别字；输入 SAVE 可尝试保存到运行助手的浏览器本地草稿。",
             "6. 正式发布仍由你本人确认；发布后复制链接，回填系统并标记“已发布”。",
             "",
             "不想运行助手时，也可以点击系统里的“开始半自动发布”，手动上传并粘贴。",
