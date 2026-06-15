@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 import re
+import json
 from queue import Empty, Queue
 from pathlib import Path
 from typing import Any
@@ -414,9 +415,50 @@ def _click_publish_footer_fallback(page: Any) -> str:
     viewport = page.viewport_size or {"width": 1440, "height": 1000}
     width = float(viewport["width"])
     height = float(viewport["height"])
-    # 小红书图文编辑页底部固定操作栏：右侧红色按钮是“发布”。
-    page.mouse.click(width * 0.78, height - 45)
+    # 新版图文编辑页底部操作栏位于内容区中央：
+    # 左侧灰色按钮是“暂存离开”，右侧红色按钮是“发布”。
+    page.mouse.click(width * 0.52, height - 45)
     return "发布（底部按钮）"
+
+
+def _click_publish_control(page: Any) -> str:
+    clicked = page.evaluate(
+        """() => {
+            const normalize = (value) => String(value || "").replace(/\\s+/g, "");
+            const candidates = Array.from(
+                document.querySelectorAll("button, [role='button'], div, span")
+            ).filter((element) => {
+                if (normalize(element.textContent) !== "发布") return false;
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return rect.width >= 50
+                    && rect.height >= 28
+                    && rect.bottom > window.innerHeight * 0.7
+                    && style.display !== "none"
+                    && style.visibility !== "hidden"
+                    && Number(style.opacity || 1) > 0;
+            }).sort((left, right) => {
+                const leftRect = left.getBoundingClientRect();
+                const rightRect = right.getBoundingClientRect();
+                return rightRect.bottom - leftRect.bottom
+                    || (rightRect.width * rightRect.height)
+                        - (leftRect.width * leftRect.height);
+            });
+            if (!candidates.length) return "";
+            const element = candidates[0].closest("button, [role='button']") || candidates[0];
+            element.scrollIntoView({ block: "center", inline: "center" });
+            const rect = element.getBoundingClientRect();
+            return JSON.stringify({
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2
+            });
+        }"""
+    )
+    if not clicked:
+        return ""
+    point = json.loads(str(clicked))
+    page.mouse.click(float(point["x"]), float(point["y"]))
+    return "发布（页面红色按钮）"
 
 
 def _first_visible_contains(page: Any, labels: list[str]) -> str:
@@ -994,13 +1036,14 @@ def _submit_platform_content(
                         "暂存",
                     ]
                 )
-                action_button = _first_visible_action(page, action_labels)
-                if not action_button:
+                clicked_label = _click_publish_control(page) if publish else ""
+                action_button = None if clicked_label else _first_visible_action(page, action_labels)
+                if not clicked_label and not action_button:
                     action_button = _first_visible_text(
                         page,
                         action_labels,
                     )
-                if not action_button:
+                if not clicked_label and not action_button:
                     # 新版偶尔把按钮渲染成普通 div，使用严格文本匹配兜底。
                     for label in action_labels:
                         matches = page.get_by_text(label, exact=False)
@@ -1013,7 +1056,7 @@ def _submit_platform_content(
                                 break
                         if action_button:
                             break
-                if not action_button:
+                if not clicked_label and not action_button:
                     clicked_label = _click_visible_text_dom(page, action_labels)
                     if not clicked_label:
                         clicked_label = (

@@ -134,7 +134,18 @@ class XiaohongshuAutomationTests(unittest.TestCase):
         result = xiaohongshu_automation._click_publish_footer_fallback(page)
 
         self.assertEqual(result, "发布（底部按钮）")
-        page.mouse.click.assert_called_once_with(1123.2, 955.0)
+        actual_x, actual_y = page.mouse.click.call_args.args
+        self.assertAlmostEqual(actual_x, 748.8)
+        self.assertEqual(actual_y, 955.0)
+
+    def test_click_publish_control_clicks_reported_button_center(self):
+        page = MagicMock()
+        page.evaluate.return_value = '{"x":750,"y":955}'
+
+        result = xiaohongshu_automation._click_publish_control(page)
+
+        self.assertEqual(result, "发布（页面红色按钮）")
+        page.mouse.click.assert_called_once_with(750.0, 955.0)
 
     def test_first_visible_action_matches_button_text_without_spaces(self):
         page = MagicMock()
