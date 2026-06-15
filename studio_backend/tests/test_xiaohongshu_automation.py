@@ -103,6 +103,21 @@ class XiaohongshuAutomationTests(unittest.TestCase):
         self.assertEqual(clicked, "上传图文")
         visible.evaluate.assert_called_once_with("(element) => element.click()")
 
+    def test_click_visible_text_dom_returns_clicked_label(self):
+        page = MagicMock()
+        page.evaluate.return_value = "暂存离开"
+
+        result = xiaohongshu_automation._click_visible_text_dom(
+            page,
+            ["暂存离开", "保存草稿"],
+        )
+
+        self.assertEqual(result, "暂存离开")
+        self.assertEqual(
+            page.evaluate.call_args.args[1],
+            ["暂存离开", "保存草稿"],
+        )
+
     def test_first_visible_action_matches_button_text_without_spaces(self):
         page = MagicMock()
         button = MagicMock()

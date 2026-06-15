@@ -356,6 +356,50 @@ def _click_text_control(page: Any, labels: list[str]) -> str:
     return ""
 
 
+def _click_visible_text_dom(page: Any, labels: list[str]) -> str:
+    return str(
+        page.evaluate(
+            """(labels) => {
+                const normalize = (value) => String(value || "").replace(/\\s+/g, "");
+                const targets = labels.map(normalize);
+                const candidates = Array.from(
+                    document.querySelectorAll(
+                        "button, [role='button'], a, div, span, p"
+                    )
+                );
+                const visible = candidates.filter((element) => {
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    return rect.width > 20
+                        && rect.height > 15
+                        && style.display !== "none"
+                        && style.visibility !== "hidden"
+                        && Number(style.opacity || 1) > 0;
+                });
+                for (let index = 0; index < targets.length; index += 1) {
+                    const target = targets[index];
+                    const matches = visible
+                        .filter((element) => normalize(element.textContent) === target)
+                        .sort((left, right) => {
+                            const leftRect = left.getBoundingClientRect();
+                            const rightRect = right.getBoundingClientRect();
+                            return (leftRect.width * leftRect.height)
+                                - (rightRect.width * rightRect.height);
+                        });
+                    if (!matches.length) continue;
+                    const element = matches[0];
+                    element.scrollIntoView({ block: "center", inline: "center" });
+                    element.click();
+                    return labels[index];
+                }
+                return "";
+            }""",
+            labels,
+        )
+        or ""
+    )
+
+
 def _first_visible_contains(page: Any, labels: list[str]) -> str:
     for label in labels:
         matches = page.get_by_text(label, exact=False)
@@ -935,13 +979,16 @@ def save_platform_draft(task: dict[str, Any]) -> dict[str, Any]:
                         if save_button:
                             break
                 if not save_button:
-                    page.screenshot(path=str(RESULT_SCREENSHOT), full_page=True)
-                    labels = "、".join(_visible_action_labels(page)[:15]) or "无"
-                    raise RuntimeError(
-                        "内容已经填好，但没有识别到保存草稿按钮。"
-                        f"当前可见按钮：{labels}。请查看服务器截图。"
-                    )
-                save_button.evaluate("(element) => element.click()")
+                    clicked_label = _click_visible_text_dom(page, save_labels)
+                    if not clicked_label:
+                        page.screenshot(path=str(RESULT_SCREENSHOT), full_page=True)
+                        labels = "、".join(_visible_action_labels(page)[:15]) or "无"
+                        raise RuntimeError(
+                            "内容已经填好，但没有识别到保存草稿按钮。"
+                            f"当前可见按钮：{labels}。请查看服务器截图。"
+                        )
+                else:
+                    save_button.evaluate("(element) => element.click()")
                 page.wait_for_timeout(800)
 
                 confirm_label = _click_text_control(
