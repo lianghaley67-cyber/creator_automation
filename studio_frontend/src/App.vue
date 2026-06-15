@@ -1960,7 +1960,13 @@ const selectedWechatMaterial = computed(() => (
 ));
 const xiaohongshuSystemDrafts = computed(() => (
   distributionTasks.value.filter((item) => (
-    ["draft_saved", "platform_draft_saved"].includes(item?.xiaohongshu?.status)
+    [
+      "draft_saved",
+      "platform_draft_saving",
+      "platform_draft_saved",
+      "platform_draft_failed",
+      "login_required"
+    ].includes(item?.xiaohongshu?.status)
   ))
 ));
 const latestWechatCallbackEvent = computed(() => wechatCallbackEvents.value[0] || null);
@@ -2113,6 +2119,13 @@ onMounted(async () => {
   ]);
   pollTimer = window.setInterval(() => {
     if (runningKidsJobs.value.length) refreshJobs();
+    if (
+      distributionTasks.value.some(
+        (item) => item?.xiaohongshu?.status === "platform_draft_saving"
+      )
+    ) {
+      refreshDistributionTasks();
+    }
   }, 3000);
 });
 
