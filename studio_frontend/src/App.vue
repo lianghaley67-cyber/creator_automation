@@ -166,6 +166,7 @@ const busy = reactive({
   xiaohongshuVerify: false,
   xiaohongshuDrag: false,
   xiaohongshuServerDraft: "",
+  xiaohongshuDirectPublish: "",
   wechatDraft: "",
   wechatCover: false,
   stockRefresh: false,
@@ -1389,6 +1390,72 @@ async function saveXiaohongshuPlatformDraft(task, applyResult) {
   }
 }
 
+function xiaohongshuPublishToken() {
+  const saved = window.sessionStorage.getItem("xiaohongshu_publish_token") || "";
+  if (saved) return saved;
+  const entered = window.prompt("请输入服务器的小红书发布密钥。当前浏览器关闭后会自动清除。");
+  const token = String(entered || "").trim();
+  if (token) window.sessionStorage.setItem("xiaohongshu_publish_token", token);
+  return token;
+}
+
+async function directPublishXiaohongshu(task, applyResult) {
+  if (!task?.id) return;
+  const title = String(task?.xiaohongshu?.title || task?.title || "").trim();
+  if (!window.confirm(`确认正式发布到小红书？\n\n标题：${title}\n\n发布后用户将能看到这篇内容。`)) return;
+  const token = xiaohongshuPublishToken();
+  if (!token) {
+    setError("没有输入发布密钥，本次没有发布。");
+    return;
+  }
+  busy.xiaohongshuDirectPublish = String(task.id);
+  try {
+    let result = await requestApi(
+      `/api/distribution/tasks/${task.id}/xiaohongshu/direct-publish`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "X-Publish-Token": token
+        },
+        body: JSON.stringify({
+          confirm_title: title,
+          confirm_publish: true
+        })
+      },
+      20000
+    );
+    applyResult(result);
+    setNotice("服务器正在正式发布到小红书，请稍等，页面会自动更新结果。");
+    const deadline = Date.now() + 8 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 3000));
+      const payload = await requestApi("/api/distribution/tasks", {}, 20000);
+      result = (payload.items || []).find((item) => String(item.id) === String(task.id));
+      if (!result) throw new Error("没有找到正在发布的小红书任务。");
+      applyResult(result);
+      const status = result?.xiaohongshu?.status;
+      if (status === "published") {
+        await refreshDistributionTasks();
+        setNotice(result?.xiaohongshu?.message || "小红书已确认发布成功。");
+        return;
+      }
+      if (["failed", "login_required"].includes(status)) {
+        throw new Error(result?.xiaohongshu?.save_error || "小红书发布失败，请查看服务器结果截图。");
+      }
+    }
+    throw new Error("小红书发布超过 8 分钟仍未完成，请查看服务器结果截图。");
+  } catch (error) {
+    if (String(error?.message || "").includes("密钥")) {
+      window.sessionStorage.removeItem("xiaohongshu_publish_token");
+    }
+    setError(normalizeErrorMessage(error, "直接发布到小红书失败。"));
+    await refreshDistributionTasks();
+  } finally {
+    busy.xiaohongshuDirectPublish = "";
+  }
+}
+
 async function finishXiaohongshuPublishing(task, applyResult) {
   const noteUrl = String(xiaohongshuPublishUrls[task?.id] || "").trim();
   if (!noteUrl) {
@@ -1965,7 +2032,10 @@ const xiaohongshuSystemDrafts = computed(() => (
       "platform_draft_saving",
       "platform_draft_saved",
       "platform_draft_failed",
-      "login_required"
+      "login_required",
+      "publishing",
+      "published",
+      "failed"
     ].includes(item?.xiaohongshu?.status)
   ))
 ));
@@ -2464,6 +2534,11 @@ onBeforeUnmount(() => {
               >
                 {{ busy.xiaohongshuServerDraft === String(trendDistributionDraft.id) ? "服务器保存中..." : "保存到服务器浏览器草稿" }}
               </button>
+              <button
+                class="btn accent small"
+                :disabled="busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) || trendDistributionDraft.xiaohongshu?.status === 'published'"
+                @click="directPublishXiaohongshu(trendDistributionDraft, applyTrendDistributionResult)"
+              >{{ busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) ? "发布中..." : "直接发布到小红书" }}</button>
               <label class="upload-audio-label">
                 {{ busy.wechatCover ? "上传中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
                 <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
@@ -2843,6 +2918,11 @@ onBeforeUnmount(() => {
                 :disabled="busy.xiaohongshuServerDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
                 @click="saveXiaohongshuPlatformDraft(materialDistributionDrafts[selectedWechatMaterial.id], (result) => applyMaterialDistributionResult(selectedWechatMaterial.id, result))"
               >{{ busy.xiaohongshuServerDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id) ? "服务器保存中..." : "保存到服务器浏览器草稿" }}</button>
+              <button
+                class="btn accent small"
+                :disabled="busy.xiaohongshuDirectPublish === String(materialDistributionDrafts[selectedWechatMaterial.id].id) || materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.status === 'published'"
+                @click="directPublishXiaohongshu(materialDistributionDrafts[selectedWechatMaterial.id], (result) => applyMaterialDistributionResult(selectedWechatMaterial.id, result))"
+              >{{ busy.xiaohongshuDirectPublish === String(materialDistributionDrafts[selectedWechatMaterial.id].id) ? "发布中..." : "直接发布到小红书" }}</button>
             </div>
             <p v-if="!wechatEntry?.cover_configured" class="error-text">
               当前没有公众号封面。请先上传一张 JPG/PNG 封面，上传成功后发送按钮会自动解锁。
@@ -3022,6 +3102,11 @@ onBeforeUnmount(() => {
                 ? "服务器保存中..."
                 : "保存到服务器浏览器草稿"
             }}</button>
+            <button
+              class="btn accent small"
+              :disabled="busy.xiaohongshuDirectPublish === String(draft.id) || draft.xiaohongshu?.status === 'published'"
+              @click="directPublishXiaohongshu(draft, applySavedDistributionTask)"
+            >{{ busy.xiaohongshuDirectPublish === String(draft.id) ? "发布中..." : "直接发布到小红书" }}</button>
           </div>
         </article>
       </div>
@@ -3308,6 +3393,11 @@ onBeforeUnmount(() => {
               >
                 {{ busy.xiaohongshuServerDraft === String(distributionDrafts[job.id].id) ? "服务器保存中..." : "保存到服务器浏览器草稿" }}
               </button>
+              <button
+                class="btn accent small"
+                :disabled="busy.xiaohongshuDirectPublish === String(distributionDrafts[job.id].id) || distributionDrafts[job.id].xiaohongshu?.status === 'published'"
+                @click="directPublishXiaohongshu(distributionDrafts[job.id], (result) => applyJobDistributionResult(job.id, result))"
+              >{{ busy.xiaohongshuDirectPublish === String(distributionDrafts[job.id].id) ? "发布中..." : "直接发布到小红书" }}</button>
               <button
                 class="btn accent small"
                 :disabled="!wechatEntry?.cover_configured || busy.wechatDraft === String(distributionDrafts[job.id].id)"

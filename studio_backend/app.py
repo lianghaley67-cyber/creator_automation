@@ -2823,6 +2823,7 @@ def _record_xiaohongshu_draft_failure(
 def direct_publish_xiaohongshu_note(
     task_id: str,
     payload: XiaohongshuDirectPublishRequest,
+    background_tasks: BackgroundTasks,
     x_publish_token: str = Header(default="", alias="X-Publish-Token"),
 ) -> dict[str, Any]:
     if not XIAOHONGSHU_PUBLISH_TOKEN:
@@ -2858,19 +2859,33 @@ def direct_publish_xiaohongshu_note(
             raise HTTPException(status_code=409, detail="这篇内容正在处理中，请稍后再试。")
         _XIAOHONGSHU_DRAFT_TASKS.add(task_id)
 
-    try:
-        store.update_record(
-            "distribution_tasks",
-            task_id,
-            {
-                "xiaohongshu": {
-                    **current_xiaohongshu,
-                    "status": "publishing",
-                    "started_at": now_iso(),
-                    "save_error": "",
-                },
-                "updated_at": now_iso(),
+    updated = store.update_record(
+        "distribution_tasks",
+        task_id,
+        {
+            "xiaohongshu": {
+                **current_xiaohongshu,
+                "status": "publishing",
+                "started_at": now_iso(),
+                "save_error": "",
+                "platform_confirmation": "",
             },
+            "updated_at": now_iso(),
+        },
+    )
+    background_tasks.add_task(_publish_xiaohongshu_note, task_id)
+    return updated
+
+
+def _publish_xiaohongshu_note(task_id: str) -> None:
+    try:
+        task = store.find_record("distribution_tasks", task_id)
+        if not task:
+            return
+        current_xiaohongshu = (
+            task.get("xiaohongshu")
+            if isinstance(task.get("xiaohongshu"), dict)
+            else {}
         )
         result = publish_platform_note(task)
         published_at = now_iso()
@@ -2883,7 +2898,7 @@ def direct_publish_xiaohongshu_note(
             "result_screenshot_url": result.get("screenshot_url", ""),
             "save_error": "",
         }
-        return store.update_record(
+        store.update_record(
             "distribution_tasks",
             task_id,
             {
@@ -2892,14 +2907,38 @@ def direct_publish_xiaohongshu_note(
             },
         )
     except XiaohongshuLoginRequired as exc:
-        _record_xiaohongshu_draft_failure(task_id, str(exc), login_required=True)
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        _record_xiaohongshu_publish_failure(task_id, str(exc), login_required=True)
     except Exception as exc:
-        _record_xiaohongshu_draft_failure(task_id, str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        _record_xiaohongshu_publish_failure(task_id, str(exc))
     finally:
         with _XIAOHONGSHU_DRAFT_LOCK:
             _XIAOHONGSHU_DRAFT_TASKS.discard(task_id)
+
+
+def _record_xiaohongshu_publish_failure(
+    task_id: str,
+    message: str,
+    *,
+    login_required: bool = False,
+) -> None:
+    task = store.find_record("distribution_tasks", task_id)
+    if not task:
+        return
+    xiaohongshu = {
+        **(task.get("xiaohongshu") if isinstance(task.get("xiaohongshu"), dict) else {}),
+        "status": "login_required" if login_required else "failed",
+        "publish_failed_at": now_iso(),
+        "save_error": str(message or "发布失败。")[:500],
+        "result_screenshot_url": (
+            f"{to_media_url(STUDIO_DIR / 'xiaohongshu_session' / 'latest.png')}"
+            f"?v={int(time.time() * 1000)}"
+        ),
+    }
+    store.update_record(
+        "distribution_tasks",
+        task_id,
+        {"xiaohongshu": xiaohongshu, "updated_at": now_iso()},
+    )
 
 
 @app.get("/api/jobs/{job_id}/publish/douyin-assistant")
