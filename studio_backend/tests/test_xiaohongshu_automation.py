@@ -103,6 +103,34 @@ class XiaohongshuAutomationTests(unittest.TestCase):
         self.assertEqual(clicked, "上传图文")
         visible.evaluate.assert_called_once_with("(element) => element.click()")
 
+    def test_first_visible_action_matches_button_text_without_spaces(self):
+        page = MagicMock()
+        button = MagicMock()
+        button.is_visible.return_value = True
+        button.inner_text.return_value = "保存 并离开"
+        candidates = MagicMock()
+        candidates.count.return_value = 1
+        candidates.nth.return_value = button
+        page.locator.return_value = candidates
+
+        result = xiaohongshu_automation._first_visible_action(
+            page,
+            ["保存并离开"],
+        )
+
+        self.assertIs(result, button)
+
+    def test_wait_editor_idle_waits_for_loading_to_disappear(self):
+        page = MagicMock()
+        with patch.object(
+            xiaohongshu_automation,
+            "_first_visible_contains",
+            side_effect=["加载中", ""],
+        ):
+            xiaohongshu_automation._wait_editor_idle(page, timeout_seconds=2)
+
+        page.wait_for_timeout.assert_called_once_with(800)
+
 
 if __name__ == "__main__":
     unittest.main()

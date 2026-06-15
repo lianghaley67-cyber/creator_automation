@@ -366,6 +366,30 @@ def _first_visible_contains(page: Any, labels: list[str]) -> str:
     return ""
 
 
+def _first_visible_action(page: Any, labels: list[str]) -> Any | None:
+    normalized_labels = {label.replace(" ", "") for label in labels}
+    candidates = page.locator("button, [role='button']")
+    for index in range(min(candidates.count(), 80)):
+        item = candidates.nth(index)
+        if not item.is_visible():
+            continue
+        text = "".join(str(item.inner_text() or "").split())
+        if text in normalized_labels:
+            return item
+    return None
+
+
+def _wait_editor_idle(page: Any, timeout_seconds: int = 40) -> None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        loading = _first_visible_contains(page, ["加载中", "处理中", "上传中"])
+        if not loading:
+            return
+        page.wait_for_timeout(800)
+    page.screenshot(path=str(RESULT_SCREENSHOT), full_page=True)
+    raise RuntimeError("小红书编辑器一直停在“加载中”，图片或话题组件没有完成处理。请稍后重试。")
+
+
 def _image_upload_input(page: Any) -> Any | None:
     selectors = [
         "input[type='file'][accept*='image']",
@@ -869,13 +893,45 @@ def save_platform_draft(task: dict[str, Any]) -> dict[str, Any]:
                     raise RuntimeError("没有找到小红书正文输入框，页面可能已改版。")
                 body_input.fill(body)
 
-                save_button = _first_visible_text(
-                    page,
-                    ["暂存离开", "保存草稿", "存草稿", "暂存"],
-                )
+                _wait_editor_idle(page)
+                page.locator("body").press("End")
+                page.wait_for_timeout(800)
+
+                save_labels = [
+                    "暂存离开",
+                    "暂存并离开",
+                    "保存并离开",
+                    "保存并退出",
+                    "保存草稿",
+                    "存草稿",
+                    "暂存",
+                ]
+                save_button = _first_visible_action(page, save_labels)
+                if not save_button:
+                    save_button = _first_visible_text(
+                        page,
+                        save_labels,
+                    )
+                if not save_button:
+                    # 新版偶尔把按钮渲染成普通 div，使用严格文本匹配兜底。
+                    for label in save_labels:
+                        matches = page.get_by_text(label, exact=False)
+                        for index in range(matches.count()):
+                            candidate = matches.nth(index)
+                            if candidate.is_visible() and "".join(
+                                str(candidate.inner_text() or "").split()
+                            ) == label:
+                                save_button = candidate
+                                break
+                        if save_button:
+                            break
                 if not save_button:
                     page.screenshot(path=str(RESULT_SCREENSHOT), full_page=True)
-                    raise RuntimeError("内容已经填好，但没有识别到“暂存离开”按钮，请查看服务器截图。")
+                    labels = "、".join(_visible_action_labels(page)[:15]) or "无"
+                    raise RuntimeError(
+                        "内容已经填好，但没有识别到保存草稿按钮。"
+                        f"当前可见按钮：{labels}。请查看服务器截图。"
+                    )
                 save_button.evaluate("(element) => element.click()")
                 page.wait_for_timeout(800)
 
