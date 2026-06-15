@@ -2456,13 +2456,13 @@ onBeforeUnmount(() => {
                 class="btn accent small"
                 :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
                 @click="saveXiaohongshuDraft(trendDistributionDraft, applyTrendDistributionResult)"
-              >保存小红书系统草稿</button>
+              >仅保存到本站草稿</button>
               <button
                 class="btn primary small"
                 :disabled="busy.xiaohongshuServerDraft === String(trendDistributionDraft.id)"
                 @click="saveXiaohongshuPlatformDraft(trendDistributionDraft, applyTrendDistributionResult)"
               >
-                {{ busy.xiaohongshuServerDraft === String(trendDistributionDraft.id) ? "服务器保存中..." : "直接保存到小红书草稿箱" }}
+                {{ busy.xiaohongshuServerDraft === String(trendDistributionDraft.id) ? "服务器保存中..." : "保存到小红书官网草稿箱" }}
               </button>
               <label class="upload-audio-label">
                 {{ busy.wechatCover ? "上传中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
@@ -2837,12 +2837,12 @@ onBeforeUnmount(() => {
                 class="btn accent small"
                 :disabled="busy.xiaohongshu === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
                 @click="saveXiaohongshuDraft(materialDistributionDrafts[selectedWechatMaterial.id], (result) => applyMaterialDistributionResult(selectedWechatMaterial.id, result))"
-              >保存小红书系统草稿</button>
+              >仅保存到本站草稿</button>
               <button
                 class="btn primary small"
                 :disabled="busy.xiaohongshuServerDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
                 @click="saveXiaohongshuPlatformDraft(materialDistributionDrafts[selectedWechatMaterial.id], (result) => applyMaterialDistributionResult(selectedWechatMaterial.id, result))"
-              >{{ busy.xiaohongshuServerDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id) ? "服务器保存中..." : "直接保存到小红书草稿箱" }}</button>
+              >{{ busy.xiaohongshuServerDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id) ? "服务器保存中..." : "保存到小红书官网草稿箱" }}</button>
             </div>
             <p v-if="!wechatEntry?.cover_configured" class="error-text">
               当前没有公众号封面。请先上传一张 JPG/PNG 封面，上传成功后发送按钮会自动解锁。
@@ -3005,7 +3005,7 @@ onBeforeUnmount(() => {
               busy.xiaohongshuServerDraft === String(draft.id)
               || draft.xiaohongshu?.status === "platform_draft_saving"
                 ? "服务器保存中..."
-                : "保存到小红书官方草稿箱"
+                : "保存到小红书官网草稿箱"
             }}</button>
           </div>
         </article>
@@ -3285,13 +3285,13 @@ onBeforeUnmount(() => {
                 class="btn accent small"
                 :disabled="busy.xiaohongshu === String(distributionDrafts[job.id].id)"
                 @click="saveXiaohongshuDraft(distributionDrafts[job.id], (result) => applyJobDistributionResult(job.id, result))"
-              >保存小红书系统草稿</button>
+              >仅保存到本站草稿</button>
               <button
                 class="btn primary small"
                 :disabled="busy.xiaohongshuServerDraft === String(distributionDrafts[job.id].id)"
                 @click="saveXiaohongshuPlatformDraft(distributionDrafts[job.id], (result) => applyJobDistributionResult(job.id, result))"
               >
-                {{ busy.xiaohongshuServerDraft === String(distributionDrafts[job.id].id) ? "服务器保存中..." : "直接保存到小红书草稿箱" }}
+                {{ busy.xiaohongshuServerDraft === String(distributionDrafts[job.id].id) ? "服务器保存中..." : "保存到小红书官网草稿箱" }}
               </button>
               <button
                 class="btn accent small"

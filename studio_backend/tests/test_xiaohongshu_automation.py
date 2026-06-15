@@ -131,6 +131,20 @@ class XiaohongshuAutomationTests(unittest.TestCase):
 
         page.wait_for_timeout.assert_called_once_with(800)
 
+    def test_dismiss_editor_suggestions_closes_popup_and_scrolls(self):
+        page = MagicMock()
+        body_input = MagicMock()
+        page_body = MagicMock()
+        page.locator.return_value = page_body
+
+        xiaohongshu_automation._dismiss_editor_suggestions(page, body_input)
+
+        body_input.press.assert_called_once_with("Escape")
+        page_body.press.assert_called_once_with("Escape")
+        page.evaluate.assert_called_once_with(
+            "window.scrollTo(0, document.body.scrollHeight)"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -390,6 +390,16 @@ def _wait_editor_idle(page: Any, timeout_seconds: int = 40) -> None:
     raise RuntimeError("小红书编辑器一直停在“加载中”，图片或话题组件没有完成处理。请稍后重试。")
 
 
+def _dismiss_editor_suggestions(page: Any, body_input: Any) -> None:
+    # 正文末尾的话题标签会打开联想菜单，菜单会挡住底部保存按钮。
+    body_input.press("Escape")
+    page.wait_for_timeout(300)
+    page.locator("body").press("Escape")
+    page.wait_for_timeout(300)
+    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    page.wait_for_timeout(800)
+
+
 def _image_upload_input(page: Any) -> Any | None:
     selectors = [
         "input[type='file'][accept*='image']",
@@ -894,8 +904,7 @@ def save_platform_draft(task: dict[str, Any]) -> dict[str, Any]:
                 body_input.fill(body)
 
                 _wait_editor_idle(page)
-                page.locator("body").press("End")
-                page.wait_for_timeout(800)
+                _dismiss_editor_suggestions(page, body_input)
 
                 save_labels = [
                     "暂存离开",
