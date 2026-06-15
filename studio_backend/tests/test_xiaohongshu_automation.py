@@ -118,6 +118,15 @@ class XiaohongshuAutomationTests(unittest.TestCase):
             ["暂存离开", "保存草稿"],
         )
 
+    def test_click_draft_footer_fallback_uses_left_footer_button(self):
+        page = MagicMock()
+        page.viewport_size = {"width": 1440, "height": 1000}
+
+        result = xiaohongshu_automation._click_draft_footer_fallback(page)
+
+        self.assertEqual(result, "暂存离开（底部按钮）")
+        page.mouse.click.assert_called_once_with(604.8, 955.0)
+
     def test_first_visible_action_matches_button_text_without_spaces(self):
         page = MagicMock()
         button = MagicMock()

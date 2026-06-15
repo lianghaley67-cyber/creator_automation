@@ -400,6 +400,16 @@ def _click_visible_text_dom(page: Any, labels: list[str]) -> str:
     )
 
 
+def _click_draft_footer_fallback(page: Any) -> str:
+    viewport = page.viewport_size or {"width": 1440, "height": 1000}
+    width = float(viewport["width"])
+    height = float(viewport["height"])
+    # 小红书图文编辑页底部固定操作栏：左侧灰色是“暂存离开”，
+    # 右侧红色是“发布”。这里只点击左侧按钮中心，绝不触碰发布按钮。
+    page.mouse.click(width * 0.42, height - 45)
+    return "暂存离开（底部按钮）"
+
+
 def _first_visible_contains(page: Any, labels: list[str]) -> str:
     for label in labels:
         matches = page.get_by_text(label, exact=False)
@@ -981,12 +991,7 @@ def save_platform_draft(task: dict[str, Any]) -> dict[str, Any]:
                 if not save_button:
                     clicked_label = _click_visible_text_dom(page, save_labels)
                     if not clicked_label:
-                        page.screenshot(path=str(RESULT_SCREENSHOT), full_page=True)
-                        labels = "、".join(_visible_action_labels(page)[:15]) or "无"
-                        raise RuntimeError(
-                            "内容已经填好，但没有识别到保存草稿按钮。"
-                            f"当前可见按钮：{labels}。请查看服务器截图。"
-                        )
+                        clicked_label = _click_draft_footer_fallback(page)
                 else:
                     save_button.evaluate("(element) => element.click()")
                 page.wait_for_timeout(800)
