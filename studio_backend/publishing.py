@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Callable
 
-from .channel_skills import build_channel_drafts, render_xiaohongshu_cards
+from .channel_skills import build_channel_drafts, build_channel_drafts_with_ai, render_xiaohongshu_cards
 from .storage import OUTPUTS_DIR, STUDIO_DIR, make_id, now_iso, to_media_url
 
 
@@ -354,6 +354,8 @@ def prepare_distribution_package(
     summary: str = "",
     author: str = "",
     hashtags: list[str] | None = None,
+    wechat_skill_id: str = "",
+    xiaohongshu_skill_id: str = "",
 ) -> dict[str, Any]:
     if str(job.get("status") or "").lower() != "completed":
         raise ValueError("任务完成后才能准备分发。")
@@ -367,13 +369,24 @@ def prepare_distribution_package(
     final_summary = _compact(summary or script, 120)
     final_tags = hashtags or _default_hashtags(job)
     source_type = str(job.get("source_type") or request_payload.get("source_type") or "generated_job")
-    channel_drafts = build_channel_drafts(
-        source_text=script,
-        title=final_title,
-        summary=final_summary,
-        source_type=source_type,
-        hashtags=final_tags,
-    )
+    if wechat_skill_id or xiaohongshu_skill_id:
+        channel_drafts = build_channel_drafts_with_ai(
+            source_text=script,
+            title=final_title,
+            summary=final_summary,
+            source_type=source_type,
+            hashtags=final_tags,
+            wechat_skill_id=wechat_skill_id or "wechat_article_v1",
+            xiaohongshu_skill_id=xiaohongshu_skill_id or "xiaohongshu_note_v1",
+        )
+    else:
+        channel_drafts = build_channel_drafts(
+            source_text=script,
+            title=final_title,
+            summary=final_summary,
+            source_type=source_type,
+            hashtags=final_tags,
+        )
     wechat_draft = channel_drafts["wechat"]
     xhs_draft = channel_drafts["xiaohongshu"]
     final_title = str(wechat_draft["title"])
@@ -492,6 +505,8 @@ def prepare_trend_distribution_package(
     title: str = "",
     author: str = "",
     hashtags: list[str] | None = None,
+    wechat_skill_id: str = "",
+    xiaohongshu_skill_id: str = "",
 ) -> dict[str, Any]:
     items = list(trend.get("items") or [])
     angles = [str(item).strip() for item in trend.get("angles") or [] if str(item).strip()]
@@ -529,6 +544,8 @@ def prepare_trend_distribution_package(
         summary=str(trend.get("summary") or content),
         author=author,
         hashtags=hashtags,
+        wechat_skill_id=wechat_skill_id,
+        xiaohongshu_skill_id=xiaohongshu_skill_id,
     )
     record["job_id"] = ""
     record["trend_id"] = str(trend.get("id") or "")

@@ -78,6 +78,18 @@ let trendInterviewRecorder = null;
 let trendInterviewChunks = [];
 let trendInterviewStream = null;
 let trendInterviewCancelRecording = false;
+
+// ===== 新增：AI摘要 + 讨论 + Skill选择 =====
+const presetTopics = ref([]);
+const trendAiSummary = ref(null); // AI摘要结果
+const trendChatMessages = ref([]); // [{role, content}]
+const trendChatInput = ref("");
+const channelSkillsList = ref([]); // 全量 skill 列表
+const selectedWechatSkill = ref(""); // 用户选择的公众号 skill
+const selectedXhsSkill = ref(""); // 用户选择的小红书 skill
+const skillSelectorVisible = ref(false); // 是否展开 skill 选择面板
+const busy_trendSummarize = ref(false);
+const busy_trendChat = ref(false);
 const canRecordTrendVoice = computed(() => (
   typeof window !== "undefined"
   && window.isSecureContext
@@ -175,7 +187,9 @@ const busy = reactive({
   stockMarket: false,
   stockHistory: false,
   stockSkills: false,
-  stockSkillRun: false
+  stockSkillRun: false,
+  trendSummarize: false,
+  trendChat: false,
 });
 
 const kidsForm = reactive({
@@ -842,6 +856,11 @@ async function refreshAiTrends(force = false) {
         )
       : await requestApi("/api/ai-trends");
     aiTrends.value = Array.isArray(data) ? data : [data];
+    // 重置 AI 摘要和讨论（新的资讯进来后需重新生成）
+    if (force) {
+      trendAiSummary.value = null;
+      trendChatMessages.value = [];
+    }
     // 自动生成6个问题
     if (aiTrends.value.length > 0) {
       generateTrendQuestions(aiTrends.value[0]);
@@ -914,7 +933,10 @@ async function prepareTrendDistribution(preferGeneratedScript = false, destinati
         body: JSON.stringify({
           script,
           question: preferGeneratedScript ? selectedTrendQuestion.value : "",
-          title: preferGeneratedScript ? selectedTrendQuestion.value : trend.title || ""
+          title: preferGeneratedScript ? selectedTrendQuestion.value : trend.title || "",
+          wechat_skill_id: selectedWechatSkill.value || "",
+          xiaohongshu_skill_id: selectedXhsSkill.value || "",
+          hashtags: trendAiSummary.value?.suggested_hashtags || [],
         })
       },
       30000
@@ -2158,12 +2180,82 @@ function openStudioModule(tab, targetId = "") {
   });
 }
 
+async function loadPresetTopicsAndSkills() {
+  try {
+    const [topicsData, skillsData] = await Promise.allSettled([
+      requestApi("/api/ai-trends/preset-topics"),
+      requestApi("/api/channel-skills"),
+    ]);
+    if (topicsData.status === "fulfilled" && Array.isArray(topicsData.value?.items)) {
+      presetTopics.value = topicsData.value.items;
+    }
+    if (skillsData.status === "fulfilled" && Array.isArray(skillsData.value?.items)) {
+      channelSkillsList.value = skillsData.value.items;
+    }
+  } catch (_) { /* ignore */ }
+}
+
+async function generateTrendAiSummary() {
+  if (!aiTrends.value.length) return;
+  busy.trendSummarize = true;
+  trendAiSummary.value = null;
+  try {
+    const trend = aiTrends.value[0];
+    const result = await requestApi("/api/ai-trends/summarize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ trend_id: trend.id || "" }),
+    }, 60000);
+    trendAiSummary.value = result?.summary || null;
+    // 自动预填推荐 Skill
+    if (trendAiSummary.value?.suggested_wechat_skill) {
+      selectedWechatSkill.value = trendAiSummary.value.suggested_wechat_skill;
+    }
+    if (trendAiSummary.value?.suggested_xhs_skill) {
+      selectedXhsSkill.value = trendAiSummary.value.suggested_xhs_skill;
+    }
+  } catch (err) {
+    setError(normalizeErrorMessage(err, "AI 摘要生成失败，请检查 OPENAI_API_KEY 是否已配置。"));
+  } finally {
+    busy.trendSummarize = false;
+  }
+}
+
+async function sendTrendChat() {
+  const userMsg = trendChatInput.value.trim();
+  if (!userMsg) return;
+  trendChatMessages.value.push({ role: "user", content: userMsg });
+  trendChatInput.value = "";
+  busy.trendChat = true;
+  const trend = aiTrends.value[0];
+  const trendContext = trendAiSummary.value
+    ? `今日摘要：${trendAiSummary.value.one_sentence || ""}\n关键点：${(trendAiSummary.value.key_points || []).join("；")}`
+    : (trend?.summary || "");
+  try {
+    const result = await requestApi("/api/ai-trends/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({
+        messages: trendChatMessages.value,
+        trend_context: trendContext,
+        query: trend?.query || "",
+      }),
+    }, 60000);
+    trendChatMessages.value.push({ role: "assistant", content: result.response || "" });
+  } catch (err) {
+    trendChatMessages.value.push({ role: "assistant", content: `[错误] ${normalizeErrorMessage(err, "对话失败")}` });
+  } finally {
+    busy.trendChat = false;
+  }
+}
+
 let pollTimer = null;
 onMounted(async () => {
   await Promise.allSettled([
     refreshJobs(),
     refreshWechatMaterials(),
-    refreshDistributionTasks()
+    refreshDistributionTasks(),
+    loadPresetTopicsAndSkills(),
   ]);
   pollTimer = window.setInterval(() => {
     if (runningKidsJobs.value.length) refreshJobs();
@@ -2385,16 +2477,16 @@ onBeforeUnmount(() => {
           · AppID {{ wechatEntry?.app_id_masked || "未配置" }}
         </p>
         <p>{{ wechatEntry?.receiver_description }}</p>
-        <p>关注这个 AppID 对应的真实公众号后，可以发送文字或语音；页面点击“刷新微信素材”即可加载。</p>
+        <p>关注这个 AppID 对应的真实公众号后，可以发送文字或语音；页面点击"刷新微信素材"即可加载。</p>
         <p v-if="wechatEntry?.voice_fallback_enabled" class="meta">
           兜底转写：{{ wechatEntry.voice_fallback_configured ? "已配置 AppID/AppSecret，微信不返回识别文本时会尝试下载语音转写。" : "未配置 AppID/AppSecret，只能依赖微信 Recognition 识别文本。" }}
         </p>
         <p class="meta">回调地址：{{ wechatEntry?.callback_url || "/api/integrations/wechat/callback" }}</p>
         <p v-if="wechatEntry && !wechatEntry.callback_token_configured" class="error-text">
-          微信回调 Token 未配置。请先设置 WECHAT_CALLBACK_TOKEN，并在公众号后台“设置与开发 → 基本配置 → 服务器配置”填写同一个 Token。
+          微信回调 Token 未配置。请先设置 WECHAT_CALLBACK_TOKEN，并在公众号后台"设置与开发 → 基本配置 → 服务器配置"填写同一个 Token。
         </p>
         <p v-else-if="wechatEntry && !wechatEntry.callback_received" class="error-text">
-          服务器还没有收到过微信回调。扫码关注并不会自动上传素材；必须在公众号后台启用服务器配置，URL 使用上面的回调地址，消息加解密方式先选“明文模式”。
+          服务器还没有收到过微信回调。扫码关注并不会自动上传素材；必须在公众号后台启用服务器配置，URL 使用上面的回调地址，消息加解密方式先选"明文模式"。
         </p>
         <p v-else-if="wechatEntry?.callback_received" class="meta">
           微信回调已接通，服务器已收到 {{ wechatEntry.callback_event_count }} 条回调记录。
@@ -2422,8 +2514,22 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="meta">这里展示的是 Tavily/RSS 等接口抓取到的资讯，不是系统自己的主观看法；生成文案时会提醒 AI 输出仍需要人来判断。</div>
+
+        <!-- 预设主题 Chips -->
+        <div class="preset-topics-row" v-if="presetTopics.length">
+          <span class="preset-topics-label">快速选题：</span>
+          <button
+            v-for="topic in presetTopics"
+            :key="topic.id"
+            class="topic-chip"
+            :class="{ active: trendSearchQuery === topic.query }"
+            @click="trendSearchQuery = topic.query; refreshAiTrends(true)"
+          >{{ topic.label }}</button>
+        </div>
+
+        <!-- 自定义搜索 -->
         <div class="trend-search-box">
-          <label for="trend-search-query">按你的要求获取信息</label>
+          <label for="trend-search-query">或自定义主题</label>
           <div class="trend-search-row">
             <input
               id="trend-search-query"
@@ -2438,7 +2544,8 @@ onBeforeUnmount(() => {
           </div>
           <span>不填写时，默认获取最新 AI 实时信息；填写后，会优先根据这个主题检索。</span>
         </div>
-        <div v-if="!aiTrends.length" class="meta">暂无 AI 日报。系统会每天自动抓取，也可以点击“立即抓取”。</div>
+
+        <div v-if="!aiTrends.length" class="meta">暂无 AI 日报。系统会每天自动抓取，也可以点击"立即抓取"。</div>
         <div v-else class="trend-card">
           <div class="script-preview-head">
             <strong>{{ aiTrends[0].title }}</strong>
@@ -2456,12 +2563,137 @@ onBeforeUnmount(() => {
             <strong>可转化选题角度</strong>
             <span v-for="angle in aiTrends[0].angles || []" :key="angle">{{ angle }}</span>
           </div>
+
+          <!-- AI 摘要区块 -->
+          <div class="trend-ai-summary-block">
+            <div class="trend-ai-summary-head">
+              <strong>AI 智能摘要</strong>
+              <button class="btn accent small" :disabled="busy.trendSummarize" @click="generateTrendAiSummary">
+                {{ busy.trendSummarize ? "生成中..." : (trendAiSummary ? "重新生成摘要" : "生成 AI 摘要") }}
+              </button>
+            </div>
+            <div v-if="trendAiSummary && !trendAiSummary.error" class="trend-ai-summary-content">
+              <p class="summary-one-sentence">{{ trendAiSummary.one_sentence }}</p>
+              <ul class="summary-key-points">
+                <li v-for="point in trendAiSummary.key_points || []" :key="point">{{ point }}</li>
+              </ul>
+              <p class="summary-plain">{{ trendAiSummary.plain_explanation }}</p>
+              <div class="summary-angles" v-if="trendAiSummary.content_angles?.length">
+                <strong>适合转成内容的角度：</strong>
+                <span v-for="angle in trendAiSummary.content_angles" :key="angle" class="angle-chip">{{ angle }}</span>
+              </div>
+              <div v-if="trendAiSummary.skill_reason" class="summary-skill-hint">
+                <span>推荐 Skill：{{ trendAiSummary.skill_reason }}</span>
+              </div>
+            </div>
+            <div v-if="trendAiSummary?.error" class="notice danger small-notice">{{ trendAiSummary.error }}</div>
+          </div>
+
+          <!-- 多轮讨论区 -->
+          <div class="trend-chat-block" v-if="trendAiSummary && !trendAiSummary.error">
+            <strong class="trend-chat-title">与 AI 深度讨论</strong>
+            <p class="meta">基于以上摘要，和 AI 一起讨论、提炼内容角度，再选择 Skill 生成文案。</p>
+            <div class="trend-chat-messages" v-if="trendChatMessages.length">
+              <div
+                v-for="(msg, idx) in trendChatMessages"
+                :key="idx"
+                class="chat-message"
+                :class="msg.role"
+              >
+                <span class="chat-role">{{ msg.role === 'user' ? '我' : 'AI顾问' }}</span>
+                <p class="chat-content" style="white-space: pre-wrap;">{{ msg.content }}</p>
+              </div>
+            </div>
+            <div class="trend-chat-input-row">
+              <textarea
+                v-model="trendChatInput"
+                class="trend-chat-input"
+                placeholder="问问这条资讯对我的受众意味着什么？我该用哪个角度？普通人怎么理解？..."
+                rows="3"
+                @keydown.ctrl.enter.prevent="sendTrendChat"
+              ></textarea>
+              <button class="btn primary" :disabled="busy.trendChat || !trendChatInput.trim()" @click="sendTrendChat">
+                {{ busy.trendChat ? "思考中..." : "发送（Ctrl+Enter）" }}
+              </button>
+              <button v-if="trendChatMessages.length" class="btn secondary small" @click="trendChatMessages = []">清空对话</button>
+            </div>
+          </div>
+
+          <!-- Skill 选择器 -->
+          <div class="skill-selector-block">
+            <div class="skill-selector-head" @click="skillSelectorVisible = !skillSelectorVisible">
+              <strong>选择内容 Skill</strong>
+              <span class="meta">
+                已选：{{ channelSkillsList.find(s => s.id === selectedWechatSkill)?.name || '默认公众号' }}
+                · {{ channelSkillsList.find(s => s.id === selectedXhsSkill)?.name || '默认小红书' }}
+              </span>
+              <button class="btn secondary small">{{ skillSelectorVisible ? '收起' : '展开选择' }}</button>
+            </div>
+            <div v-if="skillSelectorVisible" class="skill-selector-body">
+              <!-- 公众号 Skill -->
+              <div class="skill-channel-group">
+                <h4>公众号文章 Skill</h4>
+                <div class="skill-cards-row">
+                  <div
+                    v-for="skill in channelSkillsList.filter(s => s.channel === 'wechat')"
+                    :key="skill.id"
+                    class="skill-card"
+                    :class="{ selected: selectedWechatSkill === skill.id }"
+                    @click="selectedWechatSkill = skill.id"
+                  >
+                    <div class="skill-card-header">
+                      <strong>{{ skill.name }}</strong>
+                      <span v-if="selectedWechatSkill === skill.id" class="skill-selected-badge">✓ 已选</span>
+                    </div>
+                    <p class="skill-desc">{{ skill.description }}</p>
+                    <div class="skill-tags">
+                      <span v-for="tag in skill.persona_tags || []" :key="tag" class="skill-tag">{{ tag }}</span>
+                    </div>
+                    <div v-if="skill.example" class="skill-example">
+                      <div class="skill-example-label">示例标题</div>
+                      <div class="skill-example-title">{{ skill.example.title }}</div>
+                      <div v-if="skill.example.summary" class="skill-example-summary">{{ skill.example.summary }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <!-- 小红书 Skill -->
+              <div class="skill-channel-group">
+                <h4>小红书笔记 Skill</h4>
+                <div class="skill-cards-row">
+                  <div
+                    v-for="skill in channelSkillsList.filter(s => s.channel === 'xiaohongshu')"
+                    :key="skill.id"
+                    class="skill-card"
+                    :class="{ selected: selectedXhsSkill === skill.id }"
+                    @click="selectedXhsSkill = skill.id"
+                  >
+                    <div class="skill-card-header">
+                      <strong>{{ skill.name }}</strong>
+                      <span v-if="selectedXhsSkill === skill.id" class="skill-selected-badge">✓ 已选</span>
+                    </div>
+                    <p class="skill-desc">{{ skill.description }}</p>
+                    <div class="skill-tags">
+                      <span v-for="tag in skill.persona_tags || []" :key="tag" class="skill-tag">{{ tag }}</span>
+                    </div>
+                    <div v-if="skill.example" class="skill-example">
+                      <div class="skill-example-label">示例标题</div>
+                      <div class="skill-example-title">{{ skill.example.title }}</div>
+                      <div v-if="skill.example.body" class="skill-example-body">{{ skill.example.body?.slice(0, 120) }}...</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 生成和发布按钮 -->
           <div class="publish-buttons trend-publish-actions">
             <button class="btn accent small" :disabled="busy.trendDistribution" @click="prepareTrendDistribution(false, 'wechat')">
-              {{ busy.trendDistribution ? "准备中..." : "整理并推公众号" }}
+              {{ busy.trendDistribution ? "生成中..." : "生成文案 → 推公众号草稿" }}
             </button>
             <button class="btn primary small" :disabled="busy.trendDistribution" @click="prepareTrendDistribution(false, 'xiaohongshu')">
-              推荐到小红书
+              {{ busy.trendDistribution ? "生成中..." : "生成文案 → 小红书素材包" }}
             </button>
           </div>
           <div v-if="trendDistributionDraft" class="publish-card trend-distribution-card">
@@ -2763,7 +2995,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
-      <div class="meta">网页提交会立即刷新；微信发新消息后点击“刷新微信素材”。</div>
+      <div class="meta">网页提交会立即刷新；微信发新消息后点击"刷新微信素材"。</div>
       <div v-if="!wechatMaterials.length" class="meta">
         还没有收到微信素材。你可以在微信测试号里发一句真实经历。
         <span v-if="latestWechatCallbackEvent">
@@ -2990,7 +3222,7 @@ onBeforeUnmount(() => {
           已检测到滑块：从滑块中心按住并拖到缺口位置，松手后等待验证结果。
         </p>
         <p v-else class="meta">
-          当前没有滑块，不需要操作下方画面。请重新发送验证码，并在收到后 60 秒内点击一次“验证码登录”。
+          当前没有滑块，不需要操作下方画面。请重新发送验证码，并在收到后 60 秒内点击一次"验证码登录"。
         </p>
         <div
           class="xiaohongshu-remote-frame"

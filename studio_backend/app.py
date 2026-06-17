@@ -27,8 +27,11 @@ from .ai_trends import (
     archive_markdown_to_obsidian,
     build_notebooklm_import_package,
     build_trend_interview_followups,
+    chat_about_trend,
     collect_ai_trends,
+    summarize_trends_with_ai,
 )
+from .channel_skills import PRESET_TOPICS
 from .avatar import detect_sadtalker_status, normalize_sadtalker_config
 from .generation import render_job, synthesize_audio_asset
 from .kids_mode import (
@@ -75,6 +78,8 @@ from .schemas import (
     WeChatMaterialRequest,
     WeChatDraftRequest,
     TrendDistributionRequest,
+    TrendSummarizeRequest,
+    TrendChatRequest,
     XiaohongshuDirectPublishRequest,
     XiaohongshuPublishStatusRequest,
     XiaohongshuDragRequest,
@@ -1716,6 +1721,8 @@ def prepare_ai_trend_distribution(
             title=payload.title,
             author=payload.author,
             hashtags=payload.hashtags,
+            wechat_skill_id=payload.wechat_skill_id,
+            xiaohongshu_skill_id=payload.xiaohongshu_skill_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1986,6 +1993,56 @@ def receive_wechat_material(payload: WeChatMaterialRequest) -> dict[str, Any]:
 @app.get("/api/channel-skills")
 def get_channel_skills() -> dict[str, Any]:
     return {"items": list_channel_skills()}
+
+
+@app.get("/api/ai-trends/preset-topics")
+def get_preset_topics() -> dict[str, Any]:
+    return {"items": PRESET_TOPICS}
+
+
+@app.post("/api/ai-trends/summarize")
+async def summarize_ai_trend(request: Request) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    try:
+        raw = await request.json()
+        if isinstance(raw, dict):
+            payload = raw
+    except Exception:  # noqa: BLE001
+        payload = {}
+    trend_id = str(payload.get("trend_id") or "").strip()
+    if trend_id:
+        trend = store.find_record("ai_trends", trend_id)
+    else:
+        latest = _sorted(store.list_section("ai_trends"))[:1]
+        trend = latest[0] if latest else None
+    if not trend:
+        raise HTTPException(status_code=404, detail="暂无资讯记录，请先抓取资讯。")
+    try:
+        summary = summarize_trends_with_ai(trend)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"status": "ok", "trend_id": trend.get("id", ""), "summary": summary}
+
+
+@app.post("/api/ai-trends/chat")
+async def chat_with_trend(request: Request) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    try:
+        raw = await request.json()
+        if isinstance(raw, dict):
+            payload = raw
+    except Exception:  # noqa: BLE001
+        payload = {}
+    messages = list(payload.get("messages") or [])
+    if not messages:
+        raise HTTPException(status_code=400, detail="messages 不能为空。")
+    trend_context = str(payload.get("trend_context") or "").strip()
+    query = str(payload.get("query") or "").strip()
+    try:
+        result = chat_about_trend(messages=messages, trend_context=trend_context, query=query)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return result
 
 
 @app.post("/api/materials/text")

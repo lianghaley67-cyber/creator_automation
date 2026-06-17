@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -319,6 +320,142 @@ def build_notebooklm_import_package(report: dict[str, Any] | None = None) -> dic
         "source_links_path": str(links_path),
         "source_links_url": f"/studio-files/notebooklm/{links_path.name}",
         "body": body,
+    }
+
+
+def _openai_chat_call(
+    *,
+    messages: list[dict[str, str]],
+    model: str | None = None,
+    temperature: float = 0.7,
+    max_tokens: int = 1500,
+) -> str:
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY 未配置，无法调用 AI 摘要或讨论功能。")
+    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com").strip()
+    model_name = model or os.getenv("OPENAI_MODEL", os.getenv("LLM_MODEL", "gpt-4o-mini")).strip() or "gpt-4o-mini"
+    endpoint = base_url.rstrip("/") + "/v1/chat/completions"
+    payload = {
+        "model": model_name,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        endpoint,
+        data=data,
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            return str(result["choices"][0]["message"]["content"]).strip()
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"OpenAI API 调用失败 {exc.code}: {body[:300]}") from exc
+
+
+def summarize_trends_with_ai(report: dict[str, Any]) -> dict[str, Any]:
+    """调用 OpenAI 对抓取到的资讯进行结构化摘要，返回关键点、内容角度和建议 Skill。"""
+    items = list(report.get("items") or [])
+    query = str(report.get("query") or "").strip()
+
+    items_text = "\n".join(
+        f"{i+1}. 【{item.get('title', '')}】{item.get('summary', '')}"
+        for i, item in enumerate(items[:12])
+    )
+
+    system_prompt = (
+        "你是一位专注于 AI 领域的内容顾问，帮助「知识成长女性」类账号创作自媒体内容。"
+        "账号目标：用大白话普及 AI 知识，吸引对 AI 感兴趣的普通人，人设是知识成长女性，后续考虑变现。"
+        "请对提供的 AI 资讯进行结构化分析，输出纯 JSON，不加任何额外说明。"
+    )
+    user_prompt = f"""以下是今天抓取到的 AI 资讯（检索主题：{query or "AI最新资讯"}）：
+
+{items_text}
+
+请输出 JSON，格式如下：
+{{
+  "one_sentence": "一句话说清今天最重要的AI变化（不超过30字）",
+  "key_points": [
+    "关键点1：用大白话说清楚，不用技术词汇（30字内）",
+    "关键点2：同上",
+    "关键点3：同上"
+  ],
+  "plain_explanation": "用普通人能听懂的语言解释这些资讯的意义（100-150字，不用技术名词）",
+  "content_angles": [
+    "适合转成内容的角度1（20字内）",
+    "适合转成内容的角度2（20字内）",
+    "适合转成内容的角度3（20字内）"
+  ],
+  "suggested_wechat_skill": "从以下选一个最合适的：wechat_article_v1 / wechat_ai_popularizer_v1 / wechat_growth_female_v1 / wechat_tool_guide_v1",
+  "suggested_xhs_skill": "从以下选一个最合适的：xiaohongshu_note_v1 / xiaohongshu_ai_popularizer_v1 / xiaohongshu_growth_female_v1 / xiaohongshu_tool_guide_v1 / xiaohongshu_monetization_v1",
+  "skill_reason": "为什么推荐这两个 Skill（20字内）",
+  "suggested_hashtags": ["话题标签1", "话题标签2", "话题标签3", "话题标签4"]
+}}"""
+
+    try:
+        raw = _openai_chat_call(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.6,
+            max_tokens=1200,
+        )
+        json_match = re.search(r"\{[\s\S]*\}", raw)
+        if json_match:
+            return json.loads(json_match.group())
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)[:300]}
+    return {"error": "AI 返回内容无法解析"}
+
+
+def chat_about_trend(
+    *,
+    messages: list[dict[str, str]],
+    trend_context: str = "",
+    query: str = "",
+) -> dict[str, Any]:
+    """多轮讨论：基于资讯背景与用户展开对话，引导提炼内容选题。"""
+    context_block = ""
+    if trend_context:
+        context_block = f"\n\n【今日资讯背景】\n{trend_context[:1000]}"
+
+    system_prompt = (
+        "你是一位熟悉 AI 领域的内容创作顾问，正在帮助一位「知识成长女性」自媒体博主将 AI 资讯转化为优质内容。"
+        "对话风格：像聊天一样自然，用普通话，不用技术词汇。"
+        "你的目标：帮助博主：1）理解这条资讯的本质；2）找到与自己受众相关的角度；3）提炼可拍的内容选题。"
+        "每次回复结构：先回答问题（2-3句话），再给出1-2个追问方向引导深入思考。"
+        f"{context_block}"
+    )
+
+    ai_messages = [{"role": "system", "content": system_prompt}] + list(messages)
+
+    try:
+        response_text = _openai_chat_call(
+            messages=ai_messages,
+            temperature=0.75,
+            max_tokens=600,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "error", "error": str(exc)[:300], "response": "", "followup_questions": []}
+
+    # 从回复里提取追问问题（简单规则）
+    followup_questions: list[str] = []
+    lines = response_text.split("\n")
+    for line in lines:
+        stripped = line.strip(" -•·1234567890.）)")
+        if stripped and len(stripped) > 10 and stripped.endswith("？"):
+            followup_questions.append(stripped)
+
+    return {
+        "status": "ok",
+        "response": response_text,
+        "followup_questions": followup_questions[:3],
     }
 
 
