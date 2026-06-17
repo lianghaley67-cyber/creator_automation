@@ -165,7 +165,6 @@ const busy = reactive({
   xiaohongshuSms: false,
   xiaohongshuVerify: false,
   xiaohongshuDrag: false,
-  xiaohongshuServerDraft: "",
   xiaohongshuDirectPublish: "",
   wechatDraft: "",
   wechatCover: false,
@@ -1143,14 +1142,6 @@ async function updateXiaohongshuStatus(task, status, applyResult, noteUrl = "") 
   }
 }
 
-async function saveXiaohongshuDraft(task, applyResult) {
-  const result = await updateXiaohongshuStatus(task, "draft_saved", applyResult);
-  if (result) {
-    await refreshDistributionTasks();
-    setNotice("小红书文案和图卡已保存到本站系统草稿箱。");
-  }
-}
-
 async function refreshXiaohongshuServerSession() {
   busy.xiaohongshuSession = true;
   try {
@@ -1343,51 +1334,6 @@ async function finishXiaohongshuDrag(event) {
 function cancelXiaohongshuDrag() {
   xiaohongshuDragStart.value = null;
   xiaohongshuDragLine.value = null;
-}
-
-async function saveXiaohongshuPlatformDraft(task, applyResult) {
-  if (!task?.id) return;
-  busy.xiaohongshuServerDraft = String(task.id);
-  try {
-    let result = await requestApi(
-      `/api/distribution/tasks/${task.id}/xiaohongshu/server-draft`,
-      { method: "POST" },
-      20000
-    );
-    applyResult(result);
-    setNotice("服务器正在上传图卡和文案，请稍等，页面会自动更新结果。");
-
-    const deadline = Date.now() + 8 * 60 * 1000;
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => window.setTimeout(resolve, 3000));
-      const payload = await requestApi("/api/distribution/tasks", {}, 20000);
-      result = (payload.items || []).find((item) => String(item.id) === String(task.id));
-      if (!result) throw new Error("没有找到正在保存的小红书任务。");
-      applyResult(result);
-      const status = result?.xiaohongshu?.status;
-      if (status === "platform_draft_saved") {
-        await refreshDistributionTasks();
-        setNotice(
-          result?.xiaohongshu?.message
-          || "服务器浏览器已保存草稿。结果截图已显示在当前页面；它不会同步到你电脑的小红书草稿箱。"
-        );
-        return;
-      }
-      if (["platform_draft_failed", "login_required"].includes(status)) {
-        throw new Error(
-          result?.xiaohongshu?.save_error
-          || "保存到服务器浏览器草稿失败，请查看当前页面的结果截图。"
-        );
-      }
-    }
-    throw new Error("小红书保存超过 8 分钟仍未完成，请检查服务器保存结果。");
-  } catch (error) {
-    setError(normalizeErrorMessage(error, "保存到服务器浏览器草稿失败。"));
-    await refreshDistributionTasks();
-    await refreshXiaohongshuServerSession();
-  } finally {
-    busy.xiaohongshuServerDraft = "";
-  }
 }
 
 function xiaohongshuPublishToken() {
@@ -2524,18 +2470,6 @@ onBeforeUnmount(() => {
               <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.xiaohongshu?.package_url)" download>下载备用图文包</a>
               <button
                 class="btn accent small"
-                :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
-                @click="saveXiaohongshuDraft(trendDistributionDraft, applyTrendDistributionResult)"
-              >仅保存到本站草稿</button>
-              <button
-                class="btn primary small"
-                :disabled="busy.xiaohongshuServerDraft === String(trendDistributionDraft.id)"
-                @click="saveXiaohongshuPlatformDraft(trendDistributionDraft, applyTrendDistributionResult)"
-              >
-                {{ busy.xiaohongshuServerDraft === String(trendDistributionDraft.id) ? "服务器保存中..." : "保存到服务器浏览器草稿" }}
-              </button>
-              <button
-                class="btn accent small"
                 :disabled="busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) || trendDistributionDraft.xiaohongshu?.status === 'published'"
                 @click="directPublishXiaohongshu(trendDistributionDraft, applyTrendDistributionResult)"
               >{{ busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) ? "发布中..." : "直接发布到小红书" }}</button>
@@ -2910,16 +2844,6 @@ onBeforeUnmount(() => {
               <a class="btn secondary small" :href="mediaUrl(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.package_url)" download>下载备用图文包</a>
               <button
                 class="btn accent small"
-                :disabled="busy.xiaohongshu === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
-                @click="saveXiaohongshuDraft(materialDistributionDrafts[selectedWechatMaterial.id], (result) => applyMaterialDistributionResult(selectedWechatMaterial.id, result))"
-              >仅保存到本站草稿</button>
-              <button
-                class="btn primary small"
-                :disabled="busy.xiaohongshuServerDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
-                @click="saveXiaohongshuPlatformDraft(materialDistributionDrafts[selectedWechatMaterial.id], (result) => applyMaterialDistributionResult(selectedWechatMaterial.id, result))"
-              >{{ busy.xiaohongshuServerDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id) ? "服务器保存中..." : "保存到服务器浏览器草稿" }}</button>
-              <button
-                class="btn accent small"
                 :disabled="busy.xiaohongshuDirectPublish === String(materialDistributionDrafts[selectedWechatMaterial.id].id) || materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.status === 'published'"
                 @click="directPublishXiaohongshu(materialDistributionDrafts[selectedWechatMaterial.id], (result) => applyMaterialDistributionResult(selectedWechatMaterial.id, result))"
               >{{ busy.xiaohongshuDirectPublish === String(materialDistributionDrafts[selectedWechatMaterial.id].id) ? "发布中..." : "直接发布到小红书" }}</button>
@@ -3052,8 +2976,7 @@ onBeforeUnmount(() => {
         <button class="btn secondary small" type="button" @click="refreshDistributionTasks">刷新草稿</button>
       </div>
       <p class="meta">
-        这里的草稿已保存在服务器 SQLite。点击保存后，内容会进入服务器浏览器的小红书本地草稿。
-        它不会同步到你电脑的 Chrome；请直接查看下方自动刷新的服务器结果截图。
+        这里展示历史小红书发布包和处理结果。为保护账号，已关闭本站草稿和服务器浏览器草稿入口；建议下载图文包后手动发布。
       </p>
       <div class="draft-list">
         <article v-for="draft in xiaohongshuSystemDrafts" :key="draft.id" class="publish-card">
@@ -3089,19 +3012,6 @@ onBeforeUnmount(() => {
           <div class="publish-buttons">
             <button class="btn secondary small" @click="copyText(draft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
             <a class="btn secondary small" :href="mediaUrl(draft.xiaohongshu?.package_url)" download>下载备用图文包</a>
-            <button
-              class="btn primary small"
-              :disabled="
-                busy.xiaohongshuServerDraft === String(draft.id)
-                || draft.xiaohongshu?.status === 'platform_draft_saving'
-              "
-              @click="saveXiaohongshuPlatformDraft(draft, applySavedDistributionTask)"
-            >{{
-              busy.xiaohongshuServerDraft === String(draft.id)
-              || draft.xiaohongshu?.status === "platform_draft_saving"
-                ? "服务器保存中..."
-                : "保存到服务器浏览器草稿"
-            }}</button>
             <button
               class="btn accent small"
               :disabled="busy.xiaohongshuDirectPublish === String(draft.id) || draft.xiaohongshu?.status === 'published'"
@@ -3381,18 +3291,6 @@ onBeforeUnmount(() => {
                 @click="copyText(distributionDrafts[job.id].xiaohongshu?.title, '小红书标题已复制。')"
               >复制标题</button>
               <a class="btn secondary small" :href="mediaUrl(distributionDrafts[job.id].xiaohongshu?.package_url)" download>下载备用图文包</a>
-              <button
-                class="btn accent small"
-                :disabled="busy.xiaohongshu === String(distributionDrafts[job.id].id)"
-                @click="saveXiaohongshuDraft(distributionDrafts[job.id], (result) => applyJobDistributionResult(job.id, result))"
-              >仅保存到本站草稿</button>
-              <button
-                class="btn primary small"
-                :disabled="busy.xiaohongshuServerDraft === String(distributionDrafts[job.id].id)"
-                @click="saveXiaohongshuPlatformDraft(distributionDrafts[job.id], (result) => applyJobDistributionResult(job.id, result))"
-              >
-                {{ busy.xiaohongshuServerDraft === String(distributionDrafts[job.id].id) ? "服务器保存中..." : "保存到服务器浏览器草稿" }}
-              </button>
               <button
                 class="btn accent small"
                 :disabled="busy.xiaohongshuDirectPublish === String(distributionDrafts[job.id].id) || distributionDrafts[job.id].xiaohongshu?.status === 'published'"
