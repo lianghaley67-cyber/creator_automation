@@ -374,7 +374,7 @@ def summarize_trends_with_ai(report: dict[str, Any]) -> dict[str, Any]:
         "语言要求：内容主体必须使用中文；AI 工具名、模型名、产品名、公司名、英文缩写和专有名词可以保留英文原名，例如 Claude、ChatGPT、NotebookLM、API。"
         "运营要求：不要复述新闻，要替读者判断价值、补齐背景、给出最小可执行动作和风险提醒。"
         "参考姜胡说式思路：不是追热点，而是把信息变成行动飞轮；不是知道更多，而是找到一个简单动作大量重复。"
-        "如果用户检索的是具体工具、安装说明、使用教程或怎么上手，要优先做工具研究：讲清楚工具是什么、解决什么问题、适合谁、怎么安装、怎么用、怎么用得更好。"
+        "如果用户检索的是具体工具、安装说明、使用教程或怎么上手，要优先做工具深度实测教程：讲清楚工具是什么、解决什么问题、适合谁、怎么安装、基础使用、进阶使用、同类对比和真实避坑。"
         "请对提供的 AI 资讯进行结构化分析，输出纯 JSON，不加任何额外说明。"
     )
     user_prompt = f"""以下是今天抓取到的 AI 资讯（检索主题：{query or "AI最新资讯"}）：
@@ -407,8 +407,8 @@ def summarize_trends_with_ai(report: dict[str, Any]) -> dict[str, Any]:
   }},
   "action_plan": ["今天能做的第1步", "第2步", "第3步"],
   "risk_notes": ["需要核验或容易踩坑的地方1", "地方2"],
-  "suggested_wechat_skill": "从以下选一个最合适的：wechat_article_v1 / wechat_ai_popularizer_v1 / wechat_growth_female_v1 / wechat_tool_guide_v1 / wechat_operator_flywheel_v1 / wechat_tool_research_v1",
-  "suggested_xhs_skill": "从以下选一个最合适的：xiaohongshu_note_v1 / xiaohongshu_ai_popularizer_v1 / xiaohongshu_growth_female_v1 / xiaohongshu_tool_guide_v1 / xiaohongshu_monetization_v1 / xiaohongshu_operator_flywheel_v1 / xiaohongshu_tool_research_v1",
+  "suggested_wechat_skill": "从以下选一个最合适的：wechat_article_v1 / wechat_ai_popularizer_v1 / wechat_growth_female_v1 / wechat_tool_guide_v1 / wechat_operator_flywheel_v1 / wechat_tool_research_v1 / wechat_tool_deep_review_v1",
+  "suggested_xhs_skill": "从以下选一个最合适的：xiaohongshu_note_v1 / xiaohongshu_ai_popularizer_v1 / xiaohongshu_growth_female_v1 / xiaohongshu_tool_guide_v1 / xiaohongshu_monetization_v1 / xiaohongshu_operator_flywheel_v1 / xiaohongshu_tool_research_v1 / xiaohongshu_tool_deep_review_v1",
   "skill_reason": "为什么推荐这两个 Skill（20字内）",
   "suggested_hashtags": ["话题标签1", "话题标签2", "话题标签3", "话题标签4"]
 }}"""

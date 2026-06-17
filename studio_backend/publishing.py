@@ -446,8 +446,8 @@ def prepare_distribution_package(
     effective_xhs_skill_id = xiaohongshu_skill_id
     if source_type == "ai_trends":
         if _is_tool_research_topic(final_title, job):
-            effective_wechat_skill_id = effective_wechat_skill_id or "wechat_tool_research_v1"
-            effective_xhs_skill_id = effective_xhs_skill_id or "xiaohongshu_tool_research_v1"
+            effective_wechat_skill_id = effective_wechat_skill_id or "wechat_tool_deep_review_v1"
+            effective_xhs_skill_id = effective_xhs_skill_id or "xiaohongshu_tool_deep_review_v1"
         else:
             effective_wechat_skill_id = effective_wechat_skill_id or "wechat_operator_flywheel_v1"
             effective_xhs_skill_id = effective_xhs_skill_id or "xiaohongshu_operator_flywheel_v1"

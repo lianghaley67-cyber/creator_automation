@@ -81,6 +81,47 @@ class PublishingTests(unittest.TestCase):
         )
         self.assertEqual(len(result["xiaohongshu"]["publish_steps"]), 4)
 
+    def test_prepare_tool_trend_distribution_uses_deep_review_skill(self):
+        trend = {
+            "id": "trend_tool_1",
+            "title": "Trae 安装说明",
+            "summary": "Trae 安装和上手资料。",
+            "items": [
+                {
+                    "title": "Trae 安装教程",
+                    "summary": "包含下载、登录和模型配置。",
+                    "url": "https://example.com/trae",
+                }
+            ],
+            "angles": ["Trae 是什么", "Trae 怎么安装"],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+
+            def media_url(path):
+                return f"/files/{Path(path).relative_to(output_dir).as_posix()}"
+
+            with (
+                patch.object(publishing, "OUTPUTS_DIR", output_dir),
+                patch.object(publishing, "to_media_url", side_effect=media_url),
+            ):
+                result = publishing.prepare_trend_distribution_package(
+                    trend,
+                    script="帮我说明 Trae 是什么，以及新手怎么安装。",
+                    question="Trae 安装说明",
+                )
+
+        self.assertEqual(
+            result["channel_skills"]["wechat"],
+            "wechat_tool_deep_review_v1",
+        )
+        self.assertEqual(
+            result["channel_skills"]["xiaohongshu"],
+            "xiaohongshu_tool_deep_review_v1",
+        )
+        self.assertIn("核心信息卡", result["wechat"]["markdown"])
+        self.assertIn("同类工具怎么比", result["wechat"]["markdown"])
+
     def test_prepare_material_distribution_without_video_job(self):
         material = {
             "id": "wechat_1",
