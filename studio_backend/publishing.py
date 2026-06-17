@@ -60,10 +60,68 @@ def _clean_ai_trend_title(raw_title: str, trend: dict[str, Any]) -> str:
     title = title or query or "今天值得关注的 AI 资讯"
     lower_title = title.lower()
     if len(title) <= 24 and any(word in lower_title for word in ("安装", "install", "教程", "说明")):
-        return _compact(f"{title}：先看这3个坑", 32)
+        tool_name = re.sub(r"(安装|install|教程|说明|使用|怎么用|指南)+", "", title, flags=re.IGNORECASE).strip(" ：:-")
+        tool_name = tool_name or title
+        return _compact(f"{tool_name} 是什么？怎么安装和上手", 36)
     if len(title) <= 18:
         return _compact(f"{title}：普通人怎么用", 32)
     return _compact(title, 48)
+
+
+_TOOL_RESEARCH_STRONG_MARKERS = (
+    "安装",
+    "教程",
+    "使用说明",
+    "配置",
+    "下载",
+    "官网",
+    "install",
+    "setup",
+    "guide",
+    "tutorial",
+)
+
+_TOOL_RESEARCH_SOFT_MARKERS = ("怎么用", "上手", "使用", "入门")
+
+_TOOL_RESEARCH_SPECIFIC_TOOLS = (
+    "cursor",
+    "trae",
+    "claude",
+    "claude code",
+    "notebooklm",
+    "windsurf",
+    "gemini",
+    "chatgpt",
+    "copilot",
+    "perplexity",
+    "midjourney",
+    "manus",
+    "lovable",
+    "replit",
+    "bolt",
+    "kimi",
+    "豆包",
+    "通义",
+    "通义千问",
+    "抬耳",
+)
+
+
+def _is_tool_research_topic(title: str, job: dict[str, Any]) -> bool:
+    request_payload = job.get("request") if isinstance(job.get("request"), dict) else {}
+    corpus = " ".join(
+        [
+            str(title or ""),
+            str(request_payload.get("topic") or ""),
+            str(request_payload.get("title") or ""),
+            str(request_payload.get("content_mode") or ""),
+            " ".join(str(item) for item in request_payload.get("keywords") or []),
+        ]
+    ).lower()
+    has_strong_marker = any(marker in corpus for marker in _TOOL_RESEARCH_STRONG_MARKERS)
+    has_specific_tool = any(marker in corpus for marker in _TOOL_RESEARCH_SPECIFIC_TOOLS)
+    has_soft_marker = any(marker in corpus for marker in _TOOL_RESEARCH_SOFT_MARKERS)
+    return has_strong_marker or (has_specific_tool and has_soft_marker)
 
 
 def _wechat_html(title: str, summary: str, script: str) -> str:
@@ -387,8 +445,12 @@ def prepare_distribution_package(
     effective_wechat_skill_id = wechat_skill_id
     effective_xhs_skill_id = xiaohongshu_skill_id
     if source_type == "ai_trends":
-        effective_wechat_skill_id = effective_wechat_skill_id or "wechat_operator_flywheel_v1"
-        effective_xhs_skill_id = effective_xhs_skill_id or "xiaohongshu_operator_flywheel_v1"
+        if _is_tool_research_topic(final_title, job):
+            effective_wechat_skill_id = effective_wechat_skill_id or "wechat_tool_research_v1"
+            effective_xhs_skill_id = effective_xhs_skill_id or "xiaohongshu_tool_research_v1"
+        else:
+            effective_wechat_skill_id = effective_wechat_skill_id or "wechat_operator_flywheel_v1"
+            effective_xhs_skill_id = effective_xhs_skill_id or "xiaohongshu_operator_flywheel_v1"
     if effective_wechat_skill_id or effective_xhs_skill_id:
         channel_drafts = build_channel_drafts_with_ai(
             source_text=script,
@@ -531,15 +593,22 @@ def prepare_trend_distribution_package(
     items = list(trend.get("items") or [])
     angles = [str(item).strip() for item in trend.get("angles") or [] if str(item).strip()]
     content = str(script or "").strip()
-    if not content:
-        sections = [str(trend.get("summary") or "").strip()]
-        for item in items[:6]:
-            item_title = str(item.get("title") or "").strip()
-            item_summary = str(item.get("summary") or "").strip()
-            if item_title:
-                sections.append(f"{item_title}：{item_summary}" if item_summary else item_title)
-        if angles:
-            sections.append("普通人可以关注：" + "；".join(angles[:4]))
+    sections = [str(trend.get("summary") or "").strip()]
+    for item in items[:6]:
+        item_title = str(item.get("title") or "").strip()
+        item_summary = str(item.get("summary") or "").strip()
+        item_url = str(item.get("url") or "").strip()
+        if item_title:
+            detail = f"{item_title}：{item_summary}" if item_summary else item_title
+            if item_url:
+                detail += f"\n来源链接：{item_url}"
+            sections.append(detail)
+    if angles:
+        sections.append("普通人可以关注：" + "；".join(angles[:4]))
+    research_context = "\n\n".join(item for item in sections if item)
+    if content and research_context:
+        content = f"{content}\n\n【检索资料】\n{research_context}"
+    elif not content:
         content = "\n\n".join(item for item in sections if item)
     if not content:
         raise ValueError("这份实时资讯没有可分发的内容。")

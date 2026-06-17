@@ -374,6 +374,7 @@ def summarize_trends_with_ai(report: dict[str, Any]) -> dict[str, Any]:
         "语言要求：内容主体必须使用中文；AI 工具名、模型名、产品名、公司名、英文缩写和专有名词可以保留英文原名，例如 Claude、ChatGPT、NotebookLM、API。"
         "运营要求：不要复述新闻，要替读者判断价值、补齐背景、给出最小可执行动作和风险提醒。"
         "参考姜胡说式思路：不是追热点，而是把信息变成行动飞轮；不是知道更多，而是找到一个简单动作大量重复。"
+        "如果用户检索的是具体工具、安装说明、使用教程或怎么上手，要优先做工具研究：讲清楚工具是什么、解决什么问题、适合谁、怎么安装、怎么用、怎么用得更好。"
         "请对提供的 AI 资讯进行结构化分析，输出纯 JSON，不加任何额外说明。"
     )
     user_prompt = f"""以下是今天抓取到的 AI 资讯（检索主题：{query or "AI最新资讯"}）：
@@ -395,10 +396,19 @@ def summarize_trends_with_ai(report: dict[str, Any]) -> dict[str, Any]:
     "适合转成内容的角度3（20字内）"
   ],
   "reader_value": "读者看完能解决的一个具体问题（30字内）",
+  "tool_brief": {{
+    "tool_name": "如果是具体工具，写工具名；否则为空",
+    "what_it_does": "这个工具具体干什么；如果资料不足写待核验",
+    "who_it_is_for": ["适合人群1", "适合人群2"],
+    "install_or_access": ["安装/访问步骤1，没证据就写需核验", "步骤2"],
+    "beginner_steps": ["完全新手第一步", "第二步", "第三步"],
+    "better_use": ["如何用得更好1", "如何用得更好2"],
+    "open_questions": ["还值得继续讨论的问题1", "问题2"]
+  }},
   "action_plan": ["今天能做的第1步", "第2步", "第3步"],
   "risk_notes": ["需要核验或容易踩坑的地方1", "地方2"],
-  "suggested_wechat_skill": "从以下选一个最合适的：wechat_article_v1 / wechat_ai_popularizer_v1 / wechat_growth_female_v1 / wechat_tool_guide_v1 / wechat_operator_flywheel_v1",
-  "suggested_xhs_skill": "从以下选一个最合适的：xiaohongshu_note_v1 / xiaohongshu_ai_popularizer_v1 / xiaohongshu_growth_female_v1 / xiaohongshu_tool_guide_v1 / xiaohongshu_monetization_v1 / xiaohongshu_operator_flywheel_v1",
+  "suggested_wechat_skill": "从以下选一个最合适的：wechat_article_v1 / wechat_ai_popularizer_v1 / wechat_growth_female_v1 / wechat_tool_guide_v1 / wechat_operator_flywheel_v1 / wechat_tool_research_v1",
+  "suggested_xhs_skill": "从以下选一个最合适的：xiaohongshu_note_v1 / xiaohongshu_ai_popularizer_v1 / xiaohongshu_growth_female_v1 / xiaohongshu_tool_guide_v1 / xiaohongshu_monetization_v1 / xiaohongshu_operator_flywheel_v1 / xiaohongshu_tool_research_v1",
   "skill_reason": "为什么推荐这两个 Skill（20字内）",
   "suggested_hashtags": ["话题标签1", "话题标签2", "话题标签3", "话题标签4"]
 }}"""

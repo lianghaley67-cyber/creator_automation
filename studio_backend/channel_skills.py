@@ -151,6 +151,29 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
             "body": "真正有用的不是知道一个新工具，而是把它变成你今天能省下10分钟的动作。\n\n1. 先问它解决谁的问题\n2. 再选一个小场景测试\n3. 记录哪里省时间\n4. 写出你的真实判断\n\n#AI工具 #普通人学AI",
         },
     },
+    "wechat_tool_research_v1": {
+        "name": "公众号·工具研究说明书",
+        "channel": "wechat",
+        "file": "14_tool_research_playbook.md",
+        "description": "把一个具体工具讲清楚：它是什么、解决什么问题、适合谁、怎么安装、怎么上手、怎么进阶。",
+        "persona_tags": ["工具研究", "教程", "实操"],
+        "example": {
+            "title": "Trae 是什么？新手安装和上手指南",
+            "summary": "这不是工具新闻，而是一份给完全不了解 Trae 的新手看的说明书：先判断适不适合你，再决定要不要安装。",
+            "excerpt": "## 先说清楚：Trae 到底是干什么的\n\n## 它解决什么问题\n\n## 新手安装前先检查这几件事",
+        },
+    },
+    "xiaohongshu_tool_research_v1": {
+        "name": "小红书·工具研究说明书",
+        "channel": "xiaohongshu",
+        "file": "14_tool_research_playbook.md",
+        "description": "适合工具种草和教程：先讲清楚工具本身，再给安装、上手、进阶和避坑清单。",
+        "persona_tags": ["工具研究", "教程", "实操"],
+        "example": {
+            "title": "Trae新手先看这篇",
+            "body": "Trae 不是一个普通文档工具，它更像 AI 编程助手。\n\n适合：想用 AI 辅助写代码、改代码、理解项目的新手。\n\n安装前先确认：系统版本、官网来源、账号登录、模型权限。\n\n#AI工具 #Trae教程",
+        },
+    },
 }
 
 # 预设主题组，前端展示为可点击的 Chip
@@ -230,6 +253,231 @@ def _paragraphs(content: str) -> list[str]:
         for item in re.split(r"\n+|(?<=[。！？!?])", content)
     ]
     return [item for item in parts if len(item) >= 4]
+
+
+_TOOL_RESEARCH_STRONG_MARKERS = (
+    "安装",
+    "教程",
+    "使用说明",
+    "配置",
+    "下载",
+    "官网",
+    "install",
+    "setup",
+    "guide",
+    "tutorial",
+)
+
+_TOOL_RESEARCH_SOFT_MARKERS = ("怎么用", "上手", "使用", "入门")
+
+_TOOL_RESEARCH_SPECIFIC_TOOLS = (
+    "cursor",
+    "trae",
+    "claude",
+    "claude code",
+    "notebooklm",
+    "windsurf",
+    "gemini",
+    "chatgpt",
+    "copilot",
+    "perplexity",
+    "midjourney",
+    "manus",
+    "lovable",
+    "replit",
+    "bolt",
+    "kimi",
+    "豆包",
+    "通义",
+    "通义千问",
+    "抬耳",
+)
+
+
+def _is_tool_research_request(title: str, source_text: str, source_type: str) -> bool:
+    corpus = f"{title} {source_text} {source_type}".lower()
+    has_strong_marker = any(marker in corpus for marker in _TOOL_RESEARCH_STRONG_MARKERS)
+    has_specific_tool = any(marker in corpus for marker in _TOOL_RESEARCH_SPECIFIC_TOOLS)
+    has_soft_marker = any(marker in corpus for marker in _TOOL_RESEARCH_SOFT_MARKERS)
+    return has_strong_marker or (has_specific_tool and has_soft_marker)
+
+
+def _infer_tool_name(title: str, source_text: str) -> str:
+    combined = f"{title}\n{source_text}"
+    known = [
+        "Trae",
+        "Cursor",
+        "Claude",
+        "Claude Code",
+        "ChatGPT",
+        "NotebookLM",
+        "Windsurf",
+        "Gemini",
+        "Kimi",
+        "豆包",
+        "通义千问",
+    ]
+    lower_combined = combined.lower()
+    for name in known:
+        if name.lower() in lower_combined:
+            return name
+    cleaned = re.sub(r"(安装|install|教程|说明|使用|怎么用|指南|资讯检索|AI最新资讯日报|\d{4}-\d{2}-\d{2})+", "", title, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ：:-")
+    return _compact(cleaned or "这个工具", 24)
+
+
+def _evidence_lines(source_text: str, limit: int = 6) -> list[str]:
+    lines: list[str] = []
+    skip_prefixes = (
+        "按你的要求检索",
+        "以下内容来自",
+        "适合继续转成",
+        "今天发生了什么",
+        "这对普通人意味着什么",
+        "我准备怎么用",
+        "写在最后",
+        "请",
+        "帮我",
+        "我想",
+    )
+    for raw in str(source_text or "").splitlines():
+        line = re.sub(r"\s+", " ", raw).strip(" -")
+        if len(line) < 4:
+            continue
+        if line in {"【检索资料】", "检索资料"}:
+            continue
+        if any(line.startswith(prefix) for prefix in skip_prefixes):
+            continue
+        if line.startswith("http"):
+            line = f"来源链接：{line}"
+        if line not in lines:
+            lines.append(_compact(line, 240))
+        if len(lines) >= limit:
+            break
+    return lines
+
+
+def _build_tool_research_fallback(
+    *,
+    source_text: str,
+    title: str,
+    summary: str,
+    hashtags: list[str],
+) -> dict[str, Any]:
+    tool_name = _infer_tool_name(title, source_text)
+    evidence_items = _evidence_lines(source_text)
+    evidence = "\n".join(f"- {item}" for item in evidence_items) or "- 当前资料不足，需要继续核验官方说明。"
+    final_title = _compact(f"{tool_name} 是什么？怎么安装和上手", 64)
+    wechat_summary = _compact(
+        f"这是一份给完全不了解 {tool_name} 的新手看的工具说明：先讲它能做什么，再讲适合谁、怎么安装、怎么上手，以及哪些信息必须自己核验。",
+        150,
+    )
+    wechat_markdown = f"""# {final_title}
+
+{wechat_summary}
+
+## 先说清楚：{tool_name} 到底是干什么的
+
+从目前资料看，{tool_name} 是一个需要先理解使用场景再决定是否安装的 AI 工具。你不要先被工具名带着跑，先看它能不能帮你解决一个具体问题：写代码、整理资料、理解项目、生成内容，或者减少某个重复动作。
+
+下面这些是当前资料里能看到的信息：
+
+{evidence}
+
+## 它能解决什么问题
+
+1. 帮新手降低上手门槛：把复杂任务拆成步骤。
+2. 帮内容创作者整理资料：把零散信息变成选题、脚本或教程。
+3. 帮学习者快速理解一个陌生项目：先看结构，再做小实验。
+4. 帮已经有工作流的人提效：把重复整理、总结、改写交给 AI 先跑一遍。
+
+## 适合谁，不适合谁
+
+适合三类人：第一，想用 AI 辅助学习或创作，但不知道从哪里开始的人；第二，经常需要整理资料、写教程、拆步骤的人；第三，愿意自己验证工具效果，而不是只看别人推荐的人。
+
+不适合两类人：第一，期待安装完立刻自动解决所有问题的人；第二，不愿意看权限、账号、数据上传风险的人。
+
+## 安装或访问方式：先做核验
+
+当前资料不足以保证所有安装细节都准确，所以建议按这个顺序核验：
+
+1. 先找官网或官方文档，不要随便点第三方安装包。
+2. 确认电脑系统是否支持。
+3. 确认是否需要账号、手机号、邮箱或海外网络环境。
+4. 确认免费额度、付费规则和可用模型。
+5. 如果要打开本地文件或项目，先备份重要资料。
+
+## 完全新手第一次怎么用
+
+第一步：不要一上来就处理大项目，先拿一段普通文字或一个小文件测试。
+
+第二步：问它三个问题：这个内容是什么？我应该先看哪里？下一步最小动作是什么？
+
+第三步：只让它做一件事，比如整理步骤、解释概念、生成一个检查清单。
+
+第四步：你自己核对结果，不要直接复制发布。
+
+第五步：把好用的提问保存下来，变成你自己的固定模板。
+
+## 怎么把它用得更好
+
+可以复制这段提示词：
+
+“我是完全新手，请先用大白话解释这个工具/项目是干什么的，再告诉我它适合解决什么问题。请按‘适合谁、安装前检查、新手第一步、常见坑、进阶用法’输出。没有证据的信息请标注需要核验，不要编造。”
+
+## 常见坑
+
+坑一：只看别人说好用，自己没有测试场景。
+
+坑二：安装来源不明，忽略账号、权限和数据上传风险。
+
+坑三：把 AI 输出当最终答案。它可以帮你整理，但最后判断要你自己做。
+
+## 还可以继续讨论什么
+
+你可以继续追问：{tool_name} 和同类工具有什么区别？它适不适合我的工作流？有没有适合小白的第一个练习任务？如果要做成课程或小红书系列，应该拆成哪几篇？
+"""
+    tags = []
+    for tag in hashtags or ["AI工具", "工具教程", "普通人学AI"]:
+        value = re.sub(r"[#\s]+", "", str(tag or "")).strip()
+        if value and value not in tags:
+            tags.append(value[:18])
+    xhs_title = _compact(f"{tool_name}新手先看", 20)
+    xhs_body = "\n\n".join(
+        [
+            f"{tool_name} 到底能干什么？",
+            f"先别急着安装。对完全不了解它的人来说，第一步不是下载，而是判断：它能不能解决你的具体问题。",
+            "适合谁：想用AI辅助学习、整理资料、写教程、理解项目的人。",
+            "安装前先检查：\n1. 官网或官方文档\n2. 系统是否支持\n3. 是否需要账号/网络环境\n4. 免费额度和付费规则\n5. 是否会读取本地文件或上传资料",
+            "新手第一次这样用：\n1. 拿一个小任务测试\n2. 让它先解释，不要直接生成\n3. 让它给步骤清单\n4. 你自己核对结果\n5. 保存好用的提示词",
+            "可复制提示词：\n“我是完全新手，请用大白话告诉我这个工具是干什么的、适合谁、怎么开始用、有哪些坑。没有证据的信息请标注需要核验。”",
+            "你想让我下一篇继续拆：安装流程、使用案例，还是和同类工具对比？",
+            " ".join(f"#{tag}" for tag in tags[:6]),
+        ]
+    )
+    card_pages = [
+        {"title": xhs_title, "body": f"先判断 {tool_name} 能不能解决你的问题，再决定要不要安装。", "kind": "cover"},
+        {"title": "01 它是什么", "body": f"{tool_name} 是一个需要结合具体场景判断的 AI 工具，先看用途，再看安装。", "kind": "content"},
+        {"title": "02 适合谁", "body": "适合想用 AI 学习、整理资料、写教程、理解项目的人。", "kind": "content"},
+        {"title": "03 先检查", "body": "官网来源、系统支持、账号规则、付费额度、数据权限都要先核验。", "kind": "content"},
+        {"title": "04 第一步", "body": "拿一个小任务测试，让它先解释、再列步骤，最后自己核对结果。", "kind": "content"},
+    ]
+    return {
+        "wechat": {
+            "skill_id": "wechat_tool_research_v1",
+            "title": final_title,
+            "summary": wechat_summary,
+            "markdown": wechat_markdown,
+        },
+        "xiaohongshu": {
+            "skill_id": "xiaohongshu_tool_research_v1",
+            "image_skill_id": "xiaohongshu_images_v1",
+            "title": xhs_title,
+            "body": xhs_body,
+            "cover_text": _compact(f"{tool_name}新手指南", 20),
+            "card_pages": card_pages,
+        },
+    }
 
 
 def _openai_chat(
@@ -342,6 +590,7 @@ def _ai_generate_channel_drafts(
 运营质量硬规则：
 - 不要复述资讯，不要写“以下内容来自接口返回结果”这种废话。你要替读者完成判断、翻译和补课。
 - 每篇都必须回答 5 个问题：这件事到底是什么；它解决谁的什么痛点；普通人今天怎么用；容易踩什么坑；下一步最小动作是什么。
+- 如果主题是某个具体工具、安装教程、使用说明或“怎么用”，必须优先写成工具说明书，而不是运营观点文。必须包含：工具是什么、核心功能、解决的问题、适合人群、安装/访问方式、新手第一步、进阶用法、常见坑、待核验信息。
 - 如果原始资料信息不足，要基于常识补齐“需要核验的清单”，但不要编造下载链接、价格、官方承诺、收益数字。
 - 公众号要像一篇能建立信任的付费前置内容：观点明确、步骤具体、有边界、有复盘感。
 - 小红书要像一篇能收藏的实操笔记：开头说人话，中间给步骤，最后给一个可复制动作。
@@ -388,10 +637,11 @@ def _ai_generate_channel_drafts(
 {source_text[:3000]}
 
 生成前请先在内部完成这一步，不要输出：
-1. 判断这个主题对读者的真实价值，不值得写就换成“如何判断它值不值得用”。
-2. 把零散资讯补成一个可执行流程。
-3. 对不确定信息标注“需要自行核验”，不要编造。
-4. 让内容像一个愿意长期付费的读者读完会说：这篇真的帮我少走了一步弯路。"""
+1. 判断这个主题是“工具说明书”还是“资讯观点文”。只要出现具体工具名、安装、教程、怎么用，就按工具说明书写。
+2. 从原始内容中提取确实信息：工具名称、用途、平台、安装入口、操作步骤、限制条件、来源链接。没有证据的地方标注“资料不足，建议核验”，不要用空话替代。
+3. 把零散资讯补成一个可执行流程。
+4. 对不确定信息标注“需要自行核验”，不要编造。
+5. 让内容像一个愿意长期付费的读者读完会说：这篇真的帮我少走了一步弯路。"""
 
     raw = _openai_chat(
         api_key=api_key,
@@ -455,6 +705,13 @@ def build_channel_drafts(
         paragraphs = [_compact(source_text, 500)]
     is_trend = source_type == "ai_trends"
     final_title = _compact(title, 64) or ("今天值得关注的 3 个变化" if is_trend else "这件事，我终于想明白了")
+    if is_trend and _is_tool_research_request(final_title, source_text, source_type):
+        return _build_tool_research_fallback(
+            source_text=source_text,
+            title=final_title,
+            summary=summary,
+            hashtags=hashtags,
+        )
 
     if is_trend:
         wechat_intro = (
