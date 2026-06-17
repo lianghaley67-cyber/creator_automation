@@ -372,6 +372,8 @@ def summarize_trends_with_ai(report: dict[str, Any]) -> dict[str, Any]:
         "你是一位专注于 AI 领域的内容顾问，帮助「知识成长女性」类账号创作自媒体内容。"
         "账号目标：用大白话普及 AI 知识，吸引对 AI 感兴趣的普通人，人设是知识成长女性，后续考虑变现。"
         "语言要求：内容主体必须使用中文；AI 工具名、模型名、产品名、公司名、英文缩写和专有名词可以保留英文原名，例如 Claude、ChatGPT、NotebookLM、API。"
+        "运营要求：不要复述新闻，要替读者判断价值、补齐背景、给出最小可执行动作和风险提醒。"
+        "参考姜胡说式思路：不是追热点，而是把信息变成行动飞轮；不是知道更多，而是找到一个简单动作大量重复。"
         "请对提供的 AI 资讯进行结构化分析，输出纯 JSON，不加任何额外说明。"
     )
     user_prompt = f"""以下是今天抓取到的 AI 资讯（检索主题：{query or "AI最新资讯"}）：
@@ -392,8 +394,11 @@ def summarize_trends_with_ai(report: dict[str, Any]) -> dict[str, Any]:
     "适合转成内容的角度2（20字内）",
     "适合转成内容的角度3（20字内）"
   ],
-  "suggested_wechat_skill": "从以下选一个最合适的：wechat_article_v1 / wechat_ai_popularizer_v1 / wechat_growth_female_v1 / wechat_tool_guide_v1",
-  "suggested_xhs_skill": "从以下选一个最合适的：xiaohongshu_note_v1 / xiaohongshu_ai_popularizer_v1 / xiaohongshu_growth_female_v1 / xiaohongshu_tool_guide_v1 / xiaohongshu_monetization_v1",
+  "reader_value": "读者看完能解决的一个具体问题（30字内）",
+  "action_plan": ["今天能做的第1步", "第2步", "第3步"],
+  "risk_notes": ["需要核验或容易踩坑的地方1", "地方2"],
+  "suggested_wechat_skill": "从以下选一个最合适的：wechat_article_v1 / wechat_ai_popularizer_v1 / wechat_growth_female_v1 / wechat_tool_guide_v1 / wechat_operator_flywheel_v1",
+  "suggested_xhs_skill": "从以下选一个最合适的：xiaohongshu_note_v1 / xiaohongshu_ai_popularizer_v1 / xiaohongshu_growth_female_v1 / xiaohongshu_tool_guide_v1 / xiaohongshu_monetization_v1 / xiaohongshu_operator_flywheel_v1",
   "skill_reason": "为什么推荐这两个 Skill（20字内）",
   "suggested_hashtags": ["话题标签1", "话题标签2", "话题标签3", "话题标签4"]
 }}"""

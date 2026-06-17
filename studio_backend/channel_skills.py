@@ -128,6 +128,29 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
             "body": "不骗你，我不是什么AI大佬，就是普通人。\n\n3个月前我开始把自己学AI的过程发出来——踩了什么坑，用了什么方法，效果怎么样。\n\n慢慢积累了一些关注者，上个月有AI工具品牌问我能不能合作。\n\n这条路的门槛：你要真的在学、真的在用，然后把过程记录出来。\n\n最大的风险：流量不稳，收入不固定，不适合当成主要收入来源。\n\n我现在还在探索阶段，不敢说“成功”，但这条路是真实可走的。\n\n你在探索哪种AI变现的方式？\n\n#AI变现 #副业探索 #内容创作变现",
         },
     },
+    "wechat_operator_flywheel_v1": {
+        "name": "公众号·运营增长飞轮",
+        "channel": "wechat",
+        "file": "13_operator_flywheel.md",
+        "description": "参考姜胡说的行动飞轮、极简动作和圈层套利思路，把资讯改造成可复利的操作系统。",
+        "persona_tags": ["运营判断", "复利", "变现前置"],
+        "example": {
+            "title": "别再收藏AI工具了，先把一个动作跑通",
+            "summary": "真正有价值的不是你知道多少工具，而是你能不能把一个重复动作变成流程，并持续复盘。",
+            "excerpt": "## 先说结论\n\nAI内容不是拼新闻速度，而是拼你能不能把信息翻译成普通人今天能做的动作……",
+        },
+    },
+    "xiaohongshu_operator_flywheel_v1": {
+        "name": "小红书·运营增长飞轮",
+        "channel": "xiaohongshu",
+        "file": "13_operator_flywheel.md",
+        "description": "把资讯变成可收藏、可执行、可复盘的小红书实操笔记，适合建立长期信任。",
+        "persona_tags": ["运营判断", "复利", "实操"],
+        "example": {
+            "title": "别再只收藏AI资讯",
+            "body": "真正有用的不是知道一个新工具，而是把它变成你今天能省下10分钟的动作。\n\n1. 先问它解决谁的问题\n2. 再选一个小场景测试\n3. 记录哪里省时间\n4. 写出你的真实判断\n\n#AI工具 #普通人学AI",
+        },
+    },
 }
 
 # 预设主题组，前端展示为可点击的 Chip
@@ -170,6 +193,31 @@ def load_skill_content(skill_id: str) -> str:
     if not skill_path.exists():
         return ""
     return skill_path.read_text(encoding="utf-8", errors="replace").strip()
+
+
+def _load_jianghushuo_lens() -> str:
+    skill_path = SKILLS_DIR / "jianghushuo-perspective.md"
+    if not skill_path.exists():
+        return (
+            "姜胡说式内容判断：先给结论，不堆资料；把问题拆成极简单动作；"
+            "用“不是X而是Y”提出观点；最后给一个今天就能做的动作。"
+        )
+    content = skill_path.read_text(encoding="utf-8", errors="replace")
+    wanted = [
+        "赚钱 = 极简单的动作 × 大量重复。",
+        "行动飞轮：写→拍→盘，构成自我增长闭环。",
+        "极简行动公式：赚钱 = 极简单的动作 × 大量重复。",
+        "幸运表面积：被更多人看到 = 更多好运。",
+        "圈层套利：你觉得简单的事，对别人可能很难。换个圈子，价值就变了。",
+        "系统碾压纪律：不是你的意志力有问题，是你的系统有问题。",
+        "不是X而是Y",
+        "免费内容质量 > 市面收费课 → 自然建立信任",
+        "开场钩子→痛点→方案（通常3步）→金句收尾",
+    ]
+    found = [line.strip("- **`> \t") for line in content.splitlines() if any(token in line for token in wanted)]
+    if not found:
+        return content[:1200]
+    return "\n".join(found[:18])
 
 
 def _compact(value: Any, limit: int = 120) -> str:
@@ -247,13 +295,16 @@ def build_channel_drafts_with_ai(
         except Exception:  # noqa: BLE001
             pass
 
-    return build_channel_drafts(
+    fallback = build_channel_drafts(
         source_text=source_text,
         title=title,
         summary=summary,
         source_type=source_type,
         hashtags=hashtags,
     )
+    fallback["wechat"]["skill_id"] = wechat_skill_id or fallback["wechat"]["skill_id"]
+    fallback["xiaohongshu"]["skill_id"] = xiaohongshu_skill_id or fallback["xiaohongshu"]["skill_id"]
+    return fallback
 
 
 def _ai_generate_channel_drafts(
@@ -278,6 +329,7 @@ def _ai_generate_channel_drafts(
         "账号定位：吸引对AI感兴趣的普通人，人设是知识成长女性，"
         "用大白话科普AI知识，后续考虑内容变现。目标是让人人都能听懂AI。"
     )
+    jianghushuo_lens = _load_jianghushuo_lens()
 
     system_prompt = f"""你是一位中文自媒体内容创作专家。
 {persona_block}
@@ -286,6 +338,18 @@ def _ai_generate_channel_drafts(
 - 文案主体必须使用中文，表达要像真人说话，不要翻译腔。
 - AI 工具名、模型名、产品名、公司名、英文缩写和专有名词可以保留英文原名，例如 Claude、ChatGPT、NotebookLM、API、Vibe Coding。
 - 不要把公认英文名称硬翻译成奇怪中文；但第一次出现英文缩写时，用一句中文解释它是干什么的。
+
+运营质量硬规则：
+- 不要复述资讯，不要写“以下内容来自接口返回结果”这种废话。你要替读者完成判断、翻译和补课。
+- 每篇都必须回答 5 个问题：这件事到底是什么；它解决谁的什么痛点；普通人今天怎么用；容易踩什么坑；下一步最小动作是什么。
+- 如果原始资料信息不足，要基于常识补齐“需要核验的清单”，但不要编造下载链接、价格、官方承诺、收益数字。
+- 公众号要像一篇能建立信任的付费前置内容：观点明确、步骤具体、有边界、有复盘感。
+- 小红书要像一篇能收藏的实操笔记：开头说人话，中间给步骤，最后给一个可复制动作。
+- 必须至少给出一个可直接复制的提示词、检查清单或操作步骤；否则判定为不合格。
+- 标题禁止空泛，不能只写“资讯检索”“安装说明”。标题要让读者知道看完能解决什么问题。
+
+姜胡说式思考参考（只吸收方法，不要模仿成男性口吻，不要自称姜胡说）：
+{jianghushuo_lens}
 
 请严格按照以下两个 Skill 规则分别生成公众号文章和小红书笔记。
 
@@ -300,12 +364,12 @@ def _ai_generate_channel_drafts(
   "wechat": {{
     "title": "公众号文章标题",
     "summary": "文章摘要（60-100字）",
-    "markdown": "完整公众号文章（Markdown格式，800-1500字，用##分节）"
+    "markdown": "完整公众号文章（Markdown格式，1000-1800字，用##分节，必须包含：我的判断、适合谁、具体步骤、坑点提醒、今天就能做的动作）"
   }},
   "xiaohongshu": {{
     "title": "小红书标题（不超过20字）",
     "cover_text": "封面短句（不超过12字）",
-    "body": "小红书正文（300-500字）\\n\\n{tags_str}",
+    "body": "小红书正文（350-650字，必须包含：适合谁、3-5步操作、避坑提醒、可复制动作）\\n\\n{tags_str}",
     "card_pages": [
       {{"title": "封面标题", "body": "封面一句话说明", "kind": "cover"}},
       {{"title": "01 要点标题（10字内）", "body": "要点详细说明（50-80字）", "kind": "content"}},
@@ -321,7 +385,13 @@ def _ai_generate_channel_drafts(
 摘要：{summary[:200] if summary else ""}
 
 原始内容：
-{source_text[:3000]}"""
+{source_text[:3000]}
+
+生成前请先在内部完成这一步，不要输出：
+1. 判断这个主题对读者的真实价值，不值得写就换成“如何判断它值不值得用”。
+2. 把零散资讯补成一个可执行流程。
+3. 对不确定信息标注“需要自行核验”，不要编造。
+4. 让内容像一个愿意长期付费的读者读完会说：这篇真的帮我少走了一步弯路。"""
 
     raw = _openai_chat(
         api_key=api_key,
@@ -387,14 +457,38 @@ def build_channel_drafts(
     final_title = _compact(title, 64) or ("今天值得关注的 3 个变化" if is_trend else "这件事，我终于想明白了")
 
     if is_trend:
-        wechat_intro = _compact(summary or paragraphs[0], 180)
+        wechat_intro = (
+            "先说我的判断：这条资讯真正的价值，不是让你多记一个工具名，"
+            "而是帮你判断它能不能变成一个省时间、可复盘、能长期积累的动作。"
+        )
+        usable_points = paragraphs[:6]
+        pain_point = _compact(usable_points[0] if usable_points else final_title, 140)
         wechat_sections = [
-            ("今天发生了什么", "\n".join(paragraphs[:4])),
-            ("这对普通人意味着什么", "\n".join(paragraphs[4:7] or paragraphs[:2])),
-            ("我准备怎么用", "先确认信息来源，再选一个和自己工作最相关的变化做小范围尝试，把判断留给自己。"),
+            ("先说结论：别追热点，先找能省时间的动作", f"这条信息真正值得看的地方，不是它又出现了一个新名词，而是它可能帮普通人减少一个重复动作。\n\n我的判断是：如果它不能帮你更快完成写作、整理、检索、复盘或发布，那它暂时就不是你的重点。先别收藏一堆工具，先问一句：它能不能替我省下今天 10 分钟？"),
+            ("这件事适合谁", f"适合三类人：第一，正在做内容但每天卡在选题和整理资料的人；第二，想学习 AI 但不知道从哪里开始的人；第三，希望把学习过程沉淀成个人资产的人。\n\n如果你只是想追最新工具名字，这篇不适合你。工具会变，但流程会留下。"),
+            ("普通人今天可以怎么用", "\n".join([
+                "第一步：把今天看到的资讯复制到一个文档里，只保留标题、链接和一句摘要。",
+                "第二步：让 AI 帮你拆成三列：它是什么、能帮谁、省掉什么动作。",
+                "第三步：只挑一个和你当前工作最相关的点，做 15 分钟小测试。",
+                "第四步：把测试结果写成一段复盘：哪里有用、哪里夸大、哪里还要人工判断。",
+                "第五步：把这段复盘改成小红书笔记或公众号文章，而不是直接搬运资讯。",
+            ])),
+            ("可直接复制的提示词", "请帮我分析下面这条 AI 资讯：1）它到底解决什么问题；2）适合哪类普通人；3）我今天可以用它做哪一个最小动作；4）有哪些风险或夸大宣传；5）帮我生成一条适合小红书/公众号的大白话选题。"),
+            ("容易踩的坑", "\n".join([
+                "坑一：把工具名字当内容。读者不关心你知道多少新工具，读者关心自己能不能少加班、少踩坑、少焦虑。",
+                "坑二：没有验证就推荐。凡是安装、付费、授权、数据上传相关内容，都要提醒读者自己核验来源。",
+                "坑三：只写“很厉害”。真正有价值的内容要说清楚：谁能用、怎么用、哪里不能用。",
+            ])),
+            ("今天就做一个最小动作", "不要再收藏 10 条资讯。今天只做一件事：选一个你最常重复的动作，比如整理资料、写开头、做选题，让 AI 跑一遍，然后记录节省了多少时间、结果哪里还要你修改。这个记录，就是你下一篇内容的素材。"),
         ]
-        xhs_hook = "今天的变化很多，但真正值得普通人关注的，不是模型名字，而是哪些工作正在变得更省时间。"
-        xhs_points = paragraphs[:4]
+        xhs_hook = "别再只收藏AI资讯了，真正有用的是把它变成你今天能省下10分钟的动作。"
+        xhs_points = [
+            "先问：它到底帮谁解决什么问题？",
+            "再问：我今天能不能用它完成一个小任务？",
+            "只测一个场景：写开头、整理资料、提炼观点或复盘流程。",
+            "把结果写下来：哪里省时间，哪里还得人工判断。",
+            "最后再决定要不要推荐给别人。",
+        ]
     else:
         wechat_intro = _compact(summary or paragraphs[0], 180)
         middle = max(1, len(paragraphs) // 2)
@@ -409,13 +503,22 @@ def build_channel_drafts(
     wechat_markdown = f"# {final_title}\n\n{wechat_intro}\n\n" + "\n\n".join(
         f"## {heading}\n\n{body}" for heading, body in wechat_sections if body
     )
-    wechat_markdown += "\n\n## 写在最后\n\n你遇到过类似的问题吗？可以先写下一个最想减少的重复动作。"
+    wechat_markdown += "\n\n## 写在最后\n\n真正有复利的不是知道更多工具，而是把一个动作反复优化。今天先别求大而全，先选一个最烦、最重复、最容易验证的小动作，让 AI 帮你跑一遍，再把结果复盘下来。"
 
-    xhs_title = _compact(final_title.replace("今天", ""), 20)
-    xhs_lines = [xhs_hook]
+    xhs_title = _compact(
+        final_title
+        .replace("资讯检索", "")
+        .replace("AI 最新资讯日报", "AI资讯")
+        .replace("今天", "")
+        .strip(" ：:-"),
+        20,
+    )
+    xhs_lines = [xhs_hook, "", "我的判断：不要把AI资讯当新闻看，要当成工作流改造线索。"]
     for index, point in enumerate(xhs_points[:5], start=1):
         xhs_lines.append(f"{index}. {_compact(point, 120)}")
-    xhs_lines.append("我更愿意把 AI 当成助手：它负责整理，我负责判断。你最想先改掉哪个重复流程？")
+    xhs_lines.append("可复制动作：把一条资讯丢给AI，问它“这件事能帮我省掉哪个重复动作？给我一个今天就能测试的步骤”。")
+    xhs_lines.append("提醒：安装、付费、授权、上传资料前，一定自己核验官方来源。")
+    xhs_lines.append("你最想先改掉哪个重复流程？")
     normalized_tags = []
     for tag in hashtags:
         value = re.sub(r"[#\s]+", "", str(tag or "")).strip()

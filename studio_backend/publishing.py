@@ -51,6 +51,21 @@ def _default_hashtags(job: dict[str, Any]) -> list[str]:
     return output[:8]
 
 
+def _clean_ai_trend_title(raw_title: str, trend: dict[str, Any]) -> str:
+    query = str(trend.get("query") or "").strip()
+    title = str(raw_title or query or trend.get("title") or "").strip()
+    title = re.sub(r"\s*资讯检索\s*\d{4}-\d{2}-\d{2}\s*$", "", title).strip()
+    title = re.sub(r"\s*AI 最新资讯日报\s*\d{4}-\d{2}-\d{2}\s*$", "AI 最新资讯日报", title).strip()
+    title = re.sub(r"\s*\d{4}-\d{2}-\d{2}\s*$", "", title).strip()
+    title = title or query or "今天值得关注的 AI 资讯"
+    lower_title = title.lower()
+    if len(title) <= 24 and any(word in lower_title for word in ("安装", "install", "教程", "说明")):
+        return _compact(f"{title}：先看这3个坑", 32)
+    if len(title) <= 18:
+        return _compact(f"{title}：普通人怎么用", 32)
+    return _compact(title, 48)
+
+
 def _wechat_html(title: str, summary: str, script: str) -> str:
     paragraphs = [
         html.escape(item.strip())
@@ -369,15 +384,20 @@ def prepare_distribution_package(
     final_summary = _compact(summary or script, 120)
     final_tags = hashtags or _default_hashtags(job)
     source_type = str(job.get("source_type") or request_payload.get("source_type") or "generated_job")
-    if wechat_skill_id or xiaohongshu_skill_id:
+    effective_wechat_skill_id = wechat_skill_id
+    effective_xhs_skill_id = xiaohongshu_skill_id
+    if source_type == "ai_trends":
+        effective_wechat_skill_id = effective_wechat_skill_id or "wechat_operator_flywheel_v1"
+        effective_xhs_skill_id = effective_xhs_skill_id or "xiaohongshu_operator_flywheel_v1"
+    if effective_wechat_skill_id or effective_xhs_skill_id:
         channel_drafts = build_channel_drafts_with_ai(
             source_text=script,
             title=final_title,
             summary=final_summary,
             source_type=source_type,
             hashtags=final_tags,
-            wechat_skill_id=wechat_skill_id or "wechat_article_v1",
-            xiaohongshu_skill_id=xiaohongshu_skill_id or "xiaohongshu_note_v1",
+            wechat_skill_id=effective_wechat_skill_id or "wechat_article_v1",
+            xiaohongshu_skill_id=effective_xhs_skill_id or "xiaohongshu_note_v1",
         )
     else:
         channel_drafts = build_channel_drafts(
@@ -524,7 +544,10 @@ def prepare_trend_distribution_package(
     if not content:
         raise ValueError("这份实时资讯没有可分发的内容。")
 
-    source_title = str(title or question or trend.get("title") or trend.get("query") or "").strip()
+    source_title = _clean_ai_trend_title(
+        str(title or question or trend.get("title") or trend.get("query") or "").strip(),
+        trend,
+    )
     synthetic_job = {
         "id": f"trend:{trend.get('id', '')}",
         "status": "completed",

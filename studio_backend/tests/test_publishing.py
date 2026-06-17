@@ -72,9 +72,9 @@ class PublishingTests(unittest.TestCase):
         self.assertTrue(result["xiaohongshu"]["card_urls"])
         self.assertEqual(
             result["xiaohongshu"]["skill_id"],
-            "xiaohongshu_note_v1",
+            "xiaohongshu_operator_flywheel_v1",
         )
-        self.assertEqual(result["wechat"]["skill_id"], "wechat_article_v1")
+        self.assertEqual(result["wechat"]["skill_id"], "wechat_operator_flywheel_v1")
         self.assertNotEqual(
             result["wechat"]["markdown"],
             result["xiaohongshu"]["body"],
