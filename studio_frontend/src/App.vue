@@ -1115,6 +1115,38 @@ function xiaohongshuStatusLabel(draft) {
   return "待发布";
 }
 
+function xiaohongshuNextStep(draft) {
+  const status = draft?.xiaohongshu?.status;
+  if (status === "published") {
+    return {
+      title: "小红书已发布，下一步看数据",
+      body: "这篇已经发出去了。现在不用重复发布，后面看浏览、点赞、收藏和评论，再决定是否复盘成下一篇。"
+    };
+  }
+  if (status === "publishing") {
+    return {
+      title: "正在自动发布，先等结果",
+      body: "服务器正在处理，不要重复点击。等页面状态变成已发布或失败后，再决定下一步。"
+    };
+  }
+  if (status === "login_required") {
+    return {
+      title: "先恢复小红书服务器登录",
+      body: "服务器小红书登录过期了。先到下方登录区检查登录状态，再回来点自动发布。"
+    };
+  }
+  if (status === "failed") {
+    return {
+      title: "发布失败，先看失败原因",
+      body: "先看下方错误或服务器截图。如果是登录、验证码、风控问题，先处理登录；如果是内容问题，改标题或正文后再发。"
+    };
+  }
+  return {
+    title: "确认内容后，点自动发布",
+    body: "标题、正文和图卡已经准备好。你要省事就点自动发布；如果担心账号风控，就下载图文包手动发。"
+  };
+}
+
 async function updateXiaohongshuStatus(task, status, applyResult, noteUrl = "") {
   if (!task?.id) return;
   busy.xiaohongshu = String(task.id);
@@ -1348,7 +1380,7 @@ function xiaohongshuPublishToken() {
 async function directPublishXiaohongshu(task, applyResult) {
   if (!task?.id) return;
   const title = String(task?.xiaohongshu?.title || task?.title || "").trim();
-  if (!window.confirm(`确认正式发布到小红书？\n\n标题：${title}\n\n发布后用户将能看到这篇内容。`)) return;
+  if (!window.confirm(`确认正式发布到小红书？\n\n标题：${title}\n\n发布后用户将能看到这篇内容。小红书可能识别第三方自动化，近期账号已有过预警；如果你仍要自动发布，请点确认。`)) return;
   const token = xiaohongshuPublishToken();
   if (!token) {
     setError("没有输入发布密钥，本次没有发布。");
@@ -2464,10 +2496,11 @@ onBeforeUnmount(() => {
               <span>小红书正文与话题</span>
               <textarea class="caption-box" readonly :value="trendDistributionDraft.xiaohongshu?.body"></textarea>
             </label>
-            <div class="publish-buttons">
-              <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.title, '小红书标题已复制。')">复制标题</button>
-              <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
-              <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.xiaohongshu?.package_url)" download>下载备用图文包</a>
+            <div class="next-step-card">
+              <strong>小红书下一步：{{ xiaohongshuNextStep(trendDistributionDraft).title }}</strong>
+              <p>{{ xiaohongshuNextStep(trendDistributionDraft).body }}</p>
+            </div>
+            <div class="publish-buttons primary-flow-actions">
               <button
                 class="btn accent small"
                 :disabled="busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) || trendDistributionDraft.xiaohongshu?.status === 'published'"
@@ -2477,7 +2510,6 @@ onBeforeUnmount(() => {
                 {{ busy.wechatCover ? "上传中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
                 <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
               </label>
-              <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览公众号文章</a>
               <button
                 class="btn accent small"
                 :disabled="!wechatEntry?.cover_configured || busy.wechatDraft === String(trendDistributionDraft.id)"
@@ -2492,6 +2524,15 @@ onBeforeUnmount(() => {
                 }}
               </button>
             </div>
+            <details class="secondary-actions">
+              <summary>备用操作：复制、下载、预览</summary>
+              <div class="publish-buttons">
+                <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.title, '小红书标题已复制。')">复制标题</button>
+                <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
+                <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.xiaohongshu?.package_url)" download>下载备用图文包</a>
+                <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览公众号文章</a>
+              </div>
+            </details>
             <p v-if="wechatDraftErrors[trendDistributionDraft.id]" class="error-text">
               {{ wechatDraftErrors[trendDistributionDraft.id] }}
             </p>
@@ -2815,16 +2856,15 @@ onBeforeUnmount(() => {
                 <img :src="mediaUrl(cardUrl)" :alt="`小红书图文第 ${cardIndex + 1} 页`" />
               </a>
             </div>
-            <div class="publish-buttons">
+            <div class="next-step-card">
+              <strong>小红书下一步：{{ xiaohongshuNextStep(materialDistributionDrafts[selectedWechatMaterial.id]).title }}</strong>
+              <p>{{ xiaohongshuNextStep(materialDistributionDrafts[selectedWechatMaterial.id]).body }}</p>
+            </div>
+            <div class="publish-buttons primary-flow-actions">
               <label class="upload-audio-label">
                 {{ busy.wechatCover ? "上传封面中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "先上传公众号封面") }}
                 <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
               </label>
-              <a
-                class="btn secondary small"
-                :href="mediaUrl(materialDistributionDrafts[selectedWechatMaterial.id].wechat?.article_html_url)"
-                target="_blank"
-              >预览公众号文章</a>
               <button
                 class="btn accent small"
                 type="button"
@@ -2839,15 +2879,25 @@ onBeforeUnmount(() => {
                       : "发送到公众号草稿箱"
                 }}
               </button>
-              <button class="btn secondary small" @click="copyText(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.title, '小红书标题已复制。')">复制小红书标题</button>
-              <button class="btn secondary small" @click="copyText(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.body, '小红书正文已复制。')">复制小红书正文</button>
-              <a class="btn secondary small" :href="mediaUrl(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.package_url)" download>下载备用图文包</a>
               <button
                 class="btn accent small"
                 :disabled="busy.xiaohongshuDirectPublish === String(materialDistributionDrafts[selectedWechatMaterial.id].id) || materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.status === 'published'"
                 @click="directPublishXiaohongshu(materialDistributionDrafts[selectedWechatMaterial.id], (result) => applyMaterialDistributionResult(selectedWechatMaterial.id, result))"
               >{{ busy.xiaohongshuDirectPublish === String(materialDistributionDrafts[selectedWechatMaterial.id].id) ? "发布中..." : "直接发布到小红书" }}</button>
             </div>
+            <details class="secondary-actions">
+              <summary>备用操作：复制、下载、预览</summary>
+              <div class="publish-buttons">
+                <button class="btn secondary small" @click="copyText(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.title, '小红书标题已复制。')">复制小红书标题</button>
+                <button class="btn secondary small" @click="copyText(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.body, '小红书正文已复制。')">复制小红书正文</button>
+                <a class="btn secondary small" :href="mediaUrl(materialDistributionDrafts[selectedWechatMaterial.id].xiaohongshu?.package_url)" download>下载备用图文包</a>
+                <a
+                  class="btn secondary small"
+                  :href="mediaUrl(materialDistributionDrafts[selectedWechatMaterial.id].wechat?.article_html_url)"
+                  target="_blank"
+                >预览公众号文章</a>
+              </div>
+            </details>
             <p v-if="!wechatEntry?.cover_configured" class="error-text">
               当前没有公众号封面。请先上传一张 JPG/PNG 封面，上传成功后发送按钮会自动解锁。
             </p>
@@ -2910,8 +2960,8 @@ onBeforeUnmount(() => {
         >{{ busy.xiaohongshuSession ? "检查中..." : "检查登录状态" }}</button>
       </div>
       <p class="meta">
-        手机号和验证码只用于本次服务器登录，不写入数据库。登录成功后，可保存到服务器上的小红书浏览器草稿。
-        小红书网页草稿保存在当前浏览器本地，因此不会出现在你电脑 Chrome 的草稿箱里。
+        手机号和验证码只用于本次服务器登录，不写入数据库。登录成功后，自动发布入口才可用。
+        如果小红书出现风控提醒，建议改用下载图文包后手动发布。
       </p>
       <p v-if="xiaohongshuServerSession?.message" class="meta">{{ xiaohongshuServerSession.message }}</p>
       <div v-if="!xiaohongshuServerSession?.logged_in" class="xiaohongshu-sms-login">
@@ -2976,7 +3026,7 @@ onBeforeUnmount(() => {
         <button class="btn secondary small" type="button" @click="refreshDistributionTasks">刷新草稿</button>
       </div>
       <p class="meta">
-        这里展示历史小红书发布包和处理结果。为保护账号，已关闭本站草稿和服务器浏览器草稿入口；建议下载图文包后手动发布。
+        这里展示历史小红书发布包和处理结果。已关闭本站草稿和服务器浏览器草稿入口；保留自动发布，同时提供下载图文包作为备用。
       </p>
       <div class="draft-list">
         <article v-for="draft in xiaohongshuSystemDrafts" :key="draft.id" class="publish-card">
@@ -3009,15 +3059,24 @@ onBeforeUnmount(() => {
               alt="服务器小红书草稿保存结果"
             />
           </a>
-          <div class="publish-buttons">
-            <button class="btn secondary small" @click="copyText(draft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
-            <a class="btn secondary small" :href="mediaUrl(draft.xiaohongshu?.package_url)" download>下载备用图文包</a>
+          <div class="next-step-card">
+            <strong>小红书下一步：{{ xiaohongshuNextStep(draft).title }}</strong>
+            <p>{{ xiaohongshuNextStep(draft).body }}</p>
+          </div>
+          <div class="publish-buttons primary-flow-actions">
             <button
               class="btn accent small"
               :disabled="busy.xiaohongshuDirectPublish === String(draft.id) || draft.xiaohongshu?.status === 'published'"
               @click="directPublishXiaohongshu(draft, applySavedDistributionTask)"
             >{{ busy.xiaohongshuDirectPublish === String(draft.id) ? "发布中..." : "直接发布到小红书" }}</button>
           </div>
+          <details class="secondary-actions">
+            <summary>备用操作：复制、下载</summary>
+            <div class="publish-buttons">
+              <button class="btn secondary small" @click="copyText(draft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
+              <a class="btn secondary small" :href="mediaUrl(draft.xiaohongshu?.package_url)" download>下载备用图文包</a>
+            </div>
+          </details>
         </article>
       </div>
     </section>
@@ -3277,20 +3336,15 @@ onBeforeUnmount(() => {
               <span>小红书正文</span>
               <textarea class="caption-box" readonly :value="distributionDrafts[job.id].xiaohongshu?.body"></textarea>
             </label>
-            <div class="publish-buttons">
+            <div class="next-step-card">
+              <strong>小红书下一步：{{ xiaohongshuNextStep(distributionDrafts[job.id]).title }}</strong>
+              <p>{{ xiaohongshuNextStep(distributionDrafts[job.id]).body }}</p>
+            </div>
+            <div class="publish-buttons primary-flow-actions">
               <label class="upload-audio-label">
                 {{ busy.wechatCover ? "上传封面中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
                 <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
               </label>
-              <button
-                class="btn secondary small"
-                @click="copyText(distributionDrafts[job.id].xiaohongshu?.body, '小红书正文已复制。')"
-              >复制正文</button>
-              <button
-                class="btn secondary small"
-                @click="copyText(distributionDrafts[job.id].xiaohongshu?.title, '小红书标题已复制。')"
-              >复制标题</button>
-              <a class="btn secondary small" :href="mediaUrl(distributionDrafts[job.id].xiaohongshu?.package_url)" download>下载备用图文包</a>
               <button
                 class="btn accent small"
                 :disabled="busy.xiaohongshuDirectPublish === String(distributionDrafts[job.id].id) || distributionDrafts[job.id].xiaohongshu?.status === 'published'"
@@ -3310,6 +3364,20 @@ onBeforeUnmount(() => {
                 }}
               </button>
             </div>
+            <details class="secondary-actions">
+              <summary>备用操作：复制、下载</summary>
+              <div class="publish-buttons">
+                <button
+                  class="btn secondary small"
+                  @click="copyText(distributionDrafts[job.id].xiaohongshu?.body, '小红书正文已复制。')"
+                >复制正文</button>
+                <button
+                  class="btn secondary small"
+                  @click="copyText(distributionDrafts[job.id].xiaohongshu?.title, '小红书标题已复制。')"
+                >复制标题</button>
+                <a class="btn secondary small" :href="mediaUrl(distributionDrafts[job.id].xiaohongshu?.package_url)" download>下载备用图文包</a>
+              </div>
+            </details>
             <p v-if="wechatDraftErrors[distributionDrafts[job.id].id]" class="error-text">
               {{ wechatDraftErrors[distributionDrafts[job.id].id] }}
             </p>
@@ -5286,6 +5354,48 @@ textarea {
   justify-content: space-between;
 }
 
+.primary-flow-actions {
+  justify-content: flex-start;
+  padding: 8px 0;
+}
+
+.next-step-card {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(0, 213, 232, 0.28);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(0, 213, 232, 0.08);
+}
+
+.next-step-card strong {
+  color: #0a5a66;
+}
+
+.next-step-card p {
+  margin: 0;
+  color: #5b6d7f;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.secondary-actions {
+  border-top: 1px solid rgba(138, 164, 190, 0.22);
+  padding-top: 8px;
+}
+
+.secondary-actions summary {
+  cursor: pointer;
+  color: #647890;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.secondary-actions .publish-buttons {
+  justify-content: flex-start;
+  margin-top: 8px;
+}
+
 .publish-card-head span,
 .publish-card ol {
   color: #6b5b4a;
@@ -5864,6 +5974,20 @@ textarea {
   background: #00aeca;
   color: #06111c;
   box-shadow: none;
+}
+
+.studio-page .next-step-card {
+  border-color: rgba(0, 213, 232, 0.34);
+  background: rgba(0, 213, 232, 0.1);
+}
+
+.studio-page .next-step-card strong {
+  color: #d9fbff;
+}
+
+.studio-page .next-step-card p,
+.studio-page .secondary-actions summary {
+  color: #a9bfda;
 }
 
 .studio-page .accent {
