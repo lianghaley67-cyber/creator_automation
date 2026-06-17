@@ -282,6 +282,11 @@ def _ai_generate_channel_drafts(
     system_prompt = f"""你是一位中文自媒体内容创作专家。
 {persona_block}
 
+语言硬规则：
+- 文案主体必须使用中文，表达要像真人说话，不要翻译腔。
+- AI 工具名、模型名、产品名、公司名、英文缩写和专有名词可以保留英文原名，例如 Claude、ChatGPT、NotebookLM、API、Vibe Coding。
+- 不要把公认英文名称硬翻译成奇怪中文；但第一次出现英文缩写时，用一句中文解释它是干什么的。
+
 请严格按照以下两个 Skill 规则分别生成公众号文章和小红书笔记。
 
 【公众号文章 Skill 规则】
