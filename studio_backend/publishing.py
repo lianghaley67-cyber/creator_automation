@@ -181,6 +181,178 @@ def _wechat_channel_html(markdown: str) -> str:
     )
 
 
+def _tutorial_font(size: int, *, bold: bool = False) -> Any:
+    try:
+        from PIL import ImageFont
+
+        path = "C:/Windows/Fonts/msyhbd.ttc" if bold else "C:/Windows/Fonts/msyh.ttc"
+        return ImageFont.truetype(path, size)
+    except Exception:  # noqa: BLE001
+        from PIL import ImageFont
+
+        return ImageFont.load_default()
+
+
+def _wrap_image_text(draw: Any, text: str, font: Any, max_width: int) -> list[str]:
+    lines: list[str] = []
+    for para in str(text or "").splitlines():
+        buffer = ""
+        for char in para:
+            if draw.textlength(buffer + char, font=font) <= max_width:
+                buffer += char
+            else:
+                if buffer:
+                    lines.append(buffer)
+                buffer = char
+        if buffer:
+            lines.append(buffer)
+    return lines or [""]
+
+
+def _tutorial_screenshot_card(
+    output_path: Path,
+    *,
+    title: str,
+    subtitle: str,
+    blocks: list[tuple[str, str, str]],
+    footer: str = "",
+) -> None:
+    from PIL import Image, ImageDraw
+
+    width, height = 1100, 680
+    image = Image.new("RGB", (width, height), "#f6f8fb")
+    draw = ImageDraw.Draw(image)
+    font_title = _tutorial_font(34, bold=True)
+    font_sub = _tutorial_font(22)
+    font_body = _tutorial_font(20)
+    font_small = _tutorial_font(17)
+    draw.rounded_rectangle((36, 36, width - 36, height - 36), radius=24, fill="#ffffff", outline="#d0d5dd", width=2)
+    draw.text((70, 70), title, font=font_title, fill="#1f2937")
+    draw.text((72, 122), subtitle, font=font_sub, fill="#667085")
+    y = 178
+    for label, body, color in blocks:
+        draw.rounded_rectangle((70, y, width - 70, y + 88), radius=18, fill="#f9fafb", outline="#d0d5dd", width=1)
+        draw.rounded_rectangle((92, y + 24, 180, y + 64), radius=10, fill=color)
+        draw.text((112, y + 30), label, font=font_small, fill="#ffffff")
+        yy = y + 20
+        for line in _wrap_image_text(draw, body, font_body, width - 300)[:2]:
+            draw.text((205, yy), line, font=font_body, fill="#1f2937")
+            yy += 28
+        y += 108
+    if footer:
+        draw.text((72, height - 90), footer, font=font_small, fill="#667085")
+    image.save(output_path, quality=92)
+
+
+def _generate_tool_tutorial_screenshots(
+    package_dir: Path,
+    *,
+    tool_name: str,
+    official_url: str,
+) -> list[dict[str, str]]:
+    try:
+        from PIL import Image, ImageDraw
+    except Exception:  # noqa: BLE001
+        return []
+
+    image_dir = package_dir / "tutorial_screenshots"
+    image_dir.mkdir(parents=True, exist_ok=True)
+    official_url = official_url or "没有抓到官方链接，先不要按第三方链接安装。"
+    tool_name = _compact(tool_name or "这个工具", 24)
+
+    width, height = 1100, 680
+    image = Image.new("RGB", (width, height), "#eef6ff")
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((40, 40, width - 40, height - 40), radius=26, fill="#ffffff", outline="#d0d5dd", width=2)
+    draw.text((80, 78), "截图 1：先确认官方入口", font=_tutorial_font(34, bold=True), fill="#1f2937")
+    draw.text((82, 130), "目的：避免点到第三方安装包或不明下载站。", font=_tutorial_font(22), fill="#667085")
+    draw.rounded_rectangle((110, 210, width - 110, 290), radius=18, fill="#f9fafb", outline="#d0d5dd", width=2)
+    draw.text((140, 235), f"浏览器地址栏： {official_url}", font=_tutorial_font(22), fill="#1f2937")
+    draw.rounded_rectangle((330, 360, 560, 430), radius=18, fill="#177ddc")
+    draw.text((378, 380), "Download", font=_tutorial_font(22), fill="#ffffff")
+    draw.rounded_rectangle((590, 360, 820, 430), radius=18, fill="#10b8d8")
+    draw.text((640, 380), "Get Started", font=_tutorial_font(22), fill="#ffffff")
+    draw.text((110, 505), "小白要看：域名是不是官方；页面里有没有 Download / Get Started / Sign in。", font=_tutorial_font(20), fill="#1f2937")
+    draw.text((110, 545), "卡住处理：打不开先换浏览器或网络，不要马上搜索陌生安装包。", font=_tutorial_font(20), fill="#1f2937")
+    first = image_dir / "01_official_entry.png"
+    image.save(first, quality=92)
+
+    _tutorial_screenshot_card(
+        image_dir / "02_test_folder.png",
+        title="截图 2：新建安全测试文件夹",
+        subtitle="目的：第一次不要拿真实项目或私人资料测试。",
+        blocks=[
+            ("做什么", f"在桌面新建 {tool_name}-test 文件夹，只放一个 README.md。", "#10b981"),
+            ("写什么", "README 里写：我想解决什么问题、我卡在哪里、希望输出什么。", "#10b8d8"),
+            ("成功", "文件夹里只有测试内容，不包含客户资料、账号、隐私文件。", "#ff7a45"),
+        ],
+        footer="建议截图：截文件夹窗口，画面里能看到测试文件夹和 README.md。",
+    )
+    _tutorial_screenshot_card(
+        image_dir / "03_first_prompt.png",
+        title="截图 3：输入第一条提示词",
+        subtitle="目的：先让工具解释和列计划，不要上来就修改。",
+        blocks=[
+            ("提示词", "我是新手，请先不要修改文件。请解释这个测试文件夹有什么。", "#177ddc"),
+            ("要求", "告诉我下一步最小动作，并列出风险；不确定的地方标注需要核验。", "#10b8d8"),
+            ("成功", "输出里有：看到的信息、建议步骤、风险提醒。", "#10b981"),
+        ],
+        footer="建议截图：截工具对话框，画面里要看到你的提示词和它的计划。",
+    )
+    _tutorial_screenshot_card(
+        image_dir / "04_check_result.png",
+        title="截图 4：检查结果是否靠谱",
+        subtitle="目的：AI 只是助手，最后判断还要你自己做。",
+        blocks=[
+            ("检查", "它有没有说明依据？有没有胡编价格、官网承诺、功能边界？", "#ff7a45"),
+            ("限制", "第一次只让它改一个小文件，或生成一个小清单。", "#10b8d8"),
+            ("复盘", "记录：省了什么时间、哪里不准、下次提示词怎么改。", "#10b981"),
+        ],
+        footer="建议截图：截输出结果和你的复盘记录，后续能直接变成文章素材。",
+    )
+    return [
+        {"src": "tutorial_screenshots/01_official_entry.png", "alt": f"{tool_name} 官方入口示意图", "caption": "截图 1：先确认官方入口和 Download / Get Started 按钮。"},
+        {"src": "tutorial_screenshots/02_test_folder.png", "alt": "新建测试文件夹示意图", "caption": "截图 2：第一次只建测试文件夹，不碰真实项目。"},
+        {"src": "tutorial_screenshots/03_first_prompt.png", "alt": "第一条提示词示意图", "caption": "截图 3：第一条提示词只要求解释和计划，不让工具直接修改。"},
+        {"src": "tutorial_screenshots/04_check_result.png", "alt": "结果检查示意图", "caption": "截图 4：检查结果、限制改动范围，并写下复盘。"},
+    ]
+
+
+def _inject_tool_tutorial_screenshots(article_html: str, images: list[dict[str, str]]) -> str:
+    if not images or "配图实操版：照着这 4 张图做" in article_html:
+        return article_html
+    figures = [
+        '<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">配图实操版：照着这 4 张图做</h2>',
+        '<p style="font-size:16px;line-height:1.9;color:#243241;margin:0 0 16px;">下面这 4 张图可以直接放进公众号文章。它们的作用不是装饰，而是帮读者确认每一步有没有走对。</p>',
+    ]
+    for item in images:
+        figures.append(
+            '<figure style="margin:22px 0;">'
+            f'<img src="{html.escape(item["src"])}" alt="{html.escape(item["alt"])}" '
+            'style="max-width:100%;border-radius:12px;border:1px solid #d0d5dd;">'
+            f'<figcaption style="font-size:14px;color:#667085;line-height:1.7;margin-top:8px;">{html.escape(item["caption"])}</figcaption>'
+            "</figure>"
+        )
+    insert = "".join(figures)
+    marker = '<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">安装：小白照着这几步走</h2>'
+    if marker in article_html:
+        return article_html.replace(marker, insert + marker, 1)
+    return article_html.replace("</body></html>", insert + "</body></html>")
+
+
+def _official_url_from_markdown(markdown: str) -> str:
+    match = re.search(r"官方链接：\s*(https?://[^\s<]+)", markdown)
+    if match:
+        return match.group(1).rstrip("。,.，")
+    match = re.search(r"https?://[^\s<]+", markdown)
+    return match.group(0).rstrip("。,.，") if match else ""
+
+
+def _tool_name_from_title(title: str) -> str:
+    text = re.split(r"[\s：:，,、-]", str(title or "").strip(), maxsplit=1)[0]
+    return _compact(text or "这个工具", 24)
+
+
 def _source_media_files(artifacts: dict[str, Any]) -> list[Path]:
     candidates: list[str] = []
 
@@ -488,9 +660,15 @@ def prepare_distribution_package(
     package_dir.mkdir(parents=True, exist_ok=True)
     wechat_file = package_dir / "wechat_article.html"
     xhs_file = package_dir / "xiaohongshu_note.txt"
-    wechat_file.write_text(
-        _wechat_channel_html(str(wechat_draft["markdown"])), encoding="utf-8"
-    )
+    wechat_html = _wechat_channel_html(str(wechat_draft["markdown"]))
+    if str(wechat_draft.get("skill_id") or "").endswith("tool_deep_review_v1"):
+        tutorial_images = _generate_tool_tutorial_screenshots(
+            package_dir,
+            tool_name=_tool_name_from_title(str(wechat_draft.get("title") or final_title)),
+            official_url=_official_url_from_markdown(str(wechat_draft.get("markdown") or "")),
+        )
+        wechat_html = _inject_tool_tutorial_screenshots(wechat_html, tutorial_images)
+    wechat_file.write_text(wechat_html, encoding="utf-8")
     xhs_file.write_text(f"{xhs_title}\n\n{xhs_body}", encoding="utf-8")
     card_files: list[Path] = []
     card_error = ""
