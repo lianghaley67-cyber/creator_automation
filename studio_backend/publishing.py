@@ -166,11 +166,18 @@ def _wechat_channel_html(markdown: str) -> str:
             blocks.append(
                 f'<p style="font-size:16px;line-height:1.9;color:#243241;margin:0 0 16px;">{html.escape(line)}</p>'
             )
-    return (
+    section = (
         '<section style="max-width:100%;font-family:-apple-system,BlinkMacSystemFont,'
         "'Segoe UI','Microsoft YaHei',sans-serif;\">"
         + "".join(blocks)
         + "</section>"
+    )
+    return (
+        "<!doctype html><html><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        "</head><body>"
+        + section
+        + "</body></html>"
     )
 
 
