@@ -316,6 +316,19 @@ _TOOL_RESEARCH_SPECIFIC_TOOLS = (
     "抬耳",
 )
 
+_KNOWN_OFFICIAL_URLS = {
+    "trae": "https://www.trae.ai/",
+    "cursor": "https://www.cursor.com/",
+    "claude": "https://claude.ai/",
+    "claude code": "https://docs.anthropic.com/en/docs/claude-code/overview",
+    "chatgpt": "https://chatgpt.com/",
+    "notebooklm": "https://notebooklm.google.com/",
+    "windsurf": "https://windsurf.com/",
+    "gemini": "https://gemini.google.com/",
+    "copilot": "https://github.com/features/copilot",
+    "perplexity": "https://www.perplexity.ai/",
+}
+
 
 def _is_tool_research_request(title: str, source_text: str, source_type: str) -> bool:
     corpus = f"{title} {source_text} {source_type}".lower()
@@ -380,6 +393,26 @@ def _evidence_lines(source_text: str, limit: int = 6) -> list[str]:
     return lines
 
 
+def _extract_urls(source_text: str) -> list[str]:
+    urls: list[str] = []
+    for raw_url in re.findall(r"https?://[^\s)）】\]。；;，,]+", str(source_text or "")):
+        url = raw_url.rstrip(".")
+        if url not in urls:
+            urls.append(url)
+    return urls
+
+
+def _official_url_for_tool(tool_name: str, source_text: str) -> str:
+    lower_name = str(tool_name or "").lower()
+    for key, url in _KNOWN_OFFICIAL_URLS.items():
+        if key in lower_name:
+            return url
+    urls = _extract_urls(source_text)
+    if urls:
+        return urls[0]
+    return ""
+
+
 def _build_tool_research_fallback(
     *,
     source_text: str,
@@ -390,6 +423,8 @@ def _build_tool_research_fallback(
     tool_name = _infer_tool_name(title, source_text)
     evidence_items = _evidence_lines(source_text)
     evidence = "\n".join(f"- {item}" for item in evidence_items) or "- 当前资料不足，需要继续核验官方说明。"
+    official_url = _official_url_for_tool(tool_name, source_text)
+    official_line = official_url or "没有抓到官方链接，先不要按第三方链接安装。"
     final_title = _compact(f"{tool_name} 零基础上手：安装、配置和第一个任务", 64)
     wechat_summary = _compact(
         f"{tool_name} 的重点不是名字新不新，而是它能不能进入你的真实工作流：安装前先看入口、权限和成本，上手后先用一个小任务验证效果。",
@@ -417,6 +452,14 @@ def _build_tool_research_fallback(
 
 {evidence}
 
+关键入口：
+
+- 官方链接：{official_line}
+- 安装入口：优先从官方链接进入，不要从网盘、陌生论坛或不明安装包下载。
+- 账号要求：资料不足，建议以官方页面提示为准。
+- 费用/额度：资料不足，建议登录后查看官方说明。
+- 数据权限：如果要打开本地文件、项目代码或上传资料，先确认权限和隐私提示。
+
 还需要你自己核验的关键信息：
 
 1. 官网或官方下载入口。
@@ -438,21 +481,55 @@ def _build_tool_research_fallback(
 
 不适合两类人：第一，期待安装完立刻自动解决所有问题的人；第二，不愿意看权限、账号、数据上传风险的人。
 
-## 安装：先按这个顺序检查
+## 安装：小白照着这几步走
 
-当前资料不足以保证所有安装细节都准确，所以建议按这个顺序核验：
+第一步：打开官方入口。
 
-1. 先找官网或官方文档，不要随便点第三方安装包。
-2. 确认电脑系统是否支持。
-3. 确认是否需要账号、手机号、邮箱或海外网络环境。
-4. 确认免费额度、付费规则和可用模型。
-5. 如果要打开本地文件或项目，先备份重要资料。
+操作：在浏览器里打开 {official_line}。
 
-[截图：官网或下载入口]
+你会看到什么：正常情况下会看到官网首页、产品介绍、Download、Get Started、Sign in 或类似入口。
 
-[截图：安装完成后的首页]
+卡住怎么办：如果打不开，先确认网址是否来自官方来源，不要马上搜索下载包替代。
 
-[截图：账号登录或模型选择页面]
+第二步：找下载或开始使用按钮。
+
+操作：优先点击官网里的 Download、Get Started、Try、Start building、Sign in 这类按钮。
+
+你会看到什么：可能进入下载页、登录页、系统版本选择页，或者直接进入 Web 工作台。
+
+卡住怎么办：如果页面要求登录，先看是否支持邮箱、Google、GitHub 或手机号登录；不要随便授权不认识的第三方。
+
+第三步：确认系统和版本。
+
+操作：下载前确认页面是否写明 Windows、macOS、Linux、Web、VS Code 插件等支持方式。
+
+你会看到什么：正常下载文件一般会显示 `.exe`、`.dmg`、`.zip`、扩展商店页面或 Web 入口。
+
+卡住怎么办：如果你的系统不匹配，先不要硬装，改用官方 Web 版或等官方支持。
+
+第四步：安装并登录。
+
+操作：安装完成后打开工具，按页面提示登录账号。
+
+你会看到什么：通常会进入首页、工作台、模型选择、项目导入或新建项目页面。
+
+卡住怎么办：如果登录失败，先看是否需要网络环境、验证码、地区限制或账号权限。
+
+第五步：先做一个测试任务。
+
+操作：不要打开重要项目。新建一个测试文件夹或复制一段普通文本，让 {tool_name} 解释它看到的内容。
+
+你会看到什么：它应该先给你解释、步骤、建议，而不是直接替你大规模修改。
+
+卡住怎么办：如果它开始胡编或乱改，马上停止，换成更明确的提示词。
+
+[截图建议：截官网首页，画面里要看到官方域名和 Download / Get Started / Sign in 入口]
+
+[截图建议：截下载或版本选择页面，画面里要看到 Windows / macOS / Web / 插件入口]
+
+[截图建议：截安装完成后的首页，画面里要看到新建项目、打开文件夹或开始使用按钮]
+
+[截图建议：截第一个测试任务页面，画面里要看到你的问题和工具给出的步骤]
 
 ## 完全新手第一次怎么用
 
@@ -465,6 +542,13 @@ def _build_tool_research_fallback(
 第四步：你自己核对结果，不要直接复制发布。
 
 第五步：把好用的提问保存下来，变成你自己的固定模板。
+
+## 截图清单：文章里建议配这 4 张
+
+1. 官网首页截图：证明入口来自官方，读者不会找错地方。
+2. 下载/版本选择截图：让读者知道自己该点 Windows、macOS、Web 还是插件。
+3. 登录/工作台截图：让读者知道安装成功后应该看到什么。
+4. 第一个测试任务截图：让读者知道第一次使用不是直接处理重要项目，而是先跑一个小练习。
 
 ## 可直接复制的提示词
 
@@ -528,8 +612,10 @@ def _build_tool_research_fallback(
             f"{tool_name} 到底能干什么？",
             f"{tool_name} 更适合用一个小任务先试效果，比如整理资料、理解项目、拆步骤或生成内容。",
             "适合谁：想用AI辅助学习、整理资料、写教程、理解项目的人。",
-            "安装前先检查：\n1. 官网或官方文档\n2. 系统是否支持\n3. 是否需要账号/网络环境\n4. 免费额度和付费规则\n5. 是否会读取本地文件或上传资料",
-            "新手第一次这样用：\n1. 拿一个小任务测试\n2. 让它先解释，不要直接生成\n3. 让它给步骤清单\n4. 你自己核对结果\n5. 保存好用的提示词",
+            f"官方入口：{official_line}",
+            "安装前先检查：\n1. 域名是不是官方\n2. 系统是否支持\n3. 是否需要账号/网络环境\n4. 免费额度和付费规则\n5. 是否会读取本地文件或上传资料",
+            "小白操作步骤：\n1. 打开官方链接\n2. 找 Download / Get Started\n3. 选择自己的系统版本\n4. 安装后登录账号\n5. 先拿测试文件夹或一小段文字试用",
+            "截图建议：\n1. 官网首页\n2. 下载按钮\n3. 登录/工作台页面\n4. 第一个测试任务页面",
             "可复制提示词：\n“我是完全新手，请用大白话告诉我这个工具是干什么的、适合谁、怎么开始用、有哪些坑。没有证据的信息请标注需要核验。”",
             "你想让我下一篇继续拆：安装流程、使用案例，还是和同类工具对比？",
             " ".join(f"#{tag}" for tag in tags[:6]),
@@ -539,8 +625,9 @@ def _build_tool_research_fallback(
         {"title": xhs_title, "body": f"先判断 {tool_name} 能不能解决你的问题，再决定要不要安装。", "kind": "cover"},
         {"title": "01 它是什么", "body": f"{tool_name} 是一个需要结合具体场景判断的 AI 工具，先看用途，再看安装。", "kind": "content"},
         {"title": "02 适合谁", "body": "适合想用 AI 学习、整理资料、写教程、理解项目的人。", "kind": "content"},
-        {"title": "03 先检查", "body": "官网来源、系统支持、账号规则、付费额度、数据权限都要先核验。", "kind": "content"},
-        {"title": "04 第一步", "body": "拿一个小任务测试，让它先解释、再列步骤，最后自己核对结果。", "kind": "content"},
+        {"title": "03 官方入口", "body": f"优先从官方链接进入：{official_line}。不要从网盘、陌生论坛或不明安装包下载。", "kind": "content"},
+        {"title": "04 小白步骤", "body": "打开官方链接，找 Download 或 Get Started，选择系统版本，登录后先跑一个测试任务。", "kind": "content"},
+        {"title": "05 截图清单", "body": "配图建议截官网首页、下载按钮、登录页面、第一个测试任务页面。", "kind": "content"},
     ]
     return {
         "wechat": {
@@ -671,7 +758,10 @@ def _ai_generate_channel_drafts(
 - 不要复述资讯，不要写“以下内容来自接口返回结果”这种废话。你要替读者完成判断、翻译和补课。
 - 每篇都必须回答 5 个问题：这件事到底是什么；它解决谁的什么痛点；普通人今天怎么用；容易踩什么坑；下一步最小动作是什么。
 - 如果主题是某个具体工具、安装教程、使用说明或“怎么用”，必须优先写成工具说明书，而不是运营观点文。必须包含：工具是什么、核心功能、解决的问题、适合人群、安装/访问方式、新手第一步、进阶用法、常见坑、待核验信息。
-- 如果使用“AI工具深度实测”类 Skill，公众号必须写成深度教程文章：开头结论、工具是什么、核心信息卡、安装步骤、基础使用、进阶使用、问题避坑、同类工具对比、我的使用建议、最后结论。可以用[截图：xxx]占位提示后续配图。
+- 如果使用“AI工具深度实测”类 Skill，公众号必须写成深度教程文章：开头结论、工具是什么、核心信息卡、官方链接、逐步安装、基础使用、截图清单、进阶使用、问题避坑、同类工具对比、我的使用建议、最后结论。
+- 工具教程必须给官方链接；只有原始资料或常识能确认时才写具体链接。没有官方链接时，必须写“没有抓到官方链接，先不要按第三方链接安装”。
+- 操作步骤必须适合小白：每一步都写“操作 / 你会看到什么 / 卡住怎么办”。不能只写“去官网下载”“按提示安装”。
+- 截图不能只写“附图”，必须写成截图建议，例如：[截图建议：截官网首页，画面里要看到官方域名和 Download 按钮]。
 - 上面这些是幕后写作检查清单，不能原样写进正文。正文里禁止出现“我会按什么顺序拆”“本文将包含”“资料里没明确写出的部分我会标注”“以下回答几个问题”这类模板说明。
 - 如果原始资料信息不足，要基于常识补齐“需要核验的清单”，但不要编造下载链接、价格、官方承诺、收益数字。
 - 公众号要像一篇能建立信任的付费前置内容：观点明确、步骤具体、有边界、有复盘感。
@@ -695,7 +785,7 @@ def _ai_generate_channel_drafts(
   "wechat": {{
     "title": "公众号文章标题",
     "summary": "文章摘要（60-100字）",
-    "markdown": "完整公众号文章（Markdown格式，1200-2200字，用##分节；工具教程必须包含：开头结论、工具是什么、核心信息卡、安装步骤、基础使用、进阶使用、问题避坑、同类工具对比、我的使用建议、最后结论）"
+    "markdown": "完整公众号文章（Markdown格式，1200-2200字，用##分节；工具教程必须包含：开头结论、工具是什么、核心信息卡、官方链接、逐步安装、截图清单、基础使用、进阶使用、问题避坑、同类工具对比、我的使用建议、最后结论）"
   }},
   "xiaohongshu": {{
     "title": "小红书标题（不超过20字）",
@@ -720,7 +810,7 @@ def _ai_generate_channel_drafts(
 
 生成前请先在内部完成这一步，不要输出：
 1. 判断这个主题是“工具深度实测教程”“工具说明书”还是“资讯观点文”。只要出现具体工具名、安装、教程、配置、怎么用，就优先按工具深度实测教程写。
-2. 从原始内容中提取确实信息：工具名称、用途、平台、安装入口、操作步骤、限制条件、来源链接。没有证据的地方标注“资料不足，建议核验”，不要用空话替代。
+2. 从原始内容中提取确实信息：工具名称、用途、平台、官方链接、安装入口、操作步骤、限制条件、来源链接。没有证据的地方标注“资料不足，建议核验”，不要用空话替代。
 3. 把零散资讯补成一个可执行流程。
 4. 对不确定信息标注“需要自行核验”，不要编造。
 5. 让内容像一个愿意长期付费的读者读完会说：这篇真的帮我少走了一步弯路。"""
