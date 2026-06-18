@@ -296,8 +296,8 @@ _TOOL_RESEARCH_SOFT_MARKERS = ("怎么用", "上手", "使用", "入门")
 _TOOL_RESEARCH_SPECIFIC_TOOLS = (
     "cursor",
     "trae",
-    "claude",
     "claude code",
+    "claude",
     "notebooklm",
     "windsurf",
     "gemini",
@@ -319,8 +319,8 @@ _TOOL_RESEARCH_SPECIFIC_TOOLS = (
 _KNOWN_OFFICIAL_URLS = {
     "trae": "https://www.trae.ai/",
     "cursor": "https://www.cursor.com/",
-    "claude": "https://claude.ai/",
     "claude code": "https://docs.anthropic.com/en/docs/claude-code/overview",
+    "claude": "https://claude.ai/",
     "chatgpt": "https://chatgpt.com/",
     "notebooklm": "https://notebooklm.google.com/",
     "windsurf": "https://windsurf.com/",
@@ -343,8 +343,8 @@ def _infer_tool_name(title: str, source_text: str) -> str:
     known = [
         "Trae",
         "Cursor",
-        "Claude",
         "Claude Code",
+        "Claude",
         "ChatGPT",
         "NotebookLM",
         "Windsurf",
@@ -362,8 +362,9 @@ def _infer_tool_name(title: str, source_text: str) -> str:
     return _compact(cleaned or "这个工具", 24)
 
 
-def _evidence_lines(source_text: str, limit: int = 6) -> list[str]:
+def _evidence_lines(source_text: str, tool_name: str = "", limit: int = 6) -> list[str]:
     lines: list[str] = []
+    tool_lines: list[str] = []
     skip_prefixes = (
         "按你的要求检索",
         "以下内容来自",
@@ -376,6 +377,7 @@ def _evidence_lines(source_text: str, limit: int = 6) -> list[str]:
         "帮我",
         "我想",
     )
+    tool_token = str(tool_name or "").lower().strip()
     for raw in str(source_text or "").splitlines():
         line = re.sub(r"\s+", " ", raw).strip(" -")
         if len(line) < 4:
@@ -384,13 +386,20 @@ def _evidence_lines(source_text: str, limit: int = 6) -> list[str]:
             continue
         if any(line.startswith(prefix) for prefix in skip_prefixes):
             continue
+        if any(marker in line for marker in ("无关的", "不应该混进", "不应混进")):
+            continue
         if line.startswith("http"):
             line = f"来源链接：{line}"
-        if line not in lines:
-            lines.append(_compact(line, 240))
-        if len(lines) >= limit:
+        compacted = _compact(line, 240)
+        if tool_token and tool_token in line.lower() and compacted not in tool_lines:
+            tool_lines.append(compacted)
+        elif compacted not in lines:
+            lines.append(compacted)
+        if len(tool_lines) >= limit:
             break
-    return lines
+    if tool_lines:
+        return tool_lines[:limit]
+    return lines[:limit]
 
 
 def _extract_urls(source_text: str) -> list[str]:
@@ -421,7 +430,7 @@ def _build_tool_research_fallback(
     hashtags: list[str],
 ) -> dict[str, Any]:
     tool_name = _infer_tool_name(title, source_text)
-    evidence_items = _evidence_lines(source_text)
+    evidence_items = _evidence_lines(source_text, tool_name=tool_name)
     evidence = "\n".join(f"- {item}" for item in evidence_items) or "- 当前资料不足，需要继续核验官方说明。"
     official_url = _official_url_for_tool(tool_name, source_text)
     official_line = official_url or "没有抓到官方链接，先不要按第三方链接安装。"
@@ -776,6 +785,29 @@ def build_channel_drafts_with_ai(
     xiaohongshu_skill_id: str = "xiaohongshu_note_v1",
 ) -> dict[str, Any]:
     """生成渠道内容草稿，优先用 OpenAI 按 Skill 规则生成，无 API Key 时降级到规则模板。"""
+    uses_tool_deep_review = (
+        wechat_skill_id == "wechat_tool_deep_review_v1"
+        or xiaohongshu_skill_id == "xiaohongshu_tool_deep_review_v1"
+    )
+    if uses_tool_deep_review and _is_tool_research_request(title, source_text, source_type):
+        fallback = _build_tool_research_fallback(
+            source_text=source_text,
+            title=title,
+            summary=summary,
+            hashtags=hashtags,
+        )
+        fallback["wechat"]["skill_id"] = (
+            "wechat_tool_deep_review_v1"
+            if wechat_skill_id == "wechat_tool_deep_review_v1"
+            else (wechat_skill_id or fallback["wechat"]["skill_id"])
+        )
+        fallback["xiaohongshu"]["skill_id"] = (
+            "xiaohongshu_tool_deep_review_v1"
+            if xiaohongshu_skill_id == "xiaohongshu_tool_deep_review_v1"
+            else (xiaohongshu_skill_id or fallback["xiaohongshu"]["skill_id"])
+        )
+        return fallback
+
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com").strip()
     model = os.getenv("OPENAI_MODEL", os.getenv("LLM_MODEL", "gpt-4o-mini")).strip() or "gpt-4o-mini"

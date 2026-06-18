@@ -122,6 +122,62 @@ class PublishingTests(unittest.TestCase):
         self.assertIn("核心信息卡", result["wechat"]["markdown"])
         self.assertIn("同类工具怎么比", result["wechat"]["markdown"])
 
+    def test_tool_deep_review_bypasses_ai_when_api_key_exists(self):
+        trend = {
+            "id": "trend_tool_2",
+            "title": "Claude Code 零基础上手",
+            "summary": "Claude Code 安装、配置和第一个任务。",
+            "items": [
+                {
+                    "title": "Claude Code 官方文档",
+                    "summary": "包含安装、登录、权限和命令行使用说明。",
+                    "url": "https://docs.anthropic.com/en/docs/claude-code/overview",
+                },
+                {
+                    "title": "Top 5 AI Tools For Content Creators",
+                    "summary": "这条是无关的 AI 资讯，不应该混进 Claude Code 教程核心信息卡。",
+                    "url": "https://example.com/unrelated-ai-tools",
+                },
+            ],
+            "angles": ["Claude Code 怎么安装", "Claude Code 第一次怎么用"],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+
+            def media_url(path):
+                return f"/files/{Path(path).relative_to(output_dir).as_posix()}"
+
+            with (
+                patch.object(publishing, "OUTPUTS_DIR", output_dir),
+                patch.object(publishing, "to_media_url", side_effect=media_url),
+                patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}),
+                patch(
+                    "studio_backend.channel_skills._ai_generate_channel_drafts",
+                    side_effect=AssertionError("tool deep review should not call AI"),
+                ) as ai_generate,
+            ):
+                result = publishing.prepare_trend_distribution_package(
+                    trend,
+                    script="帮我把 Claude Code 讲成小白也能照着做的安装教程。",
+                    question="Claude Code 零基础上手",
+                    wechat_skill_id="wechat_tool_deep_review_v1",
+                    xiaohongshu_skill_id="xiaohongshu_tool_deep_review_v1",
+                )
+
+        ai_generate.assert_not_called()
+        markdown = result["wechat"]["markdown"]
+        self.assertEqual(result["wechat"]["skill_id"], "wechat_tool_deep_review_v1")
+        self.assertEqual(
+            result["xiaohongshu"]["skill_id"],
+            "xiaohongshu_tool_deep_review_v1",
+        )
+        self.assertIn("Claude Code 零基础上手", result["title"])
+        self.assertIn("## 我为什么测它", markdown)
+        self.assertIn("## 10 分钟实操：照着跑一遍", markdown)
+        self.assertIn("## 发布前再核验：这 5 件事别省", markdown)
+        self.assertIn("## 同类工具怎么比", markdown)
+        self.assertNotIn("Top 5 AI Tools For Content Creators", markdown)
+
     def test_prepare_material_distribution_without_video_job(self):
         material = {
             "id": "wechat_1",
