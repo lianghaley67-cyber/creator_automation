@@ -189,6 +189,8 @@ class DistributionPrepareRequest(BaseModel):
     summary: str = ""
     author: str = ""
     hashtags: list[str] = Field(default_factory=list)
+    wechat_skill_id: str = ""
+    xiaohongshu_skill_id: str = ""
 
 
 class WeChatDraftRequest(BaseModel):

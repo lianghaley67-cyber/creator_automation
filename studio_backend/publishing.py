@@ -868,6 +868,86 @@ def _post_wechat_json(path: str, token: str, payload: dict[str, Any]) -> dict[st
     return result
 
 
+def _guess_image_content_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".gif":
+        return "image/gif"
+    if suffix == ".webp":
+        return "image/webp"
+    return "image/png"
+
+
+def _upload_wechat_article_image(
+    *,
+    token: str,
+    image_path: Path,
+) -> str:
+    if not image_path.exists() or not image_path.is_file():
+        raise RuntimeError(f"公众号正文图片不存在：{image_path.name}")
+    body = image_path.read_bytes()
+    if not body:
+        raise RuntimeError(f"公众号正文图片为空：{image_path.name}")
+    boundary = f"----CreatorStudio{make_id('articleimg').replace('_', '')}"
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", image_path.name or "article.png")
+    content_type = _guess_image_content_type(image_path)
+    multipart = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="media"; filename="{safe_name}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode("utf-8") + body + f"\r\n--{boundary}--\r\n".encode("utf-8")
+    query = urllib.parse.urlencode({"access_token": token})
+    request = urllib.request.Request(
+        f"{WECHAT_API_ROOT}/media/uploadimg?{query}",
+        data=multipart,
+        method="POST",
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        result = json.loads(response.read().decode("utf-8", errors="replace"))
+    if int(result.get("errcode") or 0):
+        raise RuntimeError(
+            f"微信正文图片上传失败：{result.get('errcode')} {result.get('errmsg') or '未知错误'}"
+        )
+    url = str(result.get("url") or "").strip()
+    if not url:
+        raise RuntimeError(f"微信正文图片上传未返回 url：{result}")
+    return url
+
+
+def _prepare_wechat_article_content(content: str, article_dir: Path, token: str) -> str:
+    """Upload local article images to WeChat and replace src with hosted URLs."""
+    uploaded: dict[str, str] = {}
+
+    def replace_src(match: re.Match[str]) -> str:
+        prefix, src, suffix = match.group(1), html.unescape(match.group(2)).strip(), match.group(3)
+        if not src or re.match(r"^(https?:|data:|//)", src, flags=re.IGNORECASE):
+            return match.group(0)
+        if src.startswith("/"):
+            local_path = (OUTPUTS_DIR / src.lstrip("/")).resolve()
+        else:
+            local_path = (article_dir / src).resolve()
+        try:
+            local_path.relative_to(article_dir.resolve())
+        except ValueError:
+            return match.group(0)
+        cache_key = str(local_path)
+        if cache_key not in uploaded:
+            uploaded[cache_key] = _upload_wechat_article_image(
+                token=token,
+                image_path=local_path,
+            )
+        return f'{prefix}{html.escape(uploaded[cache_key], quote=True)}{suffix}'
+
+    return re.sub(
+        r'(<img\b[^>]*?\bsrc=["\'])([^"\']+)(["\'])',
+        replace_src,
+        content,
+        flags=re.IGNORECASE,
+    )
+
+
 def submit_wechat_draft(
     task: dict[str, Any],
     *,
@@ -886,11 +966,16 @@ def submit_wechat_draft(
     article_path = OUTPUTS_DIR / "distribution" / str(task.get("id")) / "wechat_article.html"
     if not article_path.exists():
         raise RuntimeError("公众号文章文件不存在，请重新准备分发包。")
+    article_content = _prepare_wechat_article_content(
+        article_path.read_text(encoding="utf-8"),
+        article_path.parent,
+        token,
+    )
     article = {
         "title": str(task.get("title") or ""),
         "author": str(task.get("author") or ""),
         "digest": str(task.get("summary") or ""),
-        "content": article_path.read_text(encoding="utf-8"),
+        "content": article_content,
         "thumb_media_id": thumb_media_id,
         "need_open_comment": 1,
         "only_fans_can_comment": 0,

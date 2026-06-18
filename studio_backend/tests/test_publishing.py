@@ -284,6 +284,59 @@ class PublishingTests(unittest.TestCase):
         self.assertTrue(result["verified"])
         self.assertEqual(result["verified_title"], "测试标题")
 
+    def test_submit_wechat_draft_uploads_local_article_images(self):
+        task = {
+            "id": "distribution_img",
+            "title": "测试标题",
+            "summary": "测试摘要",
+            "author": "作者",
+        }
+        captured_content = ""
+
+        def fake_post(path, token, payload):
+            nonlocal captured_content
+            self.assertEqual(token, "token_1")
+            if path == "draft/add":
+                captured_content = payload["articles"][0]["content"]
+                self.assertIn("https://mmbiz.qpic.cn/article-image.png", captured_content)
+                self.assertNotIn("tutorial_screenshots/01.png", captured_content)
+                return {"media_id": "draft_123"}
+            self.assertEqual(path, "draft/get")
+            return {"news_item": [{"title": "测试标题", "content": captured_content}]}
+
+        def fake_upload(*, token, image_path):
+            self.assertEqual(token, "token_1")
+            self.assertEqual(image_path.name, "01.png")
+            return "https://mmbiz.qpic.cn/article-image.png"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            article_dir = output_dir / "distribution" / task["id"]
+            image_dir = article_dir / "tutorial_screenshots"
+            image_dir.mkdir(parents=True)
+            (image_dir / "01.png").write_bytes(b"png")
+            (article_dir / "wechat_article.html").write_text(
+                '<p>正文</p><img src="tutorial_screenshots/01.png" alt="图">',
+                encoding="utf-8",
+            )
+            with (
+                patch.object(publishing, "OUTPUTS_DIR", output_dir),
+                patch.object(publishing, "_post_wechat_json", side_effect=fake_post),
+                patch.object(
+                    publishing,
+                    "_upload_wechat_article_image",
+                    side_effect=fake_upload,
+                ),
+            ):
+                result = publishing.submit_wechat_draft(
+                    task,
+                    get_access_token=lambda: "token_1",
+                    thumb_media_id="cover_1",
+                )
+
+        self.assertEqual(result["status"], "draft_created")
+        self.assertIn("mmbiz.qpic.cn", captured_content)
+
     def test_submit_wechat_draft_rejects_missing_media_id(self):
         task = {"id": "distribution_2", "title": "测试标题", "summary": ""}
         with tempfile.TemporaryDirectory() as temp_dir:

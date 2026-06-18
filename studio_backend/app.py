@@ -2709,6 +2709,8 @@ def prepare_job_distribution(
             summary=payload.summary,
             author=payload.author,
             hashtags=payload.hashtags,
+            wechat_skill_id=payload.wechat_skill_id,
+            xiaohongshu_skill_id=payload.xiaohongshu_skill_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
