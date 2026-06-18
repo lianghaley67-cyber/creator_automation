@@ -78,6 +78,7 @@ let trendInterviewRecorder = null;
 let trendInterviewChunks = [];
 let trendInterviewStream = null;
 let trendInterviewCancelRecording = false;
+let trendHighlightTimer = null;
 
 // ===== 新增：AI摘要 + 讨论 + Skill选择 =====
 const presetTopics = ref([]);
@@ -88,6 +89,9 @@ const channelSkillsList = ref([]); // 全量 skill 列表
 const selectedWechatSkill = ref(""); // 用户选择的公众号 skill
 const selectedXhsSkill = ref(""); // 用户选择的小红书 skill
 const skillSelectorVisible = ref(false); // 是否展开 skill 选择面板
+const trendDiscussionOpen = ref(false); // 多轮讨论是否展开
+const trendFreshHighlight = ref(false); // 资讯刷新后的短暂高亮
+const trendDistributionView = ref("xiaohongshu"); // xiaohongshu | wechat
 const busy_trendSummarize = ref(false);
 const busy_trendChat = ref(false);
 const canRecordTrendVoice = computed(() => (
@@ -860,10 +864,16 @@ async function refreshAiTrends(force = false) {
     if (force) {
       trendAiSummary.value = null;
       trendChatMessages.value = [];
+      trendDistributionDraft.value = null;
     }
     // 自动生成6个问题
     if (aiTrends.value.length > 0) {
       generateTrendQuestions(aiTrends.value[0]);
+      trendFreshHighlight.value = true;
+      if (trendHighlightTimer) window.clearTimeout(trendHighlightTimer);
+      trendHighlightTimer = window.setTimeout(() => {
+        trendFreshHighlight.value = false;
+      }, 1800);
     }
     setNotice(force ? (query ? `已按"${query}"抓取 AI 资讯。` : "AI 最新资讯已刷新。") : notice.value);
   } catch (error) {
@@ -909,19 +919,28 @@ async function refreshDistributionTasks() {
   }
 }
 
-async function prepareTrendDistribution(preferGeneratedScript = false, destination = "all") {
+async function prepareTrendDistribution(preferGeneratedScript = false, destination = "all", sourceItem = null) {
   const trend = aiTrends.value[0];
   if (!trend?.id) {
     setError("请先获取实时资讯。");
     return;
   }
+  const itemTitle = String(sourceItem?.title || "").trim();
+  const itemSummary = String(sourceItem?.summary || "").trim();
+  const itemUrl = String(sourceItem?.url || "").trim();
   const generated = selectedTrendQuestion.value
     ? trendScripts.value[selectedTrendQuestion.value]
     : null;
-  const script = preferGeneratedScript ? String(generated?.script || "").trim() : "";
+  const itemScript = sourceItem
+    ? [itemTitle, itemSummary, itemUrl ? `官方/原文链接：${itemUrl}` : ""].filter(Boolean).join("\n\n")
+    : "";
+  const script = sourceItem ? itemScript : (preferGeneratedScript ? String(generated?.script || "").trim() : "");
   if (preferGeneratedScript && !script) {
     setError("请先基于追问生成文案，再推荐到小红书。");
     return;
+  }
+  if (sourceItem) {
+    trendDistributionView.value = destination === "wechat" ? "wechat" : "xiaohongshu";
   }
   busy.trendDistribution = true;
   try {
@@ -932,8 +951,8 @@ async function prepareTrendDistribution(preferGeneratedScript = false, destinati
         headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify({
           script,
-          question: preferGeneratedScript ? selectedTrendQuestion.value : "",
-          title: preferGeneratedScript ? selectedTrendQuestion.value : trend.title || "",
+          question: sourceItem ? itemTitle : (preferGeneratedScript ? selectedTrendQuestion.value : ""),
+          title: sourceItem ? itemTitle : (preferGeneratedScript ? selectedTrendQuestion.value : trend.title || ""),
           wechat_skill_id: selectedWechatSkill.value || "",
           xiaohongshu_skill_id: selectedXhsSkill.value || "",
           hashtags: trendAiSummary.value?.suggested_hashtags || [],
@@ -943,7 +962,9 @@ async function prepareTrendDistribution(preferGeneratedScript = false, destinati
     );
     trendDistributionDraft.value = result;
     setNotice(
-      destination === "xiaohongshu"
+      sourceItem
+        ? `已用「${itemTitle || "这条资讯"}」生成公众号和小红书发布包。`
+        : destination === "xiaohongshu"
         ? "已生成小红书推荐方案：标题、封面短句、正文、话题和发布步骤都准备好了。"
         : "实时资讯已整理成公众号文章和小红书发布包。"
     );
@@ -2157,6 +2178,21 @@ const modulePageMeta = computed(() => {
   return meta[activeTab.value] || meta.trends;
 });
 
+const selectedWechatSkillName = computed(() => (
+  channelSkillsList.value.find((skill) => skill.id === selectedWechatSkill.value)?.name || "默认公众号 Skill"
+));
+const selectedXhsSkillName = computed(() => (
+  channelSkillsList.value.find((skill) => skill.id === selectedXhsSkill.value)?.name || "默认小红书 Skill"
+));
+const trendNextAction = computed(() => {
+  if (busy.refreshTrends) return "正在抓取新资讯，抓完后会高亮本次结果。";
+  if (!aiTrends.value.length) return "下一步：先点“立即抓取”，获取今天可转成内容的 AI 资讯。";
+  if (!trendAiSummary.value) return "下一步：点右上角“生成 AI 摘要”，先让 AI 把资讯翻译成普通人能用的重点。";
+  if (!skillSelectorVisible.value) return "下一步：展开 Skill，确认公众号和小红书分别用哪套写法。";
+  if (!trendDistributionDraft.value) return "下一步：读完摘要后，点“生成发布包”，或在某条资讯右侧点“用这条生成”。";
+  return "下一步：切换公众号/小红书预览，检查内容后再进入发布。";
+});
+
 function openStudioModule(tab, targetId = "") {
   activeTab.value = tab;
   if (tab === "trends" && !aiTrends.value.length && !busy.refreshTrends) {
@@ -2214,6 +2250,8 @@ async function generateTrendAiSummary() {
     if (trendAiSummary.value?.suggested_xhs_skill) {
       selectedXhsSkill.value = trendAiSummary.value.suggested_xhs_skill;
     }
+    skillSelectorVisible.value = true;
+    trendDiscussionOpen.value = true;
   } catch (err) {
     setError(normalizeErrorMessage(err, "AI 摘要生成失败，请检查 OPENAI_API_KEY 是否已配置。"));
   } finally {
@@ -2271,6 +2309,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (pollTimer) window.clearInterval(pollTimer);
+  if (trendHighlightTimer) window.clearTimeout(trendHighlightTimer);
   if (trendInterviewRecorder && trendInterviewRecorder.state !== "inactive") {
     trendInterviewRecorder.stop();
   }
@@ -2508,12 +2547,16 @@ onBeforeUnmount(() => {
             <button class="btn accent" :disabled="busy.refreshTrends" @click="refreshAiTrends(true)">
               {{ busy.refreshTrends ? "抓取中..." : "立即抓取" }}
             </button>
+            <button class="btn primary" :disabled="busy.trendSummarize || !aiTrends.length" @click="generateTrendAiSummary">
+              {{ busy.trendSummarize ? "摘要中..." : (trendAiSummary ? "重做 AI 摘要" : "生成 AI 摘要") }}
+            </button>
             <button class="btn primary" :disabled="busy.notebooklm" @click="createNotebookLmPackage">
               {{ busy.notebooklm ? "生成中..." : "生成 NotebookLM 导入包" }}
             </button>
           </div>
         </div>
         <div class="meta">这里展示的是 Tavily/RSS 等接口抓取到的资讯，不是系统自己的主观看法；生成文案时会提醒 AI 输出仍需要人来判断。</div>
+        <div class="trend-flow-hint">{{ trendNextAction }}</div>
 
         <!-- 预设主题 Chips -->
         <div class="preset-topics-row" v-if="presetTopics.length">
@@ -2546,17 +2589,23 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-if="!aiTrends.length" class="meta">暂无 AI 日报。系统会每天自动抓取，也可以点击"立即抓取"。</div>
-        <div v-else class="trend-card">
+        <div v-else class="trend-card" :class="{ fresh: trendFreshHighlight }">
+          <div v-if="busy.refreshTrends" class="trend-loading-strip">正在刷新资讯，完成后会自动更新这里。</div>
           <div class="script-preview-head">
             <strong>{{ aiTrends[0].title }}</strong>
             <span>{{ aiTrends[0].created_at }}</span>
           </div>
           <p>{{ aiTrends[0].summary }}</p>
           <ul>
-            <li v-for="item in (aiTrends[0].items || []).slice(0, 8)" :key="item.url || item.title">
-              <a v-if="item.url" :href="item.url" target="_blank" rel="noreferrer">{{ item.title }}</a>
-              <strong v-else>{{ item.title }}</strong>
-              <span>{{ item.summary }}</span>
+            <li v-for="item in (aiTrends[0].items || []).slice(0, 8)" :key="item.url || item.title" class="trend-news-item">
+              <div class="trend-news-main">
+                <a v-if="item.url" :href="item.url" target="_blank" rel="noreferrer">{{ item.title }}</a>
+                <strong v-else>{{ item.title }}</strong>
+                <span>{{ item.summary }}</span>
+              </div>
+              <button class="btn secondary small" :disabled="busy.trendDistribution" @click="prepareTrendDistribution(false, 'all', item)">
+                {{ busy.trendDistribution ? "生成中..." : "用这条生成" }}
+              </button>
             </li>
           </ul>
           <div class="trend-angles">
@@ -2568,9 +2617,7 @@ onBeforeUnmount(() => {
           <div class="trend-ai-summary-block">
             <div class="trend-ai-summary-head">
               <strong>AI 智能摘要</strong>
-              <button class="btn accent small" :disabled="busy.trendSummarize" @click="generateTrendAiSummary">
-                {{ busy.trendSummarize ? "生成中..." : (trendAiSummary ? "重新生成摘要" : "生成 AI 摘要") }}
-              </button>
+              <span class="meta">先把资讯翻译成“普通人能怎么用”。</span>
             </div>
             <div v-if="trendAiSummary && !trendAiSummary.error" class="trend-ai-summary-content">
               <p class="summary-one-sentence">{{ trendAiSummary.one_sentence }}</p>
@@ -2591,31 +2638,38 @@ onBeforeUnmount(() => {
 
           <!-- 多轮讨论区 -->
           <div class="trend-chat-block" v-if="trendAiSummary && !trendAiSummary.error">
-            <strong class="trend-chat-title">与 AI 深度讨论</strong>
-            <p class="meta">基于以上摘要，和 AI 一起讨论、提炼内容角度，再选择 Skill 生成文案。</p>
-            <div class="trend-chat-messages" v-if="trendChatMessages.length">
-              <div
-                v-for="(msg, idx) in trendChatMessages"
-                :key="idx"
-                class="chat-message"
-                :class="msg.role"
-              >
-                <span class="chat-role">{{ msg.role === 'user' ? '我' : 'AI顾问' }}</span>
-                <p class="chat-content" style="white-space: pre-wrap;">{{ msg.content }}</p>
+            <button class="trend-chat-toggle" type="button" @click="trendDiscussionOpen = !trendDiscussionOpen">
+              <span>
+                <strong>多轮讨论：把资讯变成你的选题判断</strong>
+                <small>先问清“这条对我的用户有什么用”，再生成文案。</small>
+              </span>
+              <b>{{ trendDiscussionOpen ? "收起" : "展开" }}</b>
+            </button>
+            <div v-if="trendDiscussionOpen" class="trend-chat-inner">
+              <div class="trend-chat-messages" v-if="trendChatMessages.length">
+                <div
+                  v-for="(msg, idx) in trendChatMessages"
+                  :key="idx"
+                  class="chat-message"
+                  :class="msg.role"
+                >
+                  <span class="chat-role">{{ msg.role === 'user' ? '我' : 'AI顾问' }}</span>
+                  <p class="chat-content" style="white-space: pre-wrap;">{{ msg.content }}</p>
+                </div>
               </div>
-            </div>
-            <div class="trend-chat-input-row">
-              <textarea
-                v-model="trendChatInput"
-                class="trend-chat-input"
-                placeholder="问问这条资讯对我的受众意味着什么？我该用哪个角度？普通人怎么理解？..."
-                rows="3"
-                @keydown.ctrl.enter.prevent="sendTrendChat"
-              ></textarea>
-              <button class="btn primary" :disabled="busy.trendChat || !trendChatInput.trim()" @click="sendTrendChat">
-                {{ busy.trendChat ? "思考中..." : "发送（Ctrl+Enter）" }}
-              </button>
-              <button v-if="trendChatMessages.length" class="btn secondary small" @click="trendChatMessages = []">清空对话</button>
+              <div class="trend-chat-input-row">
+                <textarea
+                  v-model="trendChatInput"
+                  class="trend-chat-input"
+                  placeholder="问问这条资讯对我的受众意味着什么？我该用哪个角度？普通人怎么理解？..."
+                  rows="3"
+                  @keydown.ctrl.enter.prevent="sendTrendChat"
+                ></textarea>
+                <button class="btn primary" :disabled="busy.trendChat || !trendChatInput.trim()" @click="sendTrendChat">
+                  {{ busy.trendChat ? "思考中..." : "发送（Ctrl+Enter）" }}
+                </button>
+                <button v-if="trendChatMessages.length" class="btn secondary small" @click="trendChatMessages = []">清空对话</button>
+              </div>
             </div>
           </div>
 
@@ -2624,10 +2678,13 @@ onBeforeUnmount(() => {
             <div class="skill-selector-head" @click="skillSelectorVisible = !skillSelectorVisible">
               <strong>选择内容 Skill</strong>
               <span class="meta">
-                已选：{{ channelSkillsList.find(s => s.id === selectedWechatSkill)?.name || '默认公众号' }}
-                · {{ channelSkillsList.find(s => s.id === selectedXhsSkill)?.name || '默认小红书' }}
+                已选：{{ selectedWechatSkillName }} · {{ selectedXhsSkillName }}
               </span>
               <button class="btn secondary small">{{ skillSelectorVisible ? '收起' : '展开选择' }}</button>
+            </div>
+            <div class="skill-selected-summary">
+              <span>公众号：{{ selectedWechatSkillName }}</span>
+              <span>小红书：{{ selectedXhsSkillName }}</span>
             </div>
             <div v-if="skillSelectorVisible" class="skill-selector-body">
               <!-- 公众号 Skill -->
@@ -2639,6 +2696,7 @@ onBeforeUnmount(() => {
                     :key="skill.id"
                     class="skill-card"
                     :class="{ selected: selectedWechatSkill === skill.id }"
+                    :title="`${skill.name}：${skill.description || '点击选择这套写法'}`"
                     @click="selectedWechatSkill = skill.id"
                   >
                     <div class="skill-card-header">
@@ -2666,6 +2724,7 @@ onBeforeUnmount(() => {
                     :key="skill.id"
                     class="skill-card"
                     :class="{ selected: selectedXhsSkill === skill.id }"
+                    :title="`${skill.name}：${skill.description || '点击选择这套写法'}`"
                     @click="selectedXhsSkill = skill.id"
                   >
                     <div class="skill-card-header">
@@ -2706,65 +2765,90 @@ onBeforeUnmount(() => {
               · 小红书 Skill：{{ trendDistributionDraft.xiaohongshu?.skill_id }}
               · 图文 Skill：{{ trendDistributionDraft.xiaohongshu?.image_skill_id }}
             </p>
-            <label class="field">
-              <span>小红书推荐标题</span>
-              <input readonly :value="trendDistributionDraft.xiaohongshu?.title" />
-            </label>
-            <div v-if="trendDistributionDraft.xiaohongshu?.card_urls?.length" class="xiaohongshu-card-preview">
-              <a
-                v-for="(cardUrl, cardIndex) in trendDistributionDraft.xiaohongshu.card_urls"
-                :key="cardUrl"
-                :href="mediaUrl(cardUrl)"
-                target="_blank"
-              >
-                <img :src="mediaUrl(cardUrl)" :alt="`实时新闻小红书图文第 ${cardIndex + 1} 页`" />
-              </a>
-            </div>
-            <label class="field">
-              <span>封面短句</span>
-              <input readonly :value="trendDistributionDraft.xiaohongshu?.cover_text" />
-            </label>
-            <label class="field">
-              <span>小红书正文与话题</span>
-              <textarea class="caption-box" readonly :value="trendDistributionDraft.xiaohongshu?.body"></textarea>
-            </label>
-            <div class="next-step-card">
-              <strong>小红书下一步：{{ xiaohongshuNextStep(trendDistributionDraft).title }}</strong>
-              <p>{{ xiaohongshuNextStep(trendDistributionDraft).body }}</p>
-            </div>
-            <div class="publish-buttons primary-flow-actions">
+            <div class="channel-tabs">
               <button
-                class="btn accent small"
-                :disabled="busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) || trendDistributionDraft.xiaohongshu?.status === 'published'"
-                @click="directPublishXiaohongshu(trendDistributionDraft, applyTrendDistributionResult)"
-              >{{ busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) ? "发布中..." : "直接发布到小红书" }}</button>
-              <label class="upload-audio-label">
-                {{ busy.wechatCover ? "上传中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
-                <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
+                type="button"
+                class="channel-tab"
+                :class="{ active: trendDistributionView === 'xiaohongshu' }"
+                @click="trendDistributionView = 'xiaohongshu'"
+              >小红书图文</button>
+              <button
+                type="button"
+                class="channel-tab"
+                :class="{ active: trendDistributionView === 'wechat' }"
+                @click="trendDistributionView = 'wechat'"
+              >公众号文章</button>
+            </div>
+
+            <div v-if="trendDistributionView === 'xiaohongshu'" class="channel-preview-pane">
+              <label class="field">
+                <span>小红书推荐标题</span>
+                <input readonly :value="trendDistributionDraft.xiaohongshu?.title" />
               </label>
-              <button
-                class="btn accent small"
-                :disabled="!wechatEntry?.cover_configured || busy.wechatDraft === String(trendDistributionDraft.id)"
-                @click="createTrendWechatDraft"
-              >
-                {{
-                  busy.wechatDraft === String(trendDistributionDraft.id)
-                    ? "发送中..."
-                    : !wechatEntry?.cover_configured
-                      ? "请先上传封面"
-                      : "发送到公众号草稿箱"
-                }}
-              </button>
-            </div>
-            <details class="secondary-actions">
-              <summary>备用操作：复制、下载、预览</summary>
-              <div class="publish-buttons">
+              <div v-if="trendDistributionDraft.xiaohongshu?.card_urls?.length" class="xiaohongshu-card-preview">
+                <a
+                  v-for="(cardUrl, cardIndex) in trendDistributionDraft.xiaohongshu.card_urls"
+                  :key="cardUrl"
+                  :href="mediaUrl(cardUrl)"
+                  target="_blank"
+                >
+                  <img :src="mediaUrl(cardUrl)" :alt="`实时新闻小红书图文第 ${cardIndex + 1} 页`" />
+                </a>
+              </div>
+              <label class="field">
+                <span>封面短句</span>
+                <input readonly :value="trendDistributionDraft.xiaohongshu?.cover_text" />
+              </label>
+              <label class="field">
+                <span>小红书正文与话题</span>
+                <textarea class="caption-box" readonly :value="trendDistributionDraft.xiaohongshu?.body"></textarea>
+              </label>
+              <div class="next-step-card">
+                <strong>小红书下一步：{{ xiaohongshuNextStep(trendDistributionDraft).title }}</strong>
+                <p>{{ xiaohongshuNextStep(trendDistributionDraft).body }}</p>
+              </div>
+              <div class="publish-buttons primary-flow-actions">
+                <button
+                  class="btn accent small"
+                  :disabled="busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) || trendDistributionDraft.xiaohongshu?.status === 'published'"
+                  @click="directPublishXiaohongshu(trendDistributionDraft, applyTrendDistributionResult)"
+                >{{ busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) ? "发布中..." : "直接发布到小红书" }}</button>
                 <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.title, '小红书标题已复制。')">复制标题</button>
                 <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
                 <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.xiaohongshu?.package_url)" download>下载备用图文包</a>
-                <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览公众号文章</a>
               </div>
-            </details>
+            </div>
+
+            <div v-else class="channel-preview-pane">
+              <label class="field">
+                <span>公众号文章标题</span>
+                <input readonly :value="trendDistributionDraft.wechat?.title || trendDistributionDraft.xiaohongshu?.title" />
+              </label>
+              <div class="wechat-preview-box">
+                <strong>先预览，再进草稿箱</strong>
+                <p>公众号文章会使用独立的公众号 Skill，不会直接照搬小红书正文。检查标题、开头、段落和结尾后，再发送到公众号草稿箱。</p>
+              </div>
+              <div class="publish-buttons primary-flow-actions">
+                <label class="upload-audio-label">
+                  {{ busy.wechatCover ? "上传中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
+                  <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
+                </label>
+                <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览公众号文章</a>
+                <button
+                  class="btn accent small"
+                  :disabled="!wechatEntry?.cover_configured || busy.wechatDraft === String(trendDistributionDraft.id)"
+                  @click="createTrendWechatDraft"
+                >
+                  {{
+                    busy.wechatDraft === String(trendDistributionDraft.id)
+                      ? "发送中..."
+                      : !wechatEntry?.cover_configured
+                        ? "请先上传封面"
+                        : "发送到公众号草稿箱"
+                  }}
+                </button>
+              </div>
+            </div>
             <p v-if="wechatDraftErrors[trendDistributionDraft.id]" class="error-text">
               {{ wechatDraftErrors[trendDistributionDraft.id] }}
             </p>
@@ -5412,6 +5496,31 @@ textarea {
   background: #fbfdff;
 }
 
+.trend-flow-hint {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(0, 213, 232, 0.28);
+  border-radius: 8px;
+  background: rgba(0, 213, 232, 0.08);
+  color: #dcecff;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.trend-card.fresh {
+  border-color: #00d5e8;
+  box-shadow: 0 0 0 2px rgba(0, 213, 232, 0.16);
+}
+
+.trend-loading-strip {
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: rgba(0, 213, 232, 0.12);
+  color: #00d5e8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .trend-card p {
   margin: 0;
   color: #5f7088;
@@ -5430,6 +5539,17 @@ textarea {
   gap: 3px;
   padding-bottom: 10px;
   border-bottom: 1px solid #e6edf7;
+}
+
+.trend-card li.trend-news-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.trend-news-main {
+  display: grid;
+  gap: 4px;
 }
 
 .trend-card li:last-child {
@@ -5453,6 +5573,100 @@ textarea {
   padding: 10px;
   border-radius: 8px;
   background: #fff8ee;
+}
+
+.trend-chat-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trend-chat-toggle span {
+  display: grid;
+  gap: 4px;
+}
+
+.trend-chat-toggle small {
+  color: #5f7088;
+  font-size: 12px;
+}
+
+.trend-chat-inner {
+  margin-top: 12px;
+}
+
+.skill-selected-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(142, 171, 205, 0.18);
+  background: rgba(0, 213, 232, 0.04);
+}
+
+.skill-selected-summary span {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(0, 213, 232, 0.12);
+  color: #00d5e8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.skill-card.selected {
+  border-color: #00d5e8;
+  background: rgba(0, 213, 232, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(0, 213, 232, 0.35);
+}
+
+.channel-tabs {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid rgba(142, 171, 205, 0.18);
+  border-radius: 10px;
+  background: rgba(142, 171, 205, 0.08);
+}
+
+.channel-tab {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 14px;
+  background: transparent;
+  color: #a9bfda;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.channel-tab.active {
+  background: #00d5e8;
+  color: #06111c;
+}
+
+.channel-preview-pane {
+  display: grid;
+  gap: 12px;
+}
+
+.wechat-preview-box {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(142, 171, 205, 0.18);
+  background: rgba(142, 171, 205, 0.08);
+}
+
+.wechat-preview-box p {
+  margin: 0;
 }
 
 .storyboard {
