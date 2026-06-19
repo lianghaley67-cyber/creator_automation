@@ -219,29 +219,29 @@ def _tutorial_screenshot_card(
 ) -> None:
     from PIL import Image, ImageDraw
 
-    width, height = 1100, 680
+    width, height = 1600, 980
     image = Image.new("RGB", (width, height), "#f6f8fb")
     draw = ImageDraw.Draw(image)
-    font_title = _tutorial_font(34, bold=True)
-    font_sub = _tutorial_font(22)
-    font_body = _tutorial_font(20)
-    font_small = _tutorial_font(17)
-    draw.rounded_rectangle((36, 36, width - 36, height - 36), radius=24, fill="#ffffff", outline="#d0d5dd", width=2)
-    draw.text((70, 70), title, font=font_title, fill="#1f2937")
-    draw.text((72, 122), subtitle, font=font_sub, fill="#667085")
-    y = 178
+    font_title = _tutorial_font(48, bold=True)
+    font_sub = _tutorial_font(30)
+    font_body = _tutorial_font(32)
+    font_small = _tutorial_font(26, bold=True)
+    draw.rounded_rectangle((44, 44, width - 44, height - 44), radius=30, fill="#ffffff", outline="#d0d5dd", width=3)
+    draw.text((88, 88), title, font=font_title, fill="#101828")
+    draw.text((90, 162), subtitle, font=font_sub, fill="#475467")
+    y = 250
     for label, body, color in blocks:
-        draw.rounded_rectangle((70, y, width - 70, y + 88), radius=18, fill="#f9fafb", outline="#d0d5dd", width=1)
-        draw.rounded_rectangle((92, y + 24, 180, y + 64), radius=10, fill=color)
-        draw.text((112, y + 30), label, font=font_small, fill="#ffffff")
-        yy = y + 20
-        for line in _wrap_image_text(draw, body, font_body, width - 300)[:2]:
-            draw.text((205, yy), line, font=font_body, fill="#1f2937")
-            yy += 28
-        y += 108
+        draw.rounded_rectangle((88, y, width - 88, y + 150), radius=24, fill="#f9fafb", outline="#d0d5dd", width=2)
+        draw.rounded_rectangle((120, y + 42, 280, y + 108), radius=14, fill=color)
+        draw.text((150, y + 58), label, font=font_small, fill="#ffffff")
+        yy = y + 34
+        for line in _wrap_image_text(draw, body, font_body, width - 430)[:3]:
+            draw.text((320, yy), line, font=font_body, fill="#101828")
+            yy += 42
+        y += 180
     if footer:
-        draw.text((72, height - 90), footer, font=font_small, fill="#667085")
-    image.save(output_path, quality=92)
+        draw.text((90, height - 116), footer, font=_tutorial_font(26), fill="#475467")
+    image.save(output_path, quality=96)
 
 
 def _generate_tool_tutorial_screenshots(
@@ -260,22 +260,30 @@ def _generate_tool_tutorial_screenshots(
     official_url = official_url or "没有抓到官方链接，先不要按第三方链接安装。"
     tool_name = _compact(tool_name or "这个工具", 24)
 
-    width, height = 1100, 680
+    width, height = 1600, 980
     image = Image.new("RGB", (width, height), "#eef6ff")
     draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((40, 40, width - 40, height - 40), radius=26, fill="#ffffff", outline="#d0d5dd", width=2)
-    draw.text((80, 78), "截图 1：先确认官方入口", font=_tutorial_font(34, bold=True), fill="#1f2937")
-    draw.text((82, 130), "目的：避免点到第三方安装包或不明下载站。", font=_tutorial_font(22), fill="#667085")
-    draw.rounded_rectangle((110, 210, width - 110, 290), radius=18, fill="#f9fafb", outline="#d0d5dd", width=2)
-    draw.text((140, 235), f"浏览器地址栏： {official_url}", font=_tutorial_font(22), fill="#1f2937")
-    draw.rounded_rectangle((330, 360, 560, 430), radius=18, fill="#177ddc")
-    draw.text((378, 380), "Download", font=_tutorial_font(22), fill="#ffffff")
-    draw.rounded_rectangle((590, 360, 820, 430), radius=18, fill="#10b8d8")
-    draw.text((640, 380), "Get Started", font=_tutorial_font(22), fill="#ffffff")
-    draw.text((110, 505), "小白要看：域名是不是官方；页面里有没有 Download / Get Started / Sign in。", font=_tutorial_font(20), fill="#1f2937")
-    draw.text((110, 545), "卡住处理：打不开先换浏览器或网络，不要马上搜索陌生安装包。", font=_tutorial_font(20), fill="#1f2937")
+    draw.rounded_rectangle((44, 44, width - 44, height - 44), radius=30, fill="#ffffff", outline="#d0d5dd", width=3)
+    draw.text((88, 88), "截图 1：先确认官方入口", font=_tutorial_font(48, bold=True), fill="#101828")
+    draw.text((90, 162), "目的：确认网址和下载入口，避免点到第三方安装包。", font=_tutorial_font(30), fill="#475467")
+
+    draw.rounded_rectangle((96, 250, width - 96, 865), radius=26, fill="#f8fafc", outline="#d0d5dd", width=3)
+    draw.rounded_rectangle((130, 290, width - 130, 370), radius=20, fill="#ffffff", outline="#98a2b3", width=2)
+    draw.text((170, 314), "浏览器地址栏", font=_tutorial_font(28, bold=True), fill="#344054")
+    draw.text((390, 314), official_url, font=_tutorial_font(28), fill="#101828")
+
+    draw.rounded_rectangle((170, 455, 520, 555), radius=24, fill="#177ddc")
+    draw.text((245, 485), "Download", font=_tutorial_font(34, bold=True), fill="#ffffff")
+    draw.rounded_rectangle((570, 455, 920, 555), radius=24, fill="#10b8d8")
+    draw.text((635, 485), "Get Started", font=_tutorial_font(34, bold=True), fill="#ffffff")
+    draw.rounded_rectangle((970, 455, 1320, 555), radius=24, fill="#101828")
+    draw.text((1084, 485), "Sign in", font=_tutorial_font(34, bold=True), fill="#ffffff")
+
+    draw.rounded_rectangle((170, 645, width - 170, 780), radius=24, fill="#ecfdf3", outline="#75e0a7", width=2)
+    draw.text((210, 676), "看这 3 个点：官方域名 / 下载按钮 / 登录入口", font=_tutorial_font(34, bold=True), fill="#027a48")
+    draw.text((210, 730), "打不开时先换浏览器或网络，不要马上搜索陌生安装包。", font=_tutorial_font(30), fill="#344054")
     first = image_dir / "01_official_entry.png"
-    image.save(first, quality=92)
+    image.save(first, quality=96)
 
     _tutorial_screenshot_card(
         image_dir / "02_test_folder.png",
