@@ -10,6 +10,42 @@ from studio_backend import publishing
 
 
 class PublishingTests(unittest.TestCase):
+    def test_wechat_channel_html_renders_markdown_table(self):
+        html_output = publishing._wechat_channel_html(
+            "\n".join(
+                [
+                    "## 同类工具怎么比",
+                    "| 维度 | Trae | 同类工具 |",
+                    "| --- | --- | --- |",
+                    "| 适合人群 | 新手先测小任务 | 看是否更适合专业用户 |",
+                    "| 数据风险 | 先看权限提示 | 敏感资料谨慎上传 |",
+                ]
+            )
+        )
+
+        self.assertIn("<table", html_output)
+        self.assertIn("<th", html_output)
+        self.assertIn("维度", html_output)
+        self.assertIn("新手先测小任务", html_output)
+        self.assertNotIn("| 维度 | Trae | 同类工具 |", html_output)
+
+    def test_tool_tutorial_images_are_labeled_as_illustrations(self):
+        article_html = "<!doctype html><html><body><p>正文</p></body></html>"
+        injected = publishing._inject_tool_tutorial_screenshots(
+            article_html,
+            [
+                {
+                    "src": "tutorial_screenshots/01.png",
+                    "alt": "示意图 1：确认官方入口",
+                    "caption": "小白看这张图，要能确认下一步点哪里。",
+                }
+            ],
+        )
+
+        self.assertIn("配图实操版：操作示意图", injected)
+        self.assertIn("不是真实网页截图", injected)
+        self.assertNotIn("下面这 4 张图不是装饰图", injected)
+
     def test_prepare_trend_distribution_adds_xiaohongshu_recommendation(self):
         trend = {
             "id": "trend_1",

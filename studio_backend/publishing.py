@@ -150,22 +150,45 @@ def _wechat_html(title: str, summary: str, script: str) -> str:
 
 def _wechat_channel_html(markdown: str) -> str:
     blocks: list[str] = []
-    for raw in str(markdown or "").splitlines():
-        line = raw.strip()
+    lines = [raw.strip() for raw in str(markdown or "").splitlines()]
+    index = 0
+    while index < len(lines):
+        line = lines[index]
         if not line:
+            index += 1
             continue
         if line.startswith("# "):
             blocks.append(
                 f'<h1 style="font-size:24px;line-height:1.45;color:#132431;">{html.escape(line[2:])}</h1>'
             )
+            index += 1
         elif line.startswith("## "):
             blocks.append(
                 f'<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">{html.escape(line[3:])}</h2>'
             )
+            index += 1
+        elif _is_markdown_table_row(line):
+            separator_index = index + 1
+            while separator_index < len(lines) and not lines[separator_index]:
+                separator_index += 1
+            if separator_index < len(lines) and _is_markdown_table_separator(lines[separator_index]):
+                table_rows = [line]
+                row_index = separator_index + 1
+                while row_index < len(lines) and _is_markdown_table_row(lines[row_index]):
+                    table_rows.append(lines[row_index])
+                    row_index += 1
+                blocks.append(_wechat_table_html(table_rows))
+                index = row_index
+            else:
+                blocks.append(
+                    f'<p style="font-size:16px;line-height:1.9;color:#243241;margin:0 0 16px;">{html.escape(line)}</p>'
+                )
+                index += 1
         else:
             blocks.append(
                 f'<p style="font-size:16px;line-height:1.9;color:#243241;margin:0 0 16px;">{html.escape(line)}</p>'
             )
+            index += 1
     section = (
         '<section style="max-width:100%;font-family:-apple-system,BlinkMacSystemFont,'
         "'Segoe UI','Microsoft YaHei',sans-serif;\">"
@@ -178,6 +201,57 @@ def _wechat_channel_html(markdown: str) -> str:
         "</head><body>"
         + section
         + "</body></html>"
+    )
+
+
+def _split_markdown_table_row(line: str) -> list[str]:
+    text = str(line or "").strip()
+    if text.startswith("|"):
+        text = text[1:]
+    if text.endswith("|"):
+        text = text[:-1]
+    return [cell.strip() for cell in text.split("|")]
+
+
+def _is_markdown_table_row(line: str) -> bool:
+    return "|" in str(line or "") and len(_split_markdown_table_row(line)) >= 2
+
+
+def _is_markdown_table_separator(line: str) -> bool:
+    cells = _split_markdown_table_row(line)
+    if len(cells) < 2:
+        return False
+    for cell in cells:
+        compact = re.sub(r"\s+", "", cell)
+        if not re.fullmatch(r":?-{3,}:?", compact or ""):
+            return False
+    return True
+
+
+def _wechat_table_html(rows: list[str]) -> str:
+    if not rows:
+        return ""
+    headers = _split_markdown_table_row(rows[0])
+    body_rows = [_split_markdown_table_row(row) for row in rows[1:]]
+    column_count = max([len(headers), *[len(row) for row in body_rows]] or [0])
+
+    def pad(cells: list[str]) -> list[str]:
+        return cells + [""] * max(0, column_count - len(cells))
+
+    th_style = (
+        "border:1px solid #d0d5dd;background:#f3fafb;padding:10px 12px;"
+        "text-align:left;font-weight:700;color:#0b6670;"
+    )
+    td_style = "border:1px solid #d0d5dd;padding:10px 12px;color:#243241;vertical-align:top;"
+    thead = "".join(f'<th style="{th_style}">{html.escape(cell)}</th>' for cell in pad(headers))
+    tbody = "".join(
+        "<tr>" + "".join(f'<td style="{td_style}">{html.escape(cell)}</td>' for cell in pad(row)) + "</tr>"
+        for row in body_rows
+    )
+    return (
+        '<table style="width:100%;border-collapse:collapse;margin:18px 0;'
+        'font-size:15px;line-height:1.7;">'
+        f"<thead><tr>{thead}</tr></thead><tbody>{tbody}</tbody></table>"
     )
 
 
@@ -275,7 +349,7 @@ def _generate_tool_tutorial_screenshots(
     official_url = official_url or "先核验官方入口，不要用陌生下载站。"
     specs = [
         (
-            "截图 1：确认官方入口",
+            "示意图 1：确认官方入口",
             "给读者看：域名、下载入口、登录入口是不是官方页面。",
             [
                 ("确认", f"地址栏应看到官方链接：{official_url}", "#177ddc"),
@@ -285,7 +359,7 @@ def _generate_tool_tutorial_screenshots(
             "小白看这张图，要能确认：我从哪里进、下一步点哪里。",
         ),
         (
-            "截图 2：新建安全测试文件夹",
+            "示意图 2：新建安全测试文件夹",
             "给读者看：第一次不要拿真实项目和私人资料测试。",
             [
                 ("文件夹", f"桌面新建 {tool_name}-test，只放测试 README。", "#10b981"),
@@ -295,7 +369,7 @@ def _generate_tool_tutorial_screenshots(
             "小白看这张图，要能确认：测试范围很小，风险可控。",
         ),
         (
-            "截图 3：输入第一条提示词",
+            "示意图 3：输入第一条提示词",
             "给读者看：先解释和列计划，不要上来就让工具乱改。",
             [
                 ("提示", "我是新手，请先不要修改文件，请解释这里有什么。", "#177ddc"),
@@ -305,7 +379,7 @@ def _generate_tool_tutorial_screenshots(
             "小白看这张图，要能确认：第一条提示词没有让工具直接动手。",
         ),
         (
-            "截图 4：检查结果和复盘",
+            "示意图 4：检查结果和复盘",
             "给读者看：AI 输出以后，仍然要人工判断。",
             [
                 ("检查", "有没有说明依据？有没有胡编官网、价格、功能边界？", "#ff7a45"),
@@ -333,8 +407,8 @@ def _inject_tool_tutorial_screenshots(article_html: str, images: list[dict[str, 
     if not images or "配图实操版" in article_html:
         return article_html
     figures = [
-        '<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">配图实操版</h2>',
-        '<p style="font-size:16px;line-height:1.9;color:#243241;margin:0 0 16px;">下面这 4 张图不是装饰图，而是帮读者确认每一步有没有走对。</p>',
+        '<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">配图实操版：操作示意图</h2>',
+        '<p style="font-size:16px;line-height:1.9;color:#243241;margin:0 0 16px;">下面这 4 张图是系统按步骤生成的操作示意图，不是真实网页截图。它们用于帮读者理解该截哪里；正式发布前，建议替换成你实际操作时截到的官网、下载页、工作台和首次输出页面。</p>',
     ]
     for item in images:
         figures.append(
