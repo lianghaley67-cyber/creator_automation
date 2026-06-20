@@ -193,20 +193,21 @@ def _tutorial_font(size: int, *, bold: bool = False) -> Any:
         return ImageFont.load_default()
 
 
-def _wrap_image_text(draw: Any, text: str, font: Any, max_width: int) -> list[str]:
-    lines: list[str] = []
-    for para in str(text or "").splitlines():
-        buffer = ""
-        for char in para:
-            if draw.textlength(buffer + char, font=font) <= max_width:
-                buffer += char
-            else:
-                if buffer:
-                    lines.append(buffer)
-                buffer = char
-        if buffer:
-            lines.append(buffer)
-    return lines or [""]
+def _draw_wrapped(draw: Any, text: str, xy: tuple[int, int], font: Any, fill: str, max_width: int, line_height: int) -> int:
+    x, y = xy
+    line = ""
+    for char in str(text or ""):
+        if draw.textlength(line + char, font=font) <= max_width:
+            line += char
+            continue
+        if line:
+            draw.text((x, y), line, font=font, fill=fill)
+            y += line_height
+        line = char
+    if line:
+        draw.text((x, y), line, font=font, fill=fill)
+        y += line_height
+    return y
 
 
 def _tutorial_screenshot_card(
@@ -214,34 +215,47 @@ def _tutorial_screenshot_card(
     *,
     title: str,
     subtitle: str,
-    blocks: list[tuple[str, str, str]],
-    footer: str = "",
+    rows: list[tuple[str, str, str]],
+    footer: str,
 ) -> None:
     from PIL import Image, ImageDraw
 
-    width, height = 1600, 980
-    image = Image.new("RGB", (width, height), "#f6f8fb")
+    width, height = 1800, 1080
+    image = Image.new("RGB", (width, height), "#f3f7fb")
     draw = ImageDraw.Draw(image)
-    font_title = _tutorial_font(48, bold=True)
-    font_sub = _tutorial_font(30)
-    font_body = _tutorial_font(32)
-    font_small = _tutorial_font(26, bold=True)
-    draw.rounded_rectangle((44, 44, width - 44, height - 44), radius=30, fill="#ffffff", outline="#d0d5dd", width=3)
-    draw.text((88, 88), title, font=font_title, fill="#101828")
-    draw.text((90, 162), subtitle, font=font_sub, fill="#475467")
-    y = 250
-    for label, body, color in blocks:
-        draw.rounded_rectangle((88, y, width - 88, y + 150), radius=24, fill="#f9fafb", outline="#d0d5dd", width=2)
-        draw.rounded_rectangle((120, y + 42, 280, y + 108), radius=14, fill=color)
-        draw.text((150, y + 58), label, font=font_small, fill="#ffffff")
-        yy = y + 34
-        for line in _wrap_image_text(draw, body, font_body, width - 430)[:3]:
-            draw.text((320, yy), line, font=font_body, fill="#101828")
-            yy += 42
-        y += 180
-    if footer:
-        draw.text((90, height - 116), footer, font=_tutorial_font(26), fill="#475467")
+    title_font = _tutorial_font(54, bold=True)
+    sub_font = _tutorial_font(32)
+    label_font = _tutorial_font(28, bold=True)
+    body_font = _tutorial_font(34)
+    footer_font = _tutorial_font(28)
+    draw.rounded_rectangle((56, 56, width - 56, height - 56), radius=30, fill="#ffffff", outline="#d0d5dd", width=3)
+    draw.text((110, 104), title, font=title_font, fill="#101828")
+    draw.text((112, 184), subtitle, font=sub_font, fill="#475467")
+    y = 292
+    for label, body, color in rows:
+        draw.rounded_rectangle((112, y, width - 112, y + 164), radius=24, fill="#f9fafb", outline="#d0d5dd", width=2)
+        draw.rounded_rectangle((148, y + 48, 320, y + 116), radius=16, fill=color)
+        draw.text((184, y + 64), label, font=label_font, fill="#ffffff")
+        _draw_wrapped(draw, body, (360, y + 38), body_font, "#101828", width - 500, 44)
+        y += 192
+    draw.text((112, height - 122), footer, font=footer_font, fill="#475467")
     image.save(output_path, quality=96)
+
+
+def _official_url_from_markdown(markdown: str) -> str:
+    match = re.search(r"官方入口[：:]\s*(https?://[^\s<]+)", markdown)
+    if match:
+        return match.group(1).rstrip("。,.，")
+    match = re.search(r"官方链接[：:]\s*(https?://[^\s<]+)", markdown)
+    if match:
+        return match.group(1).rstrip("。,.，")
+    match = re.search(r"https?://[^\s<]+", markdown)
+    return match.group(0).rstrip("。,.，") if match else ""
+
+
+def _tool_name_from_title(title: str) -> str:
+    text = re.split(r"[\s：:，,、-]", str(title or "").strip(), maxsplit=1)[0]
+    return _compact(text or "这个工具", 24)
 
 
 def _generate_tool_tutorial_screenshots(
@@ -251,87 +265,76 @@ def _generate_tool_tutorial_screenshots(
     official_url: str,
 ) -> list[dict[str, str]]:
     try:
-        from PIL import Image, ImageDraw
+        import PIL  # noqa: F401
     except Exception:  # noqa: BLE001
         return []
 
     image_dir = package_dir / "tutorial_screenshots"
     image_dir.mkdir(parents=True, exist_ok=True)
-    official_url = official_url or "没有抓到官方链接，先不要按第三方链接安装。"
     tool_name = _compact(tool_name or "这个工具", 24)
-
-    width, height = 1600, 980
-    image = Image.new("RGB", (width, height), "#eef6ff")
-    draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((44, 44, width - 44, height - 44), radius=30, fill="#ffffff", outline="#d0d5dd", width=3)
-    draw.text((88, 88), "截图 1：先确认官方入口", font=_tutorial_font(48, bold=True), fill="#101828")
-    draw.text((90, 162), "目的：确认网址和下载入口，避免点到第三方安装包。", font=_tutorial_font(30), fill="#475467")
-
-    draw.rounded_rectangle((96, 250, width - 96, 865), radius=26, fill="#f8fafc", outline="#d0d5dd", width=3)
-    draw.rounded_rectangle((130, 290, width - 130, 370), radius=20, fill="#ffffff", outline="#98a2b3", width=2)
-    draw.text((170, 314), "浏览器地址栏", font=_tutorial_font(28, bold=True), fill="#344054")
-    draw.text((390, 314), official_url, font=_tutorial_font(28), fill="#101828")
-
-    draw.rounded_rectangle((170, 455, 520, 555), radius=24, fill="#177ddc")
-    draw.text((245, 485), "Download", font=_tutorial_font(34, bold=True), fill="#ffffff")
-    draw.rounded_rectangle((570, 455, 920, 555), radius=24, fill="#10b8d8")
-    draw.text((635, 485), "Get Started", font=_tutorial_font(34, bold=True), fill="#ffffff")
-    draw.rounded_rectangle((970, 455, 1320, 555), radius=24, fill="#101828")
-    draw.text((1084, 485), "Sign in", font=_tutorial_font(34, bold=True), fill="#ffffff")
-
-    draw.rounded_rectangle((170, 645, width - 170, 780), radius=24, fill="#ecfdf3", outline="#75e0a7", width=2)
-    draw.text((210, 676), "看这 3 个点：官方域名 / 下载按钮 / 登录入口", font=_tutorial_font(34, bold=True), fill="#027a48")
-    draw.text((210, 730), "打不开时先换浏览器或网络，不要马上搜索陌生安装包。", font=_tutorial_font(30), fill="#344054")
-    first = image_dir / "01_official_entry.png"
-    image.save(first, quality=96)
-
-    _tutorial_screenshot_card(
-        image_dir / "02_test_folder.png",
-        title="截图 2：新建安全测试文件夹",
-        subtitle="目的：第一次不要拿真实项目或私人资料测试。",
-        blocks=[
-            ("做什么", f"在桌面新建 {tool_name}-test 文件夹，只放一个 README.md。", "#10b981"),
-            ("写什么", "README 里写：我想解决什么问题、我卡在哪里、希望输出什么。", "#10b8d8"),
-            ("成功", "文件夹里只有测试内容，不包含客户资料、账号、隐私文件。", "#ff7a45"),
-        ],
-        footer="建议截图：截文件夹窗口，画面里能看到测试文件夹和 README.md。",
-    )
-    _tutorial_screenshot_card(
-        image_dir / "03_first_prompt.png",
-        title="截图 3：输入第一条提示词",
-        subtitle="目的：先让工具解释和列计划，不要上来就修改。",
-        blocks=[
-            ("提示词", "我是新手，请先不要修改文件。请解释这个测试文件夹有什么。", "#177ddc"),
-            ("要求", "告诉我下一步最小动作，并列出风险；不确定的地方标注需要核验。", "#10b8d8"),
-            ("成功", "输出里有：看到的信息、建议步骤、风险提醒。", "#10b981"),
-        ],
-        footer="建议截图：截工具对话框，画面里要看到你的提示词和它的计划。",
-    )
-    _tutorial_screenshot_card(
-        image_dir / "04_check_result.png",
-        title="截图 4：检查结果是否靠谱",
-        subtitle="目的：AI 只是助手，最后判断还要你自己做。",
-        blocks=[
-            ("检查", "它有没有说明依据？有没有胡编价格、官网承诺、功能边界？", "#ff7a45"),
-            ("限制", "第一次只让它改一个小文件，或生成一个小清单。", "#10b8d8"),
-            ("复盘", "记录：省了什么时间、哪里不准、下次提示词怎么改。", "#10b981"),
-        ],
-        footer="建议截图：截输出结果和你的复盘记录，后续能直接变成文章素材。",
-    )
-    return [
-        {"src": "tutorial_screenshots/01_official_entry.png", "alt": f"{tool_name} 官方入口示意图", "caption": "截图 1：先确认官方入口和 Download / Get Started 按钮。"},
-        {"src": "tutorial_screenshots/02_test_folder.png", "alt": "新建测试文件夹示意图", "caption": "截图 2：第一次只建测试文件夹，不碰真实项目。"},
-        {"src": "tutorial_screenshots/03_first_prompt.png", "alt": "第一条提示词示意图", "caption": "截图 3：第一条提示词只要求解释和计划，不让工具直接修改。"},
-        {"src": "tutorial_screenshots/04_check_result.png", "alt": "结果检查示意图", "caption": "截图 4：检查结果、限制改动范围，并写下复盘。"},
+    official_url = official_url or "先核验官方入口，不要用陌生下载站。"
+    specs = [
+        (
+            "截图 1：确认官方入口",
+            "给读者看：域名、下载入口、登录入口是不是官方页面。",
+            [
+                ("确认", f"地址栏应看到官方链接：{official_url}", "#177ddc"),
+                ("按钮", "画面里要能看到 Download / Get Started / Sign in 这类入口。", "#10b8d8"),
+                ("避坑", "如果打不开，先换浏览器或网络，不要马上搜索陌生安装包。", "#ff7a45"),
+            ],
+            "小白看这张图，要能确认：我从哪里进、下一步点哪里。",
+        ),
+        (
+            "截图 2：新建安全测试文件夹",
+            "给读者看：第一次不要拿真实项目和私人资料测试。",
+            [
+                ("文件夹", f"桌面新建 {tool_name}-test，只放测试 README。", "#10b981"),
+                ("内容", "README 写：我想解决什么、我卡在哪里、我希望输出什么。", "#10b8d8"),
+                ("边界", "不要放客户资料、账号、合同、私人聊天记录。", "#ff7a45"),
+            ],
+            "小白看这张图，要能确认：测试范围很小，风险可控。",
+        ),
+        (
+            "截图 3：输入第一条提示词",
+            "给读者看：先解释和列计划，不要上来就让工具乱改。",
+            [
+                ("提示", "我是新手，请先不要修改文件，请解释这里有什么。", "#177ddc"),
+                ("要求", "列出下一步最小动作和风险，不确定的地方标注需要核验。", "#10b8d8"),
+                ("成功", "输出里应有：看到的信息、建议步骤、风险提醒。", "#10b981"),
+            ],
+            "小白看这张图，要能确认：第一条提示词没有让工具直接动手。",
+        ),
+        (
+            "截图 4：检查结果和复盘",
+            "给读者看：AI 输出以后，仍然要人工判断。",
+            [
+                ("检查", "有没有说明依据？有没有胡编官网、价格、功能边界？", "#ff7a45"),
+                ("限制", "第一次只允许它改一个小文件，或生成一个小清单。", "#10b8d8"),
+                ("复盘", "记下：省了哪一步、哪里不准、下次提示词怎么改。", "#10b981"),
+            ],
+            "小白看这张图，要能确认：这次测试能沉淀成下一次流程。",
+        ),
     ]
+    output: list[dict[str, str]] = []
+    for index, (title, subtitle, rows, footer) in enumerate(specs, start=1):
+        path = image_dir / f"{index:02d}.png"
+        _tutorial_screenshot_card(path, title=title, subtitle=subtitle, rows=rows, footer=footer)
+        output.append(
+            {
+                "src": f"tutorial_screenshots/{index:02d}.png",
+                "alt": title,
+                "caption": footer,
+            }
+        )
+    return output
 
 
 def _inject_tool_tutorial_screenshots(article_html: str, images: list[dict[str, str]]) -> str:
-    if not images or "配图实操版：照着这 4 张图做" in article_html:
+    if not images or "配图实操版" in article_html:
         return article_html
     figures = [
-        '<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">配图实操版：照着这 4 张图做</h2>',
-        '<p style="font-size:16px;line-height:1.9;color:#243241;margin:0 0 16px;">下面这 4 张图可以直接放进公众号文章。它们的作用不是装饰，而是帮读者确认每一步有没有走对。</p>',
+        '<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">配图实操版</h2>',
+        '<p style="font-size:16px;line-height:1.9;color:#243241;margin:0 0 16px;">下面这 4 张图不是装饰图，而是帮读者确认每一步有没有走对。</p>',
     ]
     for item in images:
         figures.append(
@@ -346,19 +349,6 @@ def _inject_tool_tutorial_screenshots(article_html: str, images: list[dict[str, 
     if marker in article_html:
         return article_html.replace(marker, insert + marker, 1)
     return article_html.replace("</body></html>", insert + "</body></html>")
-
-
-def _official_url_from_markdown(markdown: str) -> str:
-    match = re.search(r"官方链接：\s*(https?://[^\s<]+)", markdown)
-    if match:
-        return match.group(1).rstrip("。,.，")
-    match = re.search(r"https?://[^\s<]+", markdown)
-    return match.group(0).rstrip("。,.，") if match else ""
-
-
-def _tool_name_from_title(title: str) -> str:
-    text = re.split(r"[\s：:，,、-]", str(title or "").strip(), maxsplit=1)[0]
-    return _compact(text or "这个工具", 24)
 
 
 def _source_media_files(artifacts: dict[str, Any]) -> list[Path]:

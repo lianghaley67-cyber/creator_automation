@@ -119,7 +119,8 @@ class PublishingTests(unittest.TestCase):
             result["channel_skills"]["xiaohongshu"],
             "xiaohongshu_tool_deep_review_v1",
         )
-        self.assertIn("核心信息卡", result["wechat"]["markdown"])
+        self.assertIn("安装前先检查", result["wechat"]["markdown"])
+        self.assertNotIn("核心信息卡", result["wechat"]["markdown"])
         self.assertIn("同类工具怎么比", result["wechat"]["markdown"])
 
     def test_tool_deep_review_bypasses_ai_when_api_key_exists(self):
@@ -135,7 +136,7 @@ class PublishingTests(unittest.TestCase):
                 },
                 {
                     "title": "Top 5 AI Tools For Content Creators",
-                    "summary": "这条是无关的 AI 资讯，不应该混进 Claude Code 教程核心信息卡。",
+                    "summary": "这条是无关的 AI 资讯，不应该混进 Claude Code 教程。",
                     "url": "https://example.com/unrelated-ai-tools",
                 },
             ],
@@ -172,13 +173,20 @@ class PublishingTests(unittest.TestCase):
             "xiaohongshu_tool_deep_review_v1",
         )
         self.assertIn("Claude Code 零基础上手", result["title"])
-        self.assertIn("## 先给结论", markdown)
-        self.assertIn("我会先测 Claude Code", markdown)
+        self.assertNotIn("## 先给结论", markdown)
+        self.assertNotIn("## 先说结论", markdown)
+        self.assertIn("我会先测 Claude Code，是因为我在做", markdown)
+        self.assertIn("## 它的功能，对普通人意味着什么", markdown)
+        self.assertIn("省哪一步", result["xiaohongshu"]["body"])
         self.assertIn("## 10 分钟实操：照着跑一遍", markdown)
         self.assertIn("第一次测试这类工具", markdown)
         self.assertIn("## 发布前再核验：这 5 件事别省", markdown)
+        self.assertIn("## 截图清单", markdown)
         self.assertIn("## 同类工具怎么比", markdown)
+        self.assertIn("A 看懂项目", markdown)
+        self.assertNotIn("你怎么看", markdown)
         self.assertNotIn("## 我为什么测它", markdown)
+        self.assertNotIn("当前抓到的资料", markdown)
         self.assertNotIn("Top 5 AI Tools For Content Creators", markdown)
 
     def test_prepare_material_distribution_without_video_job(self):
