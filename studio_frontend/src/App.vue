@@ -1147,10 +1147,10 @@ async function uploadWechatCover(event) {
 
 function xiaohongshuStatusLabel(draft) {
   const status = draft?.xiaohongshu?.status;
-  if (status === "draft_saved") return "已保存到系统草稿箱";
-  if (status === "platform_draft_saved") return "已保存到服务器浏览器草稿";
-  if (status === "platform_draft_saving") return "正在保存到服务器浏览器草稿";
-  if (status === "platform_draft_failed") return "保存到服务器浏览器草稿失败";
+  if (status === "draft_saved") return "已准备好，等待自动发布";
+  if (status === "platform_draft_saved") return "已准备好，建议直接发布或下载备用包";
+  if (status === "platform_draft_saving") return "正在处理，请稍等";
+  if (status === "platform_draft_failed") return "旧草稿流程失败，请改用直接发布或下载备用包";
   if (status === "login_required") return "小红书登录已失效";
   if (status === "publishing") return "发布中，等待你确认";
   if (status === "published") return "已发布";
@@ -1182,6 +1182,12 @@ function xiaohongshuNextStep(draft) {
     return {
       title: "发布失败，先看失败原因",
       body: "先看下方错误或服务器截图。如果是登录、验证码、风控问题，先处理登录；如果是内容问题，改标题或正文后再发。"
+    };
+  }
+  if (status === "platform_draft_failed") {
+    return {
+      title: "改用自动发布",
+      body: "旧草稿保存流程不稳定，当前页面已收口为直接发布。先确认标题、正文和图卡，再点“直接发布到小红书”。"
     };
   }
   return {
@@ -3296,7 +3302,7 @@ onBeforeUnmount(() => {
           {{ busy.xiaohongshuVerify ? "登录中..." : "验证码登录" }}
         </button>
       </div>
-      <p v-else class="success-text">服务器小红书已登录，可以保存服务器浏览器草稿；保存结果会直接显示在本页面。</p>
+      <p v-else class="success-text">服务器小红书已登录，可以直接自动发布；发布结果会直接显示在本页面。</p>
       <details
         v-if="xiaohongshuServerSession?.screenshot_url && !xiaohongshuServerSession?.logged_in"
         @toggle="toggleXiaohongshuRemote"
@@ -3342,7 +3348,7 @@ onBeforeUnmount(() => {
         <button class="btn secondary small" type="button" @click="refreshDistributionTasks">刷新草稿</button>
       </div>
       <p class="meta">
-        这里展示历史小红书发布包和处理结果。已关闭本站草稿和服务器浏览器草稿入口；保留自动发布，同时提供下载图文包作为备用。
+        这里展示历史小红书发布包和处理结果。当前主流程只保留自动发布，同时提供下载图文包作为备用。
       </p>
       <div class="draft-list">
         <article v-for="draft in xiaohongshuSystemDrafts" :key="draft.id" class="publish-card">
