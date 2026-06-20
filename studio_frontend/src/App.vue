@@ -2836,6 +2836,24 @@ onBeforeUnmount(() => {
                   :disabled="busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) || trendDistributionDraft.xiaohongshu?.status === 'published'"
                   @click="directPublishXiaohongshu(trendDistributionDraft, applyTrendDistributionResult)"
                 >{{ busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) ? "发布中..." : "直接发布到小红书" }}</button>
+                <label class="upload-audio-label">
+                  {{ busy.wechatCover ? "上传封面中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
+                  <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
+                </label>
+                <button
+                  class="btn accent small"
+                  :disabled="!wechatEntry?.cover_configured || busy.wechatDraft === String(trendDistributionDraft.id)"
+                  @click="createTrendWechatDraft"
+                >
+                  {{
+                    busy.wechatDraft === String(trendDistributionDraft.id)
+                      ? "发送中..."
+                      : !wechatEntry?.cover_configured
+                        ? "请先上传封面"
+                        : "发送到公众号草稿箱"
+                  }}
+                </button>
+                <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览公众号文章</a>
                 <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.title, '小红书标题已复制。')">复制标题</button>
                 <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
                 <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.xiaohongshu?.package_url)" download>下载备用图文包</a>
