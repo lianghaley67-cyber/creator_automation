@@ -2842,15 +2842,13 @@ onBeforeUnmount(() => {
                 </label>
                 <button
                   class="btn accent small"
-                  :disabled="!wechatEntry?.cover_configured || busy.wechatDraft === String(trendDistributionDraft.id)"
+                  :disabled="busy.wechatDraft === String(trendDistributionDraft.id)"
                   @click="createTrendWechatDraft"
                 >
                   {{
                     busy.wechatDraft === String(trendDistributionDraft.id)
                       ? "发送中..."
-                      : !wechatEntry?.cover_configured
-                        ? "请先上传封面"
-                        : "发送到公众号草稿箱"
+                      : "发送到公众号草稿箱"
                   }}
                 </button>
                 <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览公众号文章</a>
@@ -2877,15 +2875,13 @@ onBeforeUnmount(() => {
                 <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览公众号文章</a>
                 <button
                   class="btn accent small"
-                  :disabled="!wechatEntry?.cover_configured || busy.wechatDraft === String(trendDistributionDraft.id)"
+                  :disabled="busy.wechatDraft === String(trendDistributionDraft.id)"
                   @click="createTrendWechatDraft"
                 >
                   {{
                     busy.wechatDraft === String(trendDistributionDraft.id)
                       ? "发送中..."
-                      : !wechatEntry?.cover_configured
-                        ? "请先上传封面"
-                        : "发送到公众号草稿箱"
+                      : "发送到公众号草稿箱"
                   }}
                 </button>
               </div>
@@ -3225,15 +3221,13 @@ onBeforeUnmount(() => {
               <button
                 class="btn accent small"
                 type="button"
-                :disabled="!wechatEntry?.cover_configured || busy.wechatDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
+                :disabled="busy.wechatDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id)"
                 @click="createMaterialWechatDraft(selectedWechatMaterial)"
               >
                 {{
                   busy.wechatDraft === String(materialDistributionDrafts[selectedWechatMaterial.id].id)
                     ? "发送中..."
-                    : !wechatEntry?.cover_configured
-                      ? "请先上传封面"
-                      : "发送到公众号草稿箱"
+                    : "发送到公众号草稿箱"
                 }}
               </button>
               <button
@@ -3709,15 +3703,13 @@ onBeforeUnmount(() => {
               >{{ busy.xiaohongshuDirectPublish === String(distributionDrafts[job.id].id) ? "发布中..." : "直接发布到小红书" }}</button>
               <button
                 class="btn accent small"
-                :disabled="!wechatEntry?.cover_configured || busy.wechatDraft === String(distributionDrafts[job.id].id)"
+                :disabled="busy.wechatDraft === String(distributionDrafts[job.id].id)"
                 @click="createWechatDraft(job)"
               >
                 {{
                   busy.wechatDraft === String(distributionDrafts[job.id].id)
                     ? "提交中..."
-                    : !wechatEntry?.cover_configured
-                      ? "请先上传封面"
-                      : "发送到公众号草稿箱"
+                    : "发送到公众号草稿箱"
                 }}
               </button>
             </div>
