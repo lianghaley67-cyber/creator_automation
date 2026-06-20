@@ -1,5 +1,14 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { coreModules, modulePageMeta as getModulePageMeta, sidebarModules, workflowCards } from "./modules/navigation.js";
+import { normalizeErrorMessage } from "./utils/errors.js";
+import {
+  formatStockNumber,
+  stockChangeClass,
+  stockDecisionGuide as buildStockDecisionGuide,
+  stockKlinePoints,
+  stockReadableReport as buildStockReadableReport,
+} from "./utils/stocks.js";
 
 const configuredApiBase = (import.meta.env.VITE_API_BASE || "").trim().replace(/\/$/, "");
 const browserApiBase = window.location.origin && window.location.protocol.startsWith("http")
@@ -225,24 +234,6 @@ function setNotice(message) {
 
 function setError(message) {
   errorMessage.value = message || "发生未知错误。";
-}
-
-function normalizeErrorMessage(error, fallback = "请求失败。") {
-  if (!error) return fallback;
-  if (typeof error === "string") return error || fallback;
-  if (error instanceof Error) {
-    if (/504 Gateway Time-out|504 Gateway Timeout/i.test(error.message || "")) {
-      return "服务器这次处理超时了，请稍后重试。页面和已有数据不会丢失。";
-    }
-    if (/502 Bad Gateway/i.test(error.message || "")) {
-      return "服务器正在重启或暂时不可用，请等待几秒后重试。";
-    }
-    if (/failed to fetch/i.test(error.message || "")) {
-      return "后端没连上：请确认后台服务已启动，或者刷新页面后重试。";
-    }
-    return error.message || fallback;
-  }
-  return String(error || fallback);
 }
 
 async function pingApi(base) {
@@ -1934,116 +1925,12 @@ function stockSkillName(skillId) {
   return stockSkills.value.find((item) => item.id === skillId)?.name || skillId || "Stock Skill";
 }
 
-function formatStockNumber(value, digits = 2) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "--";
-  return number.toFixed(digits);
-}
-
-function stockChangeClass(value) {
-  const number = Number(value);
-  if (number > 0) return "up";
-  if (number < 0) return "down";
-  return "";
-}
-
-function stockKlinePoints(points = []) {
-  const values = (Array.isArray(points) ? points : []).slice(-42).map((item) => Number(item.close)).filter(Number.isFinite);
-  if (!values.length) return "";
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const width = 320;
-  const height = 88;
-  const span = max - min || 1;
-  return values.map((value, index) => {
-    const x = values.length === 1 ? width : (index / (values.length - 1)) * width;
-    const y = height - ((value - min) / span) * height;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
-}
-
 function stockDecisionGuide(analysis) {
-  const plain = analysis?.plain_answer || null;
-  if (plain?.headline || plain?.action) return plain;
-  const score = Number(analysis?.score);
-  const indicators = analysis?.indicators || {};
-  const quote = analysis?.quote || {};
-  const question = String(stockQuestion.value || "");
-  const price = quote.price ?? indicators.latest ?? "--";
-  const support = indicators.support ?? indicators.low20 ?? "--";
-  const resistance = indicators.resistance ?? indicators.high20 ?? "--";
-  const ma20 = indicators.ma20 ?? "--";
-  const trend = indicators.trend || analysis?.stance || "趋势不明确";
-  const rsi = Number(indicators.rsi14);
-  const volatility = Number(indicators.volatility20);
-  const changePercent = Number(quote.change_percent);
-  const risks = Array.isArray(analysis?.risks) ? analysis.risks : [];
-  const asksPosition = /减仓|加仓|仓位|补仓|持有|卖|买/.test(question);
-  const asksRange = /最高|最低|目标|到多少|预测|空间/.test(question);
-  let headline = "结论：中性偏弱，先等信号";
-  let action = `下一步：不建议加仓；已有仓位看 MA20（${ma20}）和20日低点 ${support}，守不住就减仓。`;
-  let invalidation = `价格区间：短线先看 ${support} 到 ${resistance}；突破 ${resistance} 才有继续上看的理由。`;
-
-  if ((Number.isFinite(score) && score < 40) || trend === "空头排列") {
-    headline = "结论：偏弱，先防守，不要补仓";
-    action = `仓位建议：减仓或只留小观察仓。不要加仓。防守线看 ${support}，站回 MA20（${ma20}）之前不考虑加仓。`;
-    invalidation = `价格区间：短线先看 ${support} 到 ${resistance}；只有站回 MA20（${ma20}）并突破 ${resistance}，才算转强。`;
-  } else if (Number.isFinite(volatility) && volatility >= 45) {
-    headline = "结论：波动太大，仓位要轻";
-    action = `仓位建议：只适合轻仓。已有仓位可减到让你睡得着的位置；想加仓也等站稳 MA20（${ma20}）后再分批。`;
-    invalidation = `价格区间：短线先看 ${support} 到 ${resistance}；跌破 ${support} 继续偏弱。`;
-  } else if (Number.isFinite(rsi) && rsi <= 30 && (!Number.isFinite(score) || score < 55)) {
-    headline = "结论：可能反弹，但不是加仓信号";
-    action = `仓位建议：不是加仓点。RSI 低只说明可能反弹，先看 ${support} 是否止跌，突破 ${resistance} 才能提高仓位。`;
-    invalidation = `价格区间：反弹上沿先看 ${resistance}，跌破 ${support} 就是反弹失败。`;
-  } else if (Number.isFinite(score) && score >= 70 && ["多头排列", "短线强于中期"].includes(trend)) {
-    headline = "结论：趋势偏强，持有比追高更合适";
-    action = `仓位建议：已有仓位可以持有；不建议追高满仓。突破 ${resistance} 后可小幅加，跌破 MA20（${ma20}）就减。`;
-    invalidation = `价格区间：下方看 MA20（${ma20}），上方先看 ${resistance}。`;
-  } else if (Number.isFinite(score) && score < 40) {
-    headline = "结论：偏弱，先别补仓";
-  } else if (Number.isFinite(changePercent) && changePercent <= -3) {
-    headline = "结论：今天偏弱，不要急着加仓";
-    action = `仓位建议：不加仓。已有仓位先看 ${support}，跌破就减；反弹到 MA20（${ma20}）附近量不够也别追。`;
-  } else if (Number.isFinite(score) && score >= 55) {
-    headline = "结论：略有转好，但还不能重仓";
-    action = `仓位建议：可以观察，不适合重仓。若站稳 MA20（${ma20}）且突破 ${resistance}，再考虑小仓加；跌破 ${support} 就减。`;
-  }
-
-  if (asksPosition && !action.includes("仓位建议")) {
-    action = `仓位建议：先不加仓，已有仓位可继续观察。上方看 ${resistance}，下方看 ${support}；方向没出来前不要扩大仓位。`;
-  }
-  if (asksRange && !invalidation.includes("价格区间")) {
-    invalidation = `价格区间：短线先看 ${support} 到 ${resistance}；MA20（${ma20}）是中间分水岭。`;
-  }
-
-  const notes = [`现在价格大约 ${price}，趋势是「${trend}」。`];
-  if (Number.isFinite(rsi) && rsi <= 30) notes.push("RSI 很低，可能有反弹，但这不等于反转。");
-  if (Number.isFinite(rsi) && rsi >= 75) notes.push("RSI 偏热，短线要防回落。");
-  if (Number.isFinite(volatility) && volatility >= 45) notes.push("波动很大，仓位要比平时更轻。");
-  if (risks[0]) notes.push(`最大的风险：${risks[0]}`);
-  return {
-    headline,
-    summary: notes.join(""),
-    action,
-    invalidation
-  };
+  return buildStockDecisionGuide(analysis, stockQuestion.value);
 }
 
 function stockReadableReport(analysis) {
-  if (!analysis) return "";
-  const guide = stockDecisionGuide(analysis);
-  const report = String(analysis.report || "");
-  if (report.includes("大白话") || report.includes("下一步：")) return report;
-  return [
-    `## 大白话：${guide.headline}`,
-    "",
-    `- ${guide.summary}`,
-    `- ${guide.action}`,
-    `- ${guide.invalidation}`,
-    "",
-    report
-  ].join("\n").trim();
+  return buildStockReadableReport(analysis, stockQuestion.value);
 }
 
 function jobProgress(job) {
@@ -2075,122 +1962,13 @@ const xiaohongshuSystemDrafts = computed(() => (
   ))
 ));
 const latestWechatCallbackEvent = computed(() => wechatCallbackEvents.value[0] || null);
-const workflowCards = [
-  {
-    key: "capture",
-    number: "01",
-    title: "抓取",
-    desc: "120+ 信息源 · 15 分钟刷新",
-    icon: "feed",
-    tab: "trends",
-    target: "trends-panel"
-  },
-  {
-    key: "input",
-    number: "02",
-    title: "输入",
-    desc: "语音 / 文字 / 文档上传",
-    icon: "mic",
-    tab: "materials",
-    target: "wechat-inbox"
-  },
-  {
-    key: "interview",
-    number: "03",
-    title: "追问",
-    desc: "AI 访谈式深挖观点",
-    icon: "ask",
-    tab: "trends",
-    target: "questions-panel"
-  },
-  {
-    key: "generate",
-    number: "04",
-    title: "生成",
-    desc: "多 Skill 文案 + 视频",
-    icon: "wand",
-    tab: "materials",
-    target: "script-panel"
-  },
-  {
-    key: "publish",
-    number: "05",
-    title: "发布",
-    desc: "归档 Obsidian · 半自动分发",
-    icon: "upload",
-    tab: "materials",
-    target: "jobs-panel"
-  }
-];
-const coreModules = [
-  {
-    key: "capture",
-    number: "01",
-    title: "实时信息获取",
-    desc: "聚合 AI、软件开发、内容创作、职场成长四大赛道的多源资讯，自动去重、打标、生成普通人能理解的关键词图谱。",
-    icon: "live",
-    status: "已上线",
-    action: "进入模块",
-    tab: "trends",
-    target: "trends-panel",
-    bullets: ["RSS / API / 微信公众号 多源抓取", "AI 自动分类 · 关键词去重", "一键转访谈式追问"]
-  },
-  {
-    key: "create",
-    number: "02",
-    title: "素材上传 · 生成文案视频",
-    desc: "支持文字、微信语音、文档导入。AI 按 Skill 模板生成视频号口播、播客脚本、学习拉链文章，并自动渲染短视频。",
-    icon: "doc",
-    status: "已上线",
-    action: "进入模块",
-    tab: "materials",
-    target: "script-panel",
-    bullets: ["微信语音 → 转写 → 润色", "多模板 Skill 切换", "TTS + 模板视频自动渲染"]
-  },
-  {
-    key: "analysis",
-    number: "03",
-    title: "股票分析",
-    desc: "基于实时行情、技术指标、市场温度与个人持仓，输出复盘卡片、风险提示和下一步观察动作。",
-    icon: "stock",
-    status: "已上线",
-    action: "进入模块",
-    tab: "stocks",
-    target: "stock-panel",
-    bullets: ["A/HK/US 行情分析", "个人持仓与预警", "AI 辅助复盘报告"]
-  }
-];
 const studioStats = computed(() => [
   { value: `${Math.max(aiTrends.value[0]?.items?.length || 0, 120)}+`, label: "实时信息源", icon: "globe" },
   { value: "60s", label: "素材到成片", icon: "flash" },
   { value: "8 类", label: "内容 Skill 模板", icon: "chart" },
   { value: "3x", label: "周更产能提升", icon: "trend" }
 ]);
-const sidebarModules = [
-  { key: "trends", label: "实时信息获取", icon: "01", tab: "trends", target: "trends-panel" },
-  { key: "materials", label: "素材生成视频", icon: "02", tab: "materials", target: "wechat-inbox" },
-  { key: "stocks", label: "股票分析", icon: "03", tab: "stocks", target: "stock-panel" }
-];
-const modulePageMeta = computed(() => {
-  const meta = {
-    trends: {
-      kicker: "REALTIME INTELLIGENCE",
-      title: "实时信息获取",
-      desc: "抓取 AI、软件开发、职场成长与内容创作资讯，自动去重、分类并生成可追问选题。"
-    },
-    materials: {
-      kicker: "CONTENT ENGINE",
-      title: "素材上传 · 生成文案视频",
-      desc: "把微信语音、文字、文档和真实经历，串成文案审核、视频生成与发布归档工作流。"
-    },
-    stocks: {
-      kicker: "DECISION ASSISTANT",
-      title: "股票分析",
-      desc: "沉淀行情、舆情、个人持仓与复盘卡片，为后续决策辅助模块预留完整入口。"
-    }
-  };
-  return meta[activeTab.value] || meta.trends;
-});
+const modulePageMeta = computed(() => getModulePageMeta(activeTab.value));
 
 const selectedWechatSkillName = computed(() => (
   channelSkillsList.value.find((skill) => skill.id === selectedWechatSkill.value)?.name || "默认公众号 Skill"
