@@ -2637,8 +2637,8 @@ def generate_audio(payload: AudioGenerateRequest) -> dict[str, Any]:
 
 
 @app.get("/api/distribution/tasks")
-def list_distribution_tasks() -> dict[str, Any]:
-    return {"items": _sorted(store.list_section("distribution_tasks"), key="updated_at")[:50]}
+def list_distribution_tasks(limit: int = Query(20, ge=1, le=50)) -> dict[str, Any]:
+    return {"items": _sorted(store.list_section("distribution_tasks"), key="updated_at")[:limit]}
 
 
 @app.post("/api/integrations/xiaohongshu/session")

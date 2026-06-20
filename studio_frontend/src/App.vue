@@ -88,6 +88,8 @@ const trendChatInput = ref("");
 const channelSkillsList = ref([]); // 全量 skill 列表
 const selectedWechatSkill = ref(""); // 用户选择的公众号 skill
 const selectedXhsSkill = ref(""); // 用户选择的小红书 skill
+const wechatSkillManuallySelected = ref(false);
+const xhsSkillManuallySelected = ref(false);
 const skillSelectorVisible = ref(false); // 是否展开 skill 选择面板
 const trendDiscussionOpen = ref(false); // 多轮讨论是否展开
 const trendFreshHighlight = ref(false); // 资讯刷新后的短暂高亮
@@ -114,6 +116,9 @@ const publishDrafts = reactive({});
 const distributionDrafts = reactive({});
 const materialDistributionDrafts = reactive({});
 const distributionTasks = ref([]);
+const jobsLoaded = ref(false);
+const wechatMaterialsLoaded = ref(false);
+const distributionTasksLoaded = ref(false);
 const xiaohongshuPublishUrls = reactive({});
 const xiaohongshuServerSession = ref(null);
 const xiaohongshuPhone = ref("");
@@ -769,6 +774,7 @@ async function refreshJobs() {
   try {
     const data = await requestApi("/api/jobs");
     jobs.value = Array.isArray(data) ? data : [];
+    jobsLoaded.value = true;
   } catch (error) {
     setError(normalizeErrorMessage(error, "刷新任务失败。"));
   } finally {
@@ -790,6 +796,7 @@ async function refreshWechatMaterials() {
     if (!wechatMaterials.value.some((item) => item.id === selectedWechatMaterialId.value)) {
       selectedWechatMaterialId.value = wechatMaterials.value[0]?.id || "";
     }
+    wechatMaterialsLoaded.value = true;
   } catch (error) {
     setError(normalizeErrorMessage(error, "刷新微信素材失败。"));
   } finally {
@@ -912,8 +919,9 @@ function generateTrendQuestions(trend) {
 
 async function refreshDistributionTasks() {
   try {
-    const result = await requestApi("/api/distribution/tasks");
+    const result = await requestApi("/api/distribution/tasks?limit=20");
     distributionTasks.value = Array.isArray(result?.items) ? result.items : [];
+    distributionTasksLoaded.value = true;
   } catch (error) {
     setError(normalizeErrorMessage(error, "刷新平台草稿箱失败。"));
   }
@@ -2204,8 +2212,11 @@ function openStudioModule(tab, targetId = "") {
   if (tab === "trends" && !aiTrends.value.length && !busy.refreshTrends) {
     refreshAiTrends();
   }
-  if (tab === "materials" && !busy.refreshWechat) {
+  if (tab === "materials" && !wechatMaterialsLoaded.value && !busy.refreshWechat) {
     refreshWechatMaterials();
+  }
+  if (tab === "materials" && !distributionTasksLoaded.value) {
+    refreshDistributionTasks();
   }
   if (tab === "stocks" && !stockMarket.value && !busy.stockMarket) {
     Promise.allSettled([
@@ -2250,10 +2261,10 @@ async function generateTrendAiSummary() {
     }, 60000);
     trendAiSummary.value = result?.summary || null;
     // 自动预填推荐 Skill
-    if (trendAiSummary.value?.suggested_wechat_skill) {
+    if (!wechatSkillManuallySelected.value && trendAiSummary.value?.suggested_wechat_skill) {
       selectedWechatSkill.value = trendAiSummary.value.suggested_wechat_skill;
     }
-    if (trendAiSummary.value?.suggested_xhs_skill) {
+    if (!xhsSkillManuallySelected.value && trendAiSummary.value?.suggested_xhs_skill) {
       selectedXhsSkill.value = trendAiSummary.value.suggested_xhs_skill;
     }
     skillSelectorVisible.value = true;
@@ -2295,15 +2306,21 @@ async function sendTrendChat() {
 
 let pollTimer = null;
 onMounted(async () => {
-  await Promise.allSettled([
-    refreshJobs(),
-    refreshWechatMaterials(),
-    refreshDistributionTasks(),
-    loadPresetTopicsAndSkills(),
-  ]);
+  await loadPresetTopicsAndSkills();
+  if (activeTab.value === "trends") {
+    await refreshAiTrends();
+  } else if (activeTab.value === "materials") {
+    await Promise.allSettled([
+      refreshWechatMaterials(),
+      refreshDistributionTasks(),
+    ]);
+  } else if (activeTab.value !== "overview") {
+    await refreshJobs();
+  }
   pollTimer = window.setInterval(() => {
-    if (runningKidsJobs.value.length) refreshJobs();
+    if (jobsLoaded.value && runningKidsJobs.value.length) refreshJobs();
     if (
+      distributionTasksLoaded.value &&
       distributionTasks.value.some(
         (item) => item?.xiaohongshu?.status === "platform_draft_saving"
       )
@@ -2703,7 +2720,7 @@ onBeforeUnmount(() => {
                     class="skill-card"
                     :class="{ selected: selectedWechatSkill === skill.id }"
                     :title="`${skill.name}：${skill.description || '点击选择这套写法'}`"
-                    @click="selectedWechatSkill = skill.id"
+                    @click="selectedWechatSkill = skill.id; wechatSkillManuallySelected = true"
                   >
                     <div class="skill-card-header">
                       <strong>{{ skill.name }}</strong>
@@ -2731,7 +2748,7 @@ onBeforeUnmount(() => {
                     class="skill-card"
                     :class="{ selected: selectedXhsSkill === skill.id }"
                     :title="`${skill.name}：${skill.description || '点击选择这套写法'}`"
-                    @click="selectedXhsSkill = skill.id"
+                    @click="selectedXhsSkill = skill.id; xhsSkillManuallySelected = true"
                   >
                     <div class="skill-card-header">
                       <strong>{{ skill.name }}</strong>
