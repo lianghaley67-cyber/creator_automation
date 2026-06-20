@@ -1,18 +1,28 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref } from "vue";
 import { coreModules, modulePageMeta as getModulePageMeta, sidebarModules, workflowCards } from "./modules/navigation.js";
+import {
+  jobProgress,
+  reviewLines,
+  xiaohongshuNextStep,
+  xiaohongshuStatusLabel,
+} from "./pages/MaterialStudioPage.logic.js";
 import MaterialStudioPage from "./pages/MaterialStudioPage.vue";
 import OverviewPage from "./pages/OverviewPage.vue";
+import {
+  buildTrendNextAction,
+  buildTrendQuestions,
+} from "./pages/RealtimeInfoPage.logic.js";
 import RealtimeInfoPage from "./pages/RealtimeInfoPage.vue";
-import StockAnalysisPage from "./pages/StockAnalysisPage.vue";
-import { normalizeErrorMessage } from "./utils/errors.js";
 import {
   formatStockNumber,
   stockChangeClass,
   stockDecisionGuide as buildStockDecisionGuide,
   stockKlinePoints,
   stockReadableReport as buildStockReadableReport,
-} from "./utils/stocks.js";
+} from "./pages/StockAnalysisPage.logic.js";
+import StockAnalysisPage from "./pages/StockAnalysisPage.vue";
+import { normalizeErrorMessage } from "./utils/errors.js";
 
 const configuredApiBase = (import.meta.env.VITE_API_BASE || "").trim().replace(/\/$/, "");
 const browserApiBase = window.location.origin && window.location.protocol.startsWith("http")
@@ -407,13 +417,6 @@ async function generateWechatMaterial(material, mode) {
   } finally {
     busy.previewScript = false;
   }
-}
-
-function reviewLines(review) {
-  const value = review || {};
-  const issues = Array.isArray(value.issues) ? value.issues : [];
-  const fixes = Array.isArray(value.fix_instructions) ? value.fix_instructions : [];
-  return [...issues, ...fixes].filter(Boolean);
 }
 
 async function uploadReferenceImage(event) {
@@ -886,30 +889,7 @@ async function refreshAiTrends(force = false) {
 }
 
 function generateTrendQuestions(trend) {
-  if (!trend) return;
-  if (Array.isArray(trend.suggested_questions) && trend.suggested_questions.length) {
-    trendQuestions.value = trend.suggested_questions.slice(0, 6);
-    return;
-  }
-  const items = Array.isArray(trend.items) ? trend.items : [];
-  const pickTitle = (index, fallback) => {
-    const title = (items[index]?.title || trend.title || fallback || "今天的 AI 资讯").trim();
-    return title.length > 28 ? `${title.slice(0, 27)}…` : title;
-  };
-  const focusText = `${trend.query || ""} ${trend.summary || ""} ${items.map((item) => item.title || "").join(" ")}`.toLowerCase();
-  const focus = focusText.includes("video") || focusText.includes("creator") || focusText.includes("短视频")
-    ? "短视频创作和内容生产"
-    : focusText.includes("work") || focusText.includes("效率") || focusText.includes("职场")
-      ? "普通人的工作效率和时间管理"
-      : "普通人的生活、工作和学习方式";
-  trendQuestions.value = [
-    `从「${pickTitle(0)}」看，AI 正在解决普通人生活工作里的哪个具体问题？`,
-    `如果把今天的资讯落到${focus}，最值得普通人立刻尝试的一个动作是什么？`,
-    `「${pickTitle(1)}」可能带来哪些机会和风险，哪些地方必须保留人的判断？`,
-    "这些 AI 工具是不是完全准确？普通人怎么判断接口数据、模型输出和真实经验的边界？",
-    "如果用访谈方式深挖：这条资讯最触动我的一个焦虑、期待或真实经历是什么？",
-    `怎么把「${pickTitle(2)}」转成一条有钩子、有观点、有行动建议的视频号口播文案？`
-  ];
+  trendQuestions.value = buildTrendQuestions(trend);
 }
 
 async function refreshDistributionTasks() {
@@ -1146,57 +1126,6 @@ async function uploadWechatCover(event) {
     busy.wechatCover = false;
     if (event?.target) event.target.value = "";
   }
-}
-
-function xiaohongshuStatusLabel(draft) {
-  const status = draft?.xiaohongshu?.status;
-  if (status === "draft_saved") return "已准备好，等待自动发布";
-  if (status === "platform_draft_saved") return "已准备好，建议直接发布或下载备用包";
-  if (status === "platform_draft_saving") return "正在处理，请稍等";
-  if (status === "platform_draft_failed") return "旧草稿流程失败，请改用直接发布或下载备用包";
-  if (status === "login_required") return "小红书登录已失效";
-  if (status === "publishing") return "发布中，等待你确认";
-  if (status === "published") return "已发布";
-  if (status === "failed") return "发布失败，可重新尝试";
-  return "待发布";
-}
-
-function xiaohongshuNextStep(draft) {
-  const status = draft?.xiaohongshu?.status;
-  if (status === "published") {
-    return {
-      title: "小红书已发布，下一步看数据",
-      body: "这篇已经发出去了。现在不用重复发布，后面看浏览、点赞、收藏和评论，再决定是否复盘成下一篇。"
-    };
-  }
-  if (status === "publishing") {
-    return {
-      title: "正在自动发布，先等结果",
-      body: "服务器正在处理，不要重复点击。等页面状态变成已发布或失败后，再决定下一步。"
-    };
-  }
-  if (status === "login_required") {
-    return {
-      title: "先恢复小红书服务器登录",
-      body: "服务器小红书登录过期了。先到下方登录区检查登录状态，再回来点自动发布。"
-    };
-  }
-  if (status === "failed") {
-    return {
-      title: "发布失败，先看失败原因",
-      body: "先看下方错误或服务器截图。如果是登录、验证码、风控问题，先处理登录；如果是内容问题，改标题或正文后再发。"
-    };
-  }
-  if (status === "platform_draft_failed") {
-    return {
-      title: "改用自动发布",
-      body: "旧草稿保存流程不稳定，当前页面已收口为直接发布。先确认标题、正文和图卡，再点“直接发布到小红书”。"
-    };
-  }
-  return {
-    title: "确认内容后，点自动发布",
-    body: "标题、正文和图卡已经准备好。你要省事就点自动发布；如果担心账号风控，就下载图文包手动发。"
-  };
 }
 
 async function updateXiaohongshuStatus(task, status, applyResult, noteUrl = "") {
@@ -1937,12 +1866,6 @@ function stockReadableReport(analysis) {
   return buildStockReadableReport(analysis, stockQuestion.value);
 }
 
-function jobProgress(job) {
-  const raw = Number(job?.progress_percent);
-  if (Number.isFinite(raw)) return Math.min(100, Math.max(0, Math.round(raw)));
-  return job?.status === "completed" ? 100 : 0;
-}
-
 const kidsJobs = computed(() => jobs.value.filter((job) => String(job?.request?.project_mode || "") === "kids_cartoon"));
 const runningKidsJobs = computed(() => kidsJobs.value.filter((job) => ["queued", "running"].includes(job.status)));
 const completedKidsJobs = computed(() => kidsJobs.value.filter((job) => job.status === "completed"));
@@ -1981,12 +1904,13 @@ const selectedXhsSkillName = computed(() => (
   channelSkillsList.value.find((skill) => skill.id === selectedXhsSkill.value)?.name || "默认小红书 Skill"
 ));
 const trendNextAction = computed(() => {
-  if (busy.refreshTrends) return "正在抓取新资讯，抓完后会高亮本次结果。";
-  if (!aiTrends.value.length) return "下一步：先点“立即抓取”，获取今天可转成内容的 AI 资讯。";
-  if (!trendAiSummary.value) return "下一步：点右上角“生成 AI 摘要”，先让 AI 把资讯翻译成普通人能用的重点。";
-  if (!skillSelectorVisible.value) return "下一步：展开 Skill，确认公众号和小红书分别用哪套写法。";
-  if (!trendDistributionDraft.value) return "下一步：读完摘要后，点“生成发布包”，或在某条资讯右侧点“用这条生成”。";
-  return "下一步：切换公众号/小红书预览，检查内容后再进入发布。";
+  return buildTrendNextAction({
+    isRefreshing: busy.refreshTrends,
+    hasTrends: aiTrends.value.length > 0,
+    hasSummary: Boolean(trendAiSummary.value),
+    isSkillSelectorVisible: skillSelectorVisible.value,
+    hasDistributionDraft: Boolean(trendDistributionDraft.value)
+  });
 });
 
 function openStudioModule(tab, targetId = "") {
