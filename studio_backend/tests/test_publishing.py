@@ -46,6 +46,33 @@ class PublishingTests(unittest.TestCase):
         self.assertIn("不是真实网页截图", injected)
         self.assertNotIn("下面这 4 张图不是装饰图", injected)
 
+    def test_public_screenshot_url_safety(self):
+        self.assertTrue(publishing._is_public_https_url("https://www.trae.ai/"))
+        self.assertFalse(publishing._is_public_https_url("http://www.trae.ai/"))
+        self.assertFalse(publishing._is_public_https_url("https://localhost/admin"))
+        self.assertFalse(publishing._is_public_https_url("https://127.0.0.1/admin"))
+        self.assertFalse(publishing._is_public_https_url("https://192.168.1.2/admin"))
+
+    def test_generate_tool_tutorial_images_prefers_real_official_screenshot(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_dir = Path(temp_dir)
+
+            def fake_capture(url, output_path):
+                output_path.write_bytes(b"png")
+                return True
+
+            with patch.object(publishing, "_capture_public_webpage_screenshot", side_effect=fake_capture):
+                images = publishing._generate_tool_tutorial_screenshots(
+                    package_dir,
+                    tool_name="Trae",
+                    official_url="https://www.trae.ai/",
+                )
+
+        self.assertEqual(images[0]["kind"], "real")
+        self.assertIn("真实截图", images[0]["caption"])
+        self.assertEqual(images[0]["src"], "tutorial_screenshots/01.png")
+        self.assertTrue(any(item["kind"] == "illustration" for item in images[1:]))
+
     def test_prepare_trend_distribution_adds_xiaohongshu_recommendation(self):
         trend = {
             "id": "trend_1",
@@ -63,6 +90,7 @@ class PublishingTests(unittest.TestCase):
             with (
                 patch.object(publishing, "OUTPUTS_DIR", output_dir),
                 patch.object(publishing, "to_media_url", side_effect=media_url),
+                patch.dict("os.environ", {"CREATOR_STUDIO_REAL_SCREENSHOTS": "0"}),
             ):
                 result = publishing.prepare_trend_distribution_package(
                     trend,
@@ -187,7 +215,7 @@ class PublishingTests(unittest.TestCase):
             with (
                 patch.object(publishing, "OUTPUTS_DIR", output_dir),
                 patch.object(publishing, "to_media_url", side_effect=media_url),
-                patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}),
+                patch.dict("os.environ", {"OPENAI_API_KEY": "test-key", "CREATOR_STUDIO_REAL_SCREENSHOTS": "0"}),
                 patch(
                     "studio_backend.channel_skills._ai_generate_channel_drafts",
                     side_effect=AssertionError("tool deep review should not call AI"),

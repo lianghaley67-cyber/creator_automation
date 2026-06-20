@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import ipaddress
 import json
 import os
 import re
@@ -332,6 +333,55 @@ def _tool_name_from_title(title: str) -> str:
     return _compact(text or "这个工具", 24)
 
 
+def _is_public_https_url(url: str) -> bool:
+    try:
+        parsed = urllib.parse.urlsplit(str(url or "").strip())
+    except Exception:  # noqa: BLE001
+        return False
+    if parsed.scheme != "https" or not parsed.hostname:
+        return False
+    host = parsed.hostname.lower()
+    if host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".local"):
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+    )
+
+
+def _capture_public_webpage_screenshot(url: str, output_path: Path) -> bool:
+    if os.getenv("CREATOR_STUDIO_REAL_SCREENSHOTS", "1").strip().lower() in {"0", "false", "no"}:
+        return False
+    if not _is_public_https_url(url):
+        return False
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            page = browser.new_page(
+                viewport={"width": 1440, "height": 1100},
+                device_scale_factor=1,
+            )
+            page.goto(url, wait_until="domcontentloaded", timeout=12000)
+            page.wait_for_timeout(1800)
+            page.screenshot(path=str(output_path), full_page=False)
+            browser.close()
+        return output_path.exists() and output_path.stat().st_size > 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _generate_tool_tutorial_screenshots(
     package_dir: Path,
     *,
@@ -347,6 +397,18 @@ def _generate_tool_tutorial_screenshots(
     image_dir.mkdir(parents=True, exist_ok=True)
     tool_name = _compact(tool_name or "这个工具", 24)
     official_url = official_url or "先核验官方入口，不要用陌生下载站。"
+    output: list[dict[str, str]] = []
+    if _is_public_https_url(official_url):
+        real_path = image_dir / "01.png"
+        if _capture_public_webpage_screenshot(official_url, real_path):
+            output.append(
+                {
+                    "src": "tutorial_screenshots/01.png",
+                    "alt": f"{tool_name} 官方入口真实截图",
+                    "caption": f"真实截图：先确认地址栏是官方入口 {official_url}，再找 Download / Get Started / Sign in。",
+                    "kind": "real",
+                }
+            )
     specs = [
         (
             "示意图 1：确认官方入口",
@@ -389,8 +451,9 @@ def _generate_tool_tutorial_screenshots(
             "小白看这张图，要能确认：这次测试能沉淀成下一次流程。",
         ),
     ]
-    output: list[dict[str, str]] = []
     for index, (title, subtitle, rows, footer) in enumerate(specs, start=1):
+        if output and index == 1:
+            continue
         path = image_dir / f"{index:02d}.png"
         _tutorial_screenshot_card(path, title=title, subtitle=subtitle, rows=rows, footer=footer)
         output.append(
@@ -398,6 +461,7 @@ def _generate_tool_tutorial_screenshots(
                 "src": f"tutorial_screenshots/{index:02d}.png",
                 "alt": title,
                 "caption": footer,
+                "kind": "illustration",
             }
         )
     return output
@@ -406,9 +470,16 @@ def _generate_tool_tutorial_screenshots(
 def _inject_tool_tutorial_screenshots(article_html: str, images: list[dict[str, str]]) -> str:
     if not images or "配图实操版" in article_html:
         return article_html
+    has_real = any(item.get("kind") == "real" for item in images)
+    intro = (
+        "第一张是服务器自动截取的公开官网真实截图；后面的图是系统按步骤生成的操作示意图，用来提示你正式发布前还需要替换哪些真实操作画面。"
+        if has_real
+        else "下面这 4 张图是系统按步骤生成的操作示意图，不是真实网页截图。它们用于帮读者理解该截哪里；正式发布前，建议替换成你实际操作时截到的官网、下载页、工作台和首次输出页面。"
+    )
+    heading = "配图实操版：真实截图 + 操作示意图" if has_real else "配图实操版：操作示意图"
     figures = [
-        '<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">配图实操版：操作示意图</h2>',
-        '<p style="font-size:16px;line-height:1.9;color:#243241;margin:0 0 16px;">下面这 4 张图是系统按步骤生成的操作示意图，不是真实网页截图。它们用于帮读者理解该截哪里；正式发布前，建议替换成你实际操作时截到的官网、下载页、工作台和首次输出页面。</p>',
+        f'<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">{heading}</h2>',
+        f'<p style="font-size:16px;line-height:1.9;color:#243241;margin:0 0 16px;">{html.escape(intro)}</p>',
     ]
     for item in images:
         figures.append(
