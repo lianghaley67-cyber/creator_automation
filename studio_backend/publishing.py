@@ -405,6 +405,60 @@ def _capture_public_webpage_screenshot(url: str, output_path: Path) -> bool:
         return False
 
 
+def _tavily_search_images(query: str, *, max_results: int = 3) -> list[str]:
+    """通过 Tavily 搜索图片，返回图片 URL 列表。"""
+    api_key = os.getenv("TAVILY_API_KEY", "").strip()
+    if not api_key:
+        return []
+    try:
+        payload = {
+            "api_key": api_key,
+            "query": query,
+            "search_depth": "basic",
+            "max_results": max_results,
+            "include_images": True,
+        }
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.tavily.com/search",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read().decode("utf-8", errors="replace"))
+        images: list[str] = []
+        for url in result.get("images") or []:
+            url = str(url).strip()
+            if url.startswith("https://") and _is_public_https_url(url):
+                images.append(url)
+        return images[:max_results]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _download_remote_image(url: str, output_path: Path) -> bool:
+    """下载远程图片到本地，返回是否成功。"""
+    if not url or not _is_public_https_url(url):
+        return False
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "CreatorStudio/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            content_type = resp.headers.get("Content-Type", "")
+            if "image" not in content_type and not url.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".gif")):
+                return False
+            body = resp.read()
+        if len(body) < 1024:
+            return False
+        output_path.write_bytes(body)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _generate_tool_tutorial_screenshots(
     package_dir: Path,
     *,
@@ -432,6 +486,22 @@ def _generate_tool_tutorial_screenshots(
                     "kind": "real",
                 }
             )
+    # Tavily 图片搜索：为 slot 2-4 尝试获取真实截图
+    _tavily_slot_queries = [
+        f"{tool_name} official website download page screenshot",
+        f"{tool_name} interface getting started tutorial screenshot",
+        f"{tool_name} first prompt AI assistant screenshot",
+        f"{tool_name} output result review screenshot",
+    ]
+    tavily_images: list[str | None] = [None, None, None, None]
+    for slot_index, query in enumerate(_tavily_slot_queries):
+        results = _tavily_search_images(query, max_results=3)
+        for img_url in results:
+            slot_path = image_dir / f"tavily_{slot_index + 1:02d}.png"
+            if _download_remote_image(img_url, slot_path):
+                tavily_images[slot_index] = str(slot_path)
+                break
+
     specs = [
         (
             "示意图 1：确认官方入口",
@@ -477,6 +547,19 @@ def _generate_tool_tutorial_screenshots(
     for index, (title, subtitle, rows, footer) in enumerate(specs, start=1):
         if output and index == 1:
             continue
+        # 优先用 Tavily 搜到的真实截图
+        tavily_path = tavily_images[index - 1]
+        if tavily_path and Path(tavily_path).exists():
+            output.append(
+                {
+                    "src": f"tutorial_screenshots/tavily_{index:02d}.png",
+                    "alt": f"{tool_name} 真实截图 - {title}",
+                    "caption": f"来自网络的真实截图参考：{footer}",
+                    "kind": "real",
+                }
+            )
+            continue
+        # 降级到 PIL 示意图
         path = image_dir / f"{index:02d}.png"
         _tutorial_screenshot_card(path, title=title, subtitle=subtitle, rows=rows, footer=footer)
         output.append(
