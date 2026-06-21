@@ -483,6 +483,134 @@ def _download_remote_image(url: str, output_path: Path) -> bool:
         return False
 
 
+def _extract_article_steps(markdown: str) -> list[dict[str, str]]:
+    """从文章 markdown 提取步骤标题列表（最多 8 条）。"""
+    steps: list[dict[str, str]] = []
+    # 模式1：## 第X步 / ### 步骤X 标题
+    for m in re.finditer(
+        r"^#{1,3}\s*(第[一二三四五六七八九十\d]+步[：:]\s*.{2,40})",
+        markdown, re.MULTILINE,
+    ):
+        steps.append({"title": m.group(1).strip()})
+    if steps:
+        return steps[:8]
+    # 模式2：二级标题（排除说明/总结类）
+    for m in re.finditer(r"^##\s+([^\n]{3,30})", markdown, re.MULTILINE):
+        title = m.group(1).strip()
+        if not re.search(r"摘要|前言|背景|结语|总结|是什么|为什么|FAQ|附录|小结|说明", title):
+            steps.append({"title": title})
+    if steps:
+        return steps[:8]
+    # 模式3：有序列表条目
+    for m in re.finditer(r"^\d+\.\s+(.{5,60})$", markdown, re.MULTILINE):
+        steps.append({"title": m.group(1).strip()})
+    return steps[:8]
+
+
+def _classify_step(title: str) -> str:
+    """按关键词将步骤标题映射到截图类型。"""
+    t = title
+    if re.search(r"官网|官方.*入口|确认.*入口|打开.*官方|下载.*入口|官方.*链接", t):
+        return "website"
+    if re.search(r"安装|配置|部署|pip |npm |brew |curl |下载.*工具|install", t, re.IGNORECASE):
+        return "install"
+    if re.search(r"文件夹|目录|新建.*文件|测试.*环境|创建.*项目|安全.*测试", t):
+        return "folder"
+    if re.search(r"提示词|prompt|第一.*对话|输入.*指令|开始.*使用|第一.*指令|第一.*提示", t, re.IGNORECASE):
+        return "terminal"
+    if re.search(r"检查|核验|复盘|测试.*结果|审查|验证|结果|总结.*使用", t):
+        return "review"
+    return "card"
+
+
+def _tutorial_install_mockup(output_path: Path, *, tool_name: str, step_label: str, install_hint: str = "") -> None:
+    """安装步骤终端截图：显示安装命令和成功标志。"""
+    from PIL import Image, ImageDraw
+    W, H = 1800, 1080
+    img = Image.new("RGB", (W, H), "#0d1117")
+    draw = ImageDraw.Draw(img)
+    step_font = _tutorial_font(30, bold=True)
+    mono_font = _tutorial_font(32)
+    small_font = _tutorial_font(26)
+    big_font = _tutorial_font(38, bold=True)
+    # 步骤标签
+    draw.rounded_rectangle((40, 32, 380, 84), radius=12, fill="#238636")
+    draw.text((210, 58), step_label, font=step_font, fill="#ffffff", anchor="mm")
+    draw.text((400, 58), f"安装 {tool_name}", font=big_font, fill="#e6edf3", anchor="lm")
+    # 终端窗口
+    win_x, win_y, win_w, win_h = 40, 104, W - 80, H - 144
+    draw.rounded_rectangle((win_x, win_y, win_x + win_w, win_y + win_h), radius=16, fill="#161b22", outline="#30363d", width=2)
+    content_y = _draw_window_chrome(draw, win_x, win_y, win_w, f"终端", dark=True, font=step_font)
+    cx, ty = win_x + 48, content_y + 36
+    lh = 52
+    # 安装命令示例
+    hint = install_hint or f"# 以下为 {tool_name} 常见安装方式（选一种）"
+    draw.text((cx, ty), hint, font=mono_font, fill="#8b949e")
+    ty += lh + 8
+    cmd_lines = [
+        ("$ ", f"pip install {tool_name.lower().replace(' ', '-')}",  "#3fb950"),
+        ("  ", "# 或通过官方安装脚本（以官网为准）",                  "#8b949e"),
+        ("$ ", f"curl -fsSL https://install.example.com | sh",        "#3fb950"),
+    ]
+    for prefix, text, color in cmd_lines:
+        draw.text((cx, ty), prefix, font=mono_font, fill="#3fb950")
+        draw.text((cx + 32, ty), text, font=mono_font, fill=color)
+        ty += lh
+    ty += 16
+    # 安装成功输出
+    draw.rounded_rectangle((cx - 16, ty - 8, win_x + win_w - 48, ty + lh * 4 + 16), radius=10, fill="#0d2818", outline="#238636", width=2)
+    success_lines = [
+        ("✓ ", f"Successfully installed {tool_name}",          "#3fb950"),
+        ("✓ ", "Installation complete",                         "#3fb950"),
+        ("  ", f"Run '{tool_name.lower()}' to get started",    "#e6edf3"),
+        ("⚠ ", "版本号和命令以官网实际安装步骤为准",            "#d29922"),
+    ]
+    sy = ty + 12
+    for prefix, text, color in success_lines:
+        draw.text((cx + 8, sy), prefix + text, font=mono_font, fill=color)
+        sy += lh
+    ty += lh * 4 + 40
+    # 注意事项
+    draw.rounded_rectangle((cx - 16, ty, win_x + win_w - 48, ty + 68), radius=8, fill="#1c1a08", outline="#d29922", width=2)
+    draw.text((cx + 8, ty + 32), "⚠  安装前先核查官网最新安装命令，不要复制本图命令直接运行。", font=small_font, fill="#d29922", anchor="lm")
+    img.save(output_path, quality=96)
+
+
+def _tutorial_generic_card(output_path: Path, *, step_label: str, title: str, step_num: int, total: int) -> None:
+    """通用步骤示意卡（无法分类时的兜底）。"""
+    from PIL import Image, ImageDraw
+    W, H = 1800, 1080
+    colors = ["#177ddc", "#10b981", "#7c3aed", "#d97706", "#ef4444", "#0891b2", "#9333ea", "#16a34a"]
+    accent = colors[(step_num - 1) % len(colors)]
+    img = Image.new("RGB", (W, H), "#f8fafc")
+    draw = ImageDraw.Draw(img)
+    step_font = _tutorial_font(30, bold=True)
+    title_font = _tutorial_font(48, bold=True)
+    body_font = _tutorial_font(34)
+    draw.rounded_rectangle((40, 40, W - 40, H - 40), radius=24, fill="#ffffff", outline="#d0d5dd", width=2)
+    # 步骤标签
+    draw.rounded_rectangle((80, 72, 360, 124), radius=12, fill=accent)
+    draw.text((220, 98), step_label, font=step_font, fill="#ffffff", anchor="mm")
+    # 标题
+    draw.text((400, 98), title, font=title_font, fill="#101828", anchor="lm")
+    # 装饰线
+    draw.rectangle((80, 148, W - 80, 152), fill=accent)
+    # 提示内容
+    draw.text((120, 220), f"操作重点：{title}", font=body_font, fill="#344054")
+    draw.text((120, 300), "▸ 按文章步骤照做，遇到不确认的地方先暂停。", font=body_font, fill="#475467")
+    draw.text((120, 380), "▸ 每一步完成后再进行下一步，不要跳步骤。", font=body_font, fill="#475467")
+    draw.text((120, 460), "▸ 出错时记录错误信息，截图保存，方便后续排查。", font=body_font, fill="#475467")
+    # 进度条
+    bar_w = W - 160
+    bar_x, bar_y = 80, H - 140
+    draw.rounded_rectangle((bar_x, bar_y, bar_x + bar_w, bar_y + 24), radius=12, fill="#e5e7eb")
+    fill_w = int(bar_w * step_num / total)
+    if fill_w > 0:
+        draw.rounded_rectangle((bar_x, bar_y, bar_x + fill_w, bar_y + 24), radius=12, fill=accent)
+    draw.text((W // 2, H - 80), f"第 {step_num} 步 / 共 {total} 步", font=step_font, fill="#6b7280", anchor="mm")
+    img.save(output_path, quality=96)
+
+
 def _draw_window_chrome(draw: "ImageDraw.ImageDraw", x: int, y: int, w: int, title: str, dark: bool, font: "ImageFont.FreeTypeFont") -> int:
     """绘制模拟系统窗口标题栏，返回内容区起始 y 坐标。"""
     bar_h = 52
@@ -705,11 +833,15 @@ def _tutorial_review_mockup(output_path: Path, *, tool_name: str) -> None:
     img.save(output_path, quality=96)
 
 
+_STEP_CHINESE_NUM = ["一", "二", "三", "四", "五", "六", "七", "八"]
+
+
 def _generate_tool_tutorial_screenshots(
     package_dir: Path,
     *,
     tool_name: str,
     official_url: str,
+    article_markdown: str = "",
 ) -> list[dict[str, str]]:
     try:
         import PIL  # noqa: F401
@@ -719,66 +851,80 @@ def _generate_tool_tutorial_screenshots(
     image_dir = package_dir / "tutorial_screenshots"
     image_dir.mkdir(parents=True, exist_ok=True)
     tool_name = _compact(tool_name or "这个工具", 24)
-    official_url = official_url or "先核验官方入口，不要用陌生下载站。"
+    official_url = official_url or ""
     output: list[dict[str, str]] = []
 
-    # Slot 1：Playwright 截官网真实页面
-    if _is_public_https_url(official_url):
-        real_path = image_dir / "01.png"
-        if _capture_public_webpage_screenshot(official_url, real_path):
-            output.append(
-                {
-                    "src": "tutorial_screenshots/01.png",
-                    "alt": f"{tool_name} 官方入口",
-                    "caption": f"① 打开浏览器，在地址栏确认域名是 {official_url}，找到 Download 或 Get Started 按钮再进行下一步。",
-                    "kind": "real",
-                }
-            )
-    # Slot 1 降级：普通示意卡
-    if not output:
-        p = image_dir / "01.png"
-        _tutorial_screenshot_card(
-            p,
-            title="第 1 步：确认官方入口",
-            subtitle=f"打开浏览器，地址栏输入 {official_url}，确认是官方页面再往下走。",
-            rows=[
-                ("确认", "地址栏域名必须和官网一致，不要从搜索结果广告位点进去。", "#177ddc"),
-                ("找入口", "找 Download / Get Started / Sign in，这三个按钮是唯一起点。", "#10b8d8"),
-                ("避坑", "打不开先换网络，不要去搜索陌生下载站。", "#ff7a45"),
-            ],
-            footer="确认官方域名 → 找到入口按钮 → 再进行下一步。",
-        )
-        output.append({"src": "tutorial_screenshots/01.png", "alt": f"{tool_name} 官方入口", "caption": f"① 打开浏览器，地址栏确认是官方域名，找到 Download 或 Get Started 再进行下一步。", "kind": "illustration"})
+    # 从文章提取步骤；提取失败则使用默认4步
+    extracted = _extract_article_steps(article_markdown) if article_markdown else []
+    if not extracted:
+        extracted = [
+            {"title": f"确认 {tool_name} 官方入口"},
+            {"title": f"新建安全测试文件夹"},
+            {"title": "输入第一条提示词"},
+            {"title": "检查结果和复盘"},
+        ]
 
-    # Slot 2：文件管理器模拟截图
-    p2 = image_dir / "02.png"
-    _tutorial_folder_mockup(p2, tool_name=tool_name)
-    output.append({
-        "src": "tutorial_screenshots/02.png",
-        "alt": f"新建 {tool_name}-test 测试文件夹",
-        "caption": f"② 在桌面新建一个文件夹，命名 {tool_name}-test，里面只放一个 README.md（写清楚你想解决什么问题）。客户资料、账号密码、私人聊天一律不放进来。",
-        "kind": "illustration",
-    })
+    total = len(extracted)
+    num_width = len(str(total))
 
-    # Slot 3：终端窗口模拟截图
-    p3 = image_dir / "03.png"
-    _tutorial_terminal_mockup(p3, tool_name=tool_name)
-    output.append({
-        "src": "tutorial_screenshots/03.png",
-        "alt": "输入第一条安全提示词",
-        "caption": f"③ 打开 {tool_name}，第一条提示词固定用这句：「我是新手，请先不要修改文件，请解释这里有什么，并列出下一步最小动作和风险。」等它回复完再决定下一步。",
-        "kind": "illustration",
-    })
+    for idx, step in enumerate(extracted, start=1):
+        title = step["title"]
+        kind = _classify_step(title)
+        cn = _STEP_CHINESE_NUM[idx - 1] if idx <= len(_STEP_CHINESE_NUM) else str(idx)
+        step_label = f"第 {cn} 步 / {total}"
+        fname = f"{idx:0{num_width}}.png"
+        fpath = image_dir / fname
+        src = f"tutorial_screenshots/{fname}"
+        # 圆圈数字序号（①②…⑧，超出则用普通数字）
+        circle_num = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧"]
+        prefix = circle_num[idx - 1] if idx <= len(circle_num) else f"{idx}."
 
-    # Slot 4：核查清单模拟截图
-    p4 = image_dir / "04.png"
-    _tutorial_review_mockup(p4, tool_name=tool_name)
-    output.append({
-        "src": "tutorial_screenshots/04.png",
-        "alt": "检查 AI 输出结果并复盘",
-        "caption": "④ 收到输出后逐项核查：有没有说明依据？有没有胡编官网、价格、功能？确认无误再让它动手。最后记一条复盘：省了哪步、哪里不准、下次提示词怎么改。",
-        "kind": "illustration",
-    })
+        if kind == "website":
+            succeeded = False
+            if _is_public_https_url(official_url):
+                succeeded = _capture_public_webpage_screenshot(official_url, fpath)
+            if succeeded:
+                caption = f"{prefix} 打开浏览器，地址栏确认域名是 {official_url}，找到 Download 或 Get Started 按钮再进行下一步。"
+                output.append({"src": src, "alt": f"{tool_name} 官方入口", "caption": caption, "kind": "real"})
+            else:
+                _tutorial_screenshot_card(
+                    fpath,
+                    title=f"第 {cn} 步：确认官方入口",
+                    subtitle=f"打开浏览器，地址栏输入 {official_url or tool_name + ' 官网'}，确认是官方页面再往下走。",
+                    rows=[
+                        ("确认", "地址栏域名必须和官网一致，不要从搜索结果广告位点进去。", "#177ddc"),
+                        ("找入口", "找 Download / Get Started / Sign in，这三个按钮是唯一起点。", "#10b8d8"),
+                        ("避坑", "打不开先换网络，不要去搜索陌生下载站。", "#ff7a45"),
+                    ],
+                    footer="确认官方域名 → 找到入口按钮 → 再进行下一步。",
+                )
+                caption = f"{prefix} 打开浏览器，地址栏确认是官方域名，找到 Download 或 Get Started 再进行下一步。"
+                output.append({"src": src, "alt": f"{tool_name} 官方入口", "caption": caption, "kind": "illustration"})
+
+        elif kind == "install":
+            _tutorial_install_mockup(fpath, tool_name=tool_name, step_label=step_label)
+            caption = f"{prefix} 按官网最新安装步骤操作（本图命令仅供参考，以官网实际页面为准）。安装完成后运行 `{tool_name.lower()}` 确认能正常启动。"
+            output.append({"src": src, "alt": f"安装 {tool_name}", "caption": caption, "kind": "illustration"})
+
+        elif kind == "folder":
+            _tutorial_folder_mockup(fpath, tool_name=tool_name)
+            caption = f"{prefix} 在桌面新建文件夹命名 {tool_name}-test，里面只放一个 README.md（写清楚你想解决什么问题）。客户资料、账号密码一律不放进来。"
+            output.append({"src": src, "alt": f"新建 {tool_name}-test 测试文件夹", "caption": caption, "kind": "illustration"})
+
+        elif kind == "terminal":
+            _tutorial_terminal_mockup(fpath, tool_name=tool_name)
+            caption = f"{prefix} 打开 {tool_name}，第一条提示词固定用这句：「我是新手，请先不要修改文件，请解释这里有什么，并列出下一步最小动作和风险。」等它回复完再决定下一步。"
+            output.append({"src": src, "alt": "输入第一条安全提示词", "caption": caption, "kind": "illustration"})
+
+        elif kind == "review":
+            _tutorial_review_mockup(fpath, tool_name=tool_name)
+            caption = f"{prefix} 收到输出后逐项核查：有没有说明依据？有没有胡编官网、价格、功能？确认无误再让它动手。最后记一条复盘：省了哪步、哪里不准、下次提示词怎么改。"
+            output.append({"src": src, "alt": "检查 AI 输出结果并复盘", "caption": caption, "kind": "illustration"})
+
+        else:
+            _tutorial_generic_card(fpath, step_label=step_label, title=title, step_num=idx, total=total)
+            caption = f"{prefix} {title} — 按文章步骤照做，每步完成后再进行下一步。"
+            output.append({"src": src, "alt": title, "caption": caption, "kind": "illustration"})
 
     return output
 
@@ -1124,10 +1270,12 @@ def prepare_distribution_package(
     xhs_file = package_dir / "xiaohongshu_note.txt"
     wechat_html = _wechat_channel_html(str(wechat_draft["markdown"]))
     if str(wechat_draft.get("skill_id") or "").endswith("tool_deep_review_v1"):
+        _md = str(wechat_draft.get("markdown") or "")
         tutorial_images = _generate_tool_tutorial_screenshots(
             package_dir,
             tool_name=_tool_name_from_title(str(wechat_draft.get("title") or final_title)),
-            official_url=_official_url_from_markdown(str(wechat_draft.get("markdown") or "")),
+            official_url=_official_url_from_markdown(_md),
+            article_markdown=_md,
         )
         wechat_html = _inject_tool_tutorial_screenshots(wechat_html, tutorial_images)
     wechat_file.write_text(wechat_html, encoding="utf-8")
