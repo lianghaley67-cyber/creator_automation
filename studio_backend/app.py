@@ -1723,6 +1723,7 @@ def prepare_ai_trend_distribution(
             hashtags=payload.hashtags,
             wechat_skill_id=payload.wechat_skill_id,
             xiaohongshu_skill_id=payload.xiaohongshu_skill_id,
+            story_id=payload.story_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -1993,6 +1994,51 @@ def receive_wechat_material(payload: WeChatMaterialRequest) -> dict[str, Any]:
 @app.get("/api/channel-skills")
 def get_channel_skills() -> dict[str, Any]:
     return {"items": list_channel_skills()}
+
+
+# ── 连载故事档案 API ──────────────────────────────────────────────────────
+
+@app.get("/api/stories")
+def api_list_stories() -> dict[str, Any]:
+    from .story_db import list_stories
+    return {"items": list_stories()}
+
+
+@app.post("/api/stories")
+async def api_create_story(request: Request) -> dict[str, Any]:
+    from .story_db import create_story
+    body = await request.json()
+    name = str(body.get("name") or "").strip()
+    genre = str(body.get("genre") or "fantasy").strip()
+    style_notes = str(body.get("style_notes") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="故事名称不能为空")
+    story = create_story(name=name, genre=genre, style_notes=style_notes)
+    if not story:
+        raise HTTPException(status_code=500, detail="创建故事失败，请检查 Supabase 配置")
+    return story
+
+
+@app.delete("/api/stories/{story_id}")
+def api_delete_story(story_id: str) -> dict[str, Any]:
+    from .story_db import delete_story
+    delete_story(story_id)
+    return {"ok": True, "story_id": story_id}
+
+
+@app.get("/api/stories/{story_id}/chapters")
+def api_list_chapters(story_id: str) -> dict[str, Any]:
+    from .story_db import list_chapters, get_story_bible
+    chapters = list_chapters(story_id)
+    bible = get_story_bible(story_id)
+    return {"chapters": chapters, "bible": bible}
+
+
+@app.delete("/api/stories/{story_id}/chapters/{chapter_number}")
+def api_delete_chapter(story_id: str, chapter_number: int) -> dict[str, Any]:
+    from .story_db import delete_chapter
+    delete_chapter(story_id, chapter_number)
+    return {"ok": True, "story_id": story_id, "chapter_number": chapter_number}
 
 
 @app.post("/api/channel-skills/upload")

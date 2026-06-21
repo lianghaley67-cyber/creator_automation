@@ -265,6 +265,108 @@ export default {
               </div>
             </div>
 
+          <!-- 连载故事选择器（仅 AI创作工坊 Skill 时显示） -->
+          <div v-if="isWritingWorkshopMode" class="story-selector-block">
+            <div class="story-selector-head">
+              <strong>连载故事档案</strong>
+              <span class="meta" v-if="selectedStory">
+                《{{ selectedStory.name }}》· 第 {{ (stories.find(s=>s.id===selectedStoryId)?.last_chapter_number ?? storyManageModal.bible?.last_chapter_number ?? 0) + 1 }} 章待写
+              </span>
+              <span class="meta" v-else>未选择故事，生成内容将不关联故事档案</span>
+            </div>
+            <div class="story-selector-row">
+              <select class="story-select" v-model="selectedStoryId">
+                <option value="">不关联故事（独立生成）</option>
+                <option v-for="s in stories" :key="s.id" :value="s.id">《{{ s.name }}》</option>
+              </select>
+              <button class="btn secondary small" @click="newStoryForm.visible = true">+ 新建故事</button>
+              <button
+                v-if="selectedStory"
+                class="btn secondary small"
+                @click="openStoryManage(selectedStory)"
+              >查看章节</button>
+              <button
+                v-if="selectedStory"
+                class="btn danger small"
+                @click="deleteStoryConfirm(selectedStory)"
+              >删除故事</button>
+            </div>
+
+            <!-- 新建故事弹窗 -->
+            <div v-if="newStoryForm.visible" class="story-modal-overlay" @click.self="newStoryForm.visible = false">
+              <div class="story-modal">
+                <div class="modal-head">
+                  <strong>新建故事</strong>
+                  <button class="modal-close" @click="newStoryForm.visible = false">✕</button>
+                </div>
+                <div class="modal-body">
+                  <label class="modal-field">
+                    <span>故事名称</span>
+                    <input v-model="newStoryForm.name" type="text" placeholder="例：烬月灯" @keydown.enter="createStorySubmit" />
+                  </label>
+                  <label class="modal-field">
+                    <span>类型</span>
+                    <select v-model="newStoryForm.genre">
+                      <option value="fantasy">玄幻</option>
+                      <option value="emotional">情感</option>
+                    </select>
+                  </label>
+                  <div v-if="newStoryForm.error" class="modal-error">{{ newStoryForm.error }}</div>
+                </div>
+                <div class="modal-foot">
+                  <button class="btn secondary" @click="newStoryForm.visible = false">取消</button>
+                  <button class="btn primary" :disabled="newStoryForm.creating" @click="createStorySubmit">
+                    {{ newStoryForm.creating ? '创建中...' : '确认创建' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 章节管理弹窗 -->
+            <div v-if="storyManageModal.visible" class="story-modal-overlay" @click.self="storyManageModal.visible = false">
+              <div class="story-modal story-manage-modal">
+                <div class="modal-head">
+                  <strong>{{ stories.find(s=>s.id===storyManageModal.storyId)?.name }} · 章节管理</strong>
+                  <button class="modal-close" @click="storyManageModal.visible = false">✕</button>
+                </div>
+                <div class="modal-body">
+                  <div v-if="storyManageModal.loading" class="story-loading">加载中...</div>
+                  <div v-else-if="!storyManageModal.chapters.length" class="story-empty">
+                    还没有章节，生成内容后会自动保存。
+                  </div>
+                  <div v-else class="chapter-list">
+                    <div v-for="ch in storyManageModal.chapters" :key="ch.id" class="chapter-item">
+                      <div class="chapter-info">
+                        <span class="chapter-num">第 {{ ch.chapter_number }} 章</span>
+                        <span class="chapter-title">{{ ch.title }}</span>
+                        <span class="chapter-date">{{ new Date(ch.created_at).toLocaleDateString('zh-CN') }}</span>
+                      </div>
+                      <div class="chapter-summary" v-if="ch.context_summary">{{ ch.context_summary.slice(0, 80) }}...</div>
+                      <button class="btn danger small chapter-del" @click="deleteChapterConfirm(ch)">删除</button>
+                    </div>
+                  </div>
+                  <div v-if="storyManageModal.bible" class="bible-block">
+                    <strong>故事档案（Story Bible）</strong>
+                    <div v-if="storyManageModal.bible.characters?.length" class="bible-section">
+                      <span class="bible-label">人物</span>
+                      <span v-for="c in storyManageModal.bible.characters" :key="c.name" class="bible-chip">
+                        {{ c.name }}（{{ c.role }}）
+                      </span>
+                    </div>
+                    <div v-if="storyManageModal.bible.world_notes" class="bible-section">
+                      <span class="bible-label">世界观</span>
+                      <span>{{ storyManageModal.bible.world_notes }}</span>
+                    </div>
+                    <div v-if="storyManageModal.bible.ongoing_threads?.filter(t=>t.status!=='resolved').length" class="bible-section">
+                      <span class="bible-label">未解悬念</span>
+                      <span v-for="t in storyManageModal.bible.ongoing_threads.filter(t=>t.status!=='resolved')" :key="t.thread" class="bible-chip">{{ t.thread }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
             <!-- 上传 Skill 弹窗 -->
             <div v-if="uploadSkillModal.visible" class="skill-upload-modal-overlay" @click.self="uploadSkillModal.visible = false">
               <div class="skill-upload-modal">

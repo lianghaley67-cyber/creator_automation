@@ -120,6 +120,11 @@ const selectedXhsSkill = ref(""); // 用户选择的小红书 skill
 const wechatSkillManuallySelected = ref(false);
 const xhsSkillManuallySelected = ref(false);
 const skillSelectorVisible = ref(false); // 是否展开 skill 选择面板
+// 连载故事档案
+const stories = ref([]);
+const selectedStoryId = ref("");
+const storyManageModal = reactive({ visible: false, chapters: [], bible: null, loading: false, storyId: "" });
+const newStoryForm = reactive({ name: "", genre: "fantasy", visible: false, creating: false, error: "" });
 const trendDiscussionOpen = ref(false); // 多轮讨论是否展开
 const trendFreshHighlight = ref(false); // 资讯刷新后的短暂高亮
 const trendDistributionView = ref("wechat"); // xiaohongshu | wechat
@@ -954,6 +959,7 @@ async function prepareTrendDistribution(preferGeneratedScript = false, destinati
           wechat_skill_id: selectedWechatSkill.value || "",
           xiaohongshu_skill_id: selectedXhsSkill.value || "",
           hashtags: trendAiSummary.value?.suggested_hashtags || [],
+          story_id: isWritingWorkshopMode.value ? (selectedStoryId.value || "") : "",
         })
       },
       30000
@@ -1986,6 +1992,12 @@ const selectedWechatSkillName = computed(() => (
 const selectedXhsSkillName = computed(() => (
   channelSkillsList.value.find((skill) => skill.id === selectedXhsSkill.value)?.name || "默认小红书 Skill"
 ));
+const isWritingWorkshopMode = computed(() => {
+  const wechat = channelSkillsList.value.find(s => s.id === selectedWechatSkill.value);
+  const xhs = channelSkillsList.value.find(s => s.id === selectedXhsSkill.value);
+  return wechat?.content_kind === "fiction_serial" || xhs?.content_kind === "fiction_serial";
+});
+const selectedStory = computed(() => stories.value.find(s => s.id === selectedStoryId.value) || null);
 const contentWorkflow = computed(() => buildContentWorkflowState({
   isRefreshing: busy.refreshTrends,
   hasTrends: aiTrends.value.length > 0,
@@ -2067,6 +2079,82 @@ async function loadPresetTopicsAndSkills() {
       }
     }
   } catch (_) { /* ignore */ }
+}
+
+// ── 连载故事管理 ──────────────────────────────────────────
+async function loadStories() {
+  try {
+    const result = await requestApi("/api/stories");
+    stories.value = Array.isArray(result?.items) ? result.items : [];
+  } catch (_) { /* ignore */ }
+}
+
+async function createStorySubmit() {
+  if (!newStoryForm.name.trim()) { newStoryForm.error = "请填写故事名称"; return; }
+  newStoryForm.creating = true;
+  newStoryForm.error = "";
+  try {
+    const base = verifiedApiBase.value || configuredApiBase.value || "";
+    const res = await fetch(`${base}/api/stories`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ name: newStoryForm.name.trim(), genre: newStoryForm.genre }),
+    });
+    const story = await res.json();
+    if (story.id) {
+      await loadStories();
+      selectedStoryId.value = story.id;
+      newStoryForm.visible = false;
+      newStoryForm.name = "";
+    } else {
+      newStoryForm.error = story.detail || "创建失败";
+    }
+  } catch (err) {
+    newStoryForm.error = err.message || "创建失败";
+  } finally {
+    newStoryForm.creating = false;
+  }
+}
+
+async function deleteStoryConfirm(story) {
+  if (!confirm(`确认删除故事「${story.name}」及其所有章节？此操作不可撤销。`)) return;
+  try {
+    const base = verifiedApiBase.value || configuredApiBase.value || "";
+    await fetch(`${base}/api/stories/${story.id}`, { method: "DELETE" });
+    if (selectedStoryId.value === story.id) selectedStoryId.value = "";
+    if (storyManageModal.storyId === story.id) storyManageModal.visible = false;
+    await loadStories();
+  } catch (err) {
+    setError(`删除失败：${err.message}`);
+  }
+}
+
+async function openStoryManage(story) {
+  storyManageModal.visible = true;
+  storyManageModal.storyId = story.id;
+  storyManageModal.loading = true;
+  storyManageModal.chapters = [];
+  storyManageModal.bible = null;
+  try {
+    const base = verifiedApiBase.value || configuredApiBase.value || "";
+    const res = await fetch(`${base}/api/stories/${story.id}/chapters`);
+    const data = await res.json();
+    storyManageModal.chapters = Array.isArray(data.chapters) ? data.chapters : [];
+    storyManageModal.bible = data.bible || null;
+  } finally {
+    storyManageModal.loading = false;
+  }
+}
+
+async function deleteChapterConfirm(chapter) {
+  if (!confirm(`确认删除第 ${chapter.chapter_number} 章「${chapter.title}」？`)) return;
+  try {
+    const base = verifiedApiBase.value || configuredApiBase.value || "";
+    await fetch(`${base}/api/stories/${storyManageModal.storyId}/chapters/${chapter.chapter_number}`, { method: "DELETE" });
+    await openStoryManage({ id: storyManageModal.storyId });
+  } catch (err) {
+    setError(`删除失败：${err.message}`);
+  }
 }
 
 const uploadSkillModal = ref({
@@ -2420,12 +2508,25 @@ const studioContext = {
   xiaohongshuSmsCode,
   xiaohongshuStatusLabel,
   xiaohongshuSystemDrafts,
+  // 连载故事
+  stories,
+  selectedStoryId,
+  selectedStory,
+  isWritingWorkshopMode,
+  storyManageModal,
+  newStoryForm,
+  loadStories,
+  createStorySubmit,
+  deleteStoryConfirm,
+  openStoryManage,
+  deleteChapterConfirm,
 };
 provide("studioContext", studioContext);
 
 let pollTimer = null;
 onMounted(async () => {
   await loadPresetTopicsAndSkills();
+  loadStories();
   if (activeTab.value === "trends") {
     await refreshAiTrends();
   } else if (activeTab.value === "materials") {
@@ -5769,5 +5870,200 @@ textarea {
     right: 12px;
     bottom: 12px;
   }
+}
+
+/* ── 连载故事选择器 ── */
+.story-selector-block {
+  margin-top: 12px;
+  background: rgba(100, 200, 150, 0.06);
+  border: 1px solid rgba(100, 200, 150, 0.2);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.story-selector-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.story-selector-head strong {
+  color: #7ee8a2;
+  font-size: 13px;
+}
+
+.story-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.story-select {
+  background: #0d1f33;
+  color: #c8dff5;
+  border: 1px solid rgba(142, 171, 205, 0.25);
+  border-radius: 7px;
+  padding: 6px 10px;
+  font-size: 13px;
+  flex: 1;
+  min-width: 180px;
+}
+
+.btn.danger {
+  background: rgba(220, 80, 80, 0.15);
+  border-color: rgba(220, 80, 80, 0.35);
+  color: #f08080;
+}
+
+.btn.danger:hover {
+  background: rgba(220, 80, 80, 0.25);
+}
+
+/* 故事弹窗（复用 skill-upload-modal 样式） */
+.story-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 17, 28, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+
+.story-modal {
+  background: #0d1f33;
+  border: 1px solid rgba(142, 171, 205, 0.2);
+  border-radius: 14px;
+  width: 480px;
+  max-width: 95vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.story-manage-modal {
+  width: 620px;
+}
+
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid rgba(142, 171, 205, 0.12);
+}
+
+.modal-error {
+  color: #f08080;
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.story-loading,
+.story-empty {
+  color: #6a8aaa;
+  font-size: 13px;
+  padding: 16px 0;
+  text-align: center;
+}
+
+/* 章节列表 */
+.chapter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chapter-item {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(142, 171, 205, 0.12);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+
+.chapter-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chapter-num {
+  font-size: 11px;
+  color: #7ee8a2;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chapter-title {
+  font-size: 13px;
+  color: #c8dff5;
+  font-weight: 500;
+}
+
+.chapter-date {
+  font-size: 11px;
+  color: #4a6a8a;
+  margin-left: auto;
+}
+
+.chapter-summary {
+  font-size: 12px;
+  color: #6a8aaa;
+  line-height: 1.5;
+}
+
+.chapter-del {
+  align-self: flex-end;
+  margin-top: 4px;
+}
+
+/* Story Bible */
+.bible-block {
+  margin-top: 14px;
+  background: rgba(120, 100, 200, 0.08);
+  border: 1px solid rgba(120, 100, 200, 0.2);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.bible-block strong {
+  color: #a98ee8;
+  font-size: 12px;
+}
+
+.bible-section {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.bible-label {
+  color: #6a8aaa;
+  white-space: nowrap;
+  padding-top: 2px;
+}
+
+.bible-chip {
+  background: rgba(120, 100, 200, 0.15);
+  border-radius: 4px;
+  padding: 2px 7px;
+  color: #c8b8f5;
+  font-size: 11px;
 }
 </style>

@@ -191,6 +191,7 @@ class DistributionPrepareRequest(BaseModel):
     hashtags: list[str] = Field(default_factory=list)
     wechat_skill_id: str = ""
     xiaohongshu_skill_id: str = ""
+    story_id: str = ""       # 连载故事 ID，为空则不关联故事档案
 
 
 class WeChatDraftRequest(BaseModel):
@@ -205,6 +206,7 @@ class TrendDistributionRequest(BaseModel):
     hashtags: list[str] = Field(default_factory=list)
     wechat_skill_id: str = ""
     xiaohongshu_skill_id: str = ""
+    story_id: str = ""       # 连载故事 ID，为空则不关联故事档案
 
 
 class TrendSummarizeRequest(BaseModel):

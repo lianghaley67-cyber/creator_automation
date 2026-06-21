@@ -777,6 +777,7 @@ def build_channel_drafts_with_ai(
     hashtags: list[str],
     wechat_skill_id: str = "wechat_article_v1",
     xiaohongshu_skill_id: str = "xiaohongshu_note_v1",
+    story_id: str = "",
 ) -> dict[str, Any]:
     """生成渠道内容草稿，优先用 OpenAI 按 Skill 规则生成，无 API Key 时降级到规则模板。"""
     uses_tool_deep_review = any(
@@ -824,6 +825,7 @@ def build_channel_drafts_with_ai(
                 api_key=api_key,
                 base_url=base_url,
                 model=model,
+                story_id=story_id,
             )
         except Exception as _exc:  # noqa: BLE001
             import logging
@@ -858,6 +860,7 @@ def _ai_generate_channel_drafts(
     api_key: str,
     base_url: str,
     model: str,
+    story_id: str = "",
 ) -> dict[str, Any]:
     def _sanitize_skill(raw: str, max_chars: int = 2500) -> str:
         # 去掉 ``` 代码块（避免嵌入 prompt 后 AI 在 JSON 里生成反引号导致解析失败）
@@ -1126,19 +1129,35 @@ def _ai_generate_channel_drafts(
 }}"""
 
     if wechat_family == "fiction_serial" and xhs_family == "fiction_serial":
+        # 注入故事档案上下文（连载续写）
+        story_context_block = ""
+        if story_id:
+            try:
+                from .story_db import build_story_context, next_chapter_number
+                story_context_block = build_story_context(story_id)
+                chapter_num_hint = next_chapter_number(story_id)
+            except Exception:
+                chapter_num_hint = 1
+        else:
+            chapter_num_hint = 1
+
         user_prompt = f"""请把以下内容当作连载小说的灵感种子，按照所选 Skill 分别生成公众号连载章节和小红书连载预告。
 
 用户输入/标题：{title or "言情玄幻连载"}
 补充摘要：{summary[:200] if summary else ""}
 
+{story_context_block}
+
 灵感素材：
-{source_text[:3000]}
+{source_text[:2000]}
 
 生成前内部自检（不要输出这些判断）：
 1. 当前必须生成小说正文，不是AI写作教程，不是创作手记，不是提示词拆解。
-2. 先确定故事名、章节名、类型、主角目标、阻碍、关系张力和章末悬念。
-3. 公众号 markdown 只允许出现章节标题、故事正文、下期暗示/投票；禁止表格、教程小标题、"小说片段"、"这段是怎么写出来的"。
-4. 小红书 body 第一行必须是故事里最有张力的一句话。"""
+2. 本章编号：第 {chapter_num_hint} 章。标题格式「[故事名] · 第{chapter_num_hint}章 [副标题]」。
+3. 如果有故事档案，必须延续已有人物、世界观和悬念，不能推翻之前的设定。
+4. 先确定故事名、章节名、类型、主角目标、阻碍、关系张力和章末悬念。
+5. 公众号 markdown 只允许出现章节标题、故事正文、下期暗示/投票；禁止表格、教程小标题、"小说片段"、"这段是怎么写出来的"。
+6. 小红书 body 第一行必须是故事里最有张力的一句话。"""
     else:
         user_prompt = f"""请根据以下内容，按照所选 Skill 的格式和风格分别生成公众号文章和小红书笔记：
 
@@ -1187,7 +1206,7 @@ def _ai_generate_channel_drafts(
     if not card_pages:
         card_pages = [{"title": xhs_title, "body": _compact(xhs_body, 100), "kind": "cover"}]
 
-    return {
+    result = {
         "wechat": {
             "skill_id": wechat_skill_id,
             "title": final_title,
@@ -1203,6 +1222,33 @@ def _ai_generate_channel_drafts(
             "card_pages": card_pages,
         },
     }
+
+    # 连载故事：保存章节到 Supabase 并更新 story_bible
+    if story_id and wechat_family == "fiction_serial":
+        try:
+            from .story_db import save_chapter, extract_and_update_bible, next_chapter_number
+            ch_num = chapter_num_hint if "chapter_num_hint" in dir() else next_chapter_number(story_id)
+            save_chapter(
+                story_id=story_id,
+                chapter_number=ch_num,
+                title=final_title,
+                content_markdown=wechat_markdown,
+                content_xhs=xhs_body,
+            )
+            import threading
+            t = threading.Thread(
+                target=extract_and_update_bible,
+                args=(story_id, wechat_markdown),
+                kwargs={"api_key": api_key, "base_url": base_url, "model": model},
+                daemon=True,
+            )
+            t.start()
+            result["story_chapter_saved"] = ch_num
+        except Exception as _save_exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning("story chapter save failed: %s", _save_exc)
+
+    return result
 
 
 def build_channel_drafts(
