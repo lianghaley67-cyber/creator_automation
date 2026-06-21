@@ -804,7 +804,12 @@ def build_channel_drafts_with_ai(
         deepseek_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
         if deepseek_key:
             api_key = deepseek_key
-            base_url = os.getenv("DEEPSEEK_CHAT_ENDPOINT", "https://api.deepseek.com").strip().rstrip("/v1").rstrip("/")
+            _ds_ep = os.getenv("DEEPSEEK_CHAT_ENDPOINT", "https://api.deepseek.com").strip()
+            # 兼容完整 URL（含 /chat/completions 或 /v1/chat/completions）和 base URL 两种写法
+            for _suffix in ("/chat/completions", "/v1/chat/completions", "/v1", "/"):
+                if _ds_ep.endswith(_suffix):
+                    _ds_ep = _ds_ep[: -len(_suffix)]
+            base_url = _ds_ep
             model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat"
     if not api_key:
         zhipu_key = os.getenv("ZHIPUAI_API_KEY", "").strip()
