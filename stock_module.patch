@@ -1,0 +1,2115 @@
+From 7828bfbdc0a5ee98defb13823cb8c995bfae2a33 Mon Sep 17 00:00:00 2001
+From: lianghuanhuan <lianghuanhuan@agree.com.cn>
+Date: Sun, 7 Jun 2026 16:26:18 +0800
+Subject: [PATCH] feat: add stock analysis skills module
+
+---
+ creator_skills/05_stock_decision_assistant.md |  28 +
+ studio_backend/app.py                         | 213 +++++
+ studio_backend/stock_skills.py                | 343 +++++++
+ studio_backend/stocks.py                      | 530 +++++++++++
+ studio_backend/storage.py                     |   3 +
+ studio_frontend/src/App.vue                   | 856 +++++++++++++++++-
+ 6 files changed, 1948 insertions(+), 25 deletions(-)
+ create mode 100644 creator_skills/05_stock_decision_assistant.md
+ create mode 100644 studio_backend/stock_skills.py
+ create mode 100644 studio_backend/stocks.py
+
+diff --git a/creator_skills/05_stock_decision_assistant.md b/creator_skills/05_stock_decision_assistant.md
+new file mode 100644
+index 0000000..586d651
+--- /dev/null
++++ b/creator_skills/05_stock_decision_assistant.md
+@@ -0,0 +1,28 @@
++# 股票决策辅助 Skill
++
++适用场景：
++
++- 个股诊断、持仓复盘、自选股筛选、风险扫描、财报/公告/资金流问题。
++- 用户需要把行情信息转成可执行观察动作，而不是一句“看涨/看跌”。
++
++分析框架：
++
++1. 先说明数据边界：当前能确认的是行情、K线和本地记录；新闻、公告、财报、资金流若未接入真实数据源，必须标注为待核验。
++2. 个股诊断必须覆盖趋势、量能、波动、支撑压力、风险、机会、下一步观察动作。
++3. 持仓复盘必须结合成本价、持仓数量、盈亏比例、预警线和用户写下的关注理由。
++4. 条件选股只在已有自选股或已接入的数据池中筛选；不得编造不存在的股票列表。
++5. 财报、公告、研报、资金流、舆情相关结论必须区分“已获取数据”和“待外部数据源验证”。
++
++表达要求：
++
++- 输出要像复盘卡片：短句、分层、可执行。
++- 不给直接买入/卖出指令，改用“观察 / 降低风险 / 等待确认 / 复核逻辑”。
++- 对高波动、放量下跌、跌破关键均线、单票仓位过高，要主动提示风险。
++- 每次结尾都保留投资风险提示：仅供学习和复盘，不构成投资建议。
++
++禁止项：
++
++- 禁止承诺收益率。
++- 禁止把规则评分包装成确定性预测。
++- 禁止在没有新闻/财报/资金流数据时假装已经读取。
++- 禁止忽略用户的成本线和仓位风险。
+diff --git a/studio_backend/app.py b/studio_backend/app.py
+index 954ccd4..73b622a 100644
+--- a/studio_backend/app.py
++++ b/studio_backend/app.py
+@@ -48,6 +48,8 @@ from .kids_mode import (
+ from .persona import default_persona, distill_persona
+ from .scheduler import StudioScheduler
+ from .script_ai import generate_kids_script_with_ai, generate_reviewed_draft, revise_script_with_feedback
++from .stock_skills import list_stock_skills, run_stock_skill
++from .stocks import analyze_stock, normalize_stock_symbol, search_stocks, stock_quote
+ from .schemas import (
+     DistillRequest,
+     DouyinPublishAssistantRequest,
+@@ -986,6 +988,217 @@ def health() -> dict[str, str]:
+     return {"status": "ok"}
+ 
+ 
++@app.get("/api/stocks/search")
++def api_stock_search(q: str = Query("")) -> dict[str, Any]:
++    return {"items": search_stocks(q)}
++
++
++@app.get("/api/stocks/skills")
++def api_stock_skills() -> dict[str, Any]:
++    return {"items": list_stock_skills()}
++
++
++@app.get("/api/stocks/watchlist")
++def api_stock_watchlist() -> dict[str, Any]:
++    return {"items": _stock_watchlist_with_quotes()}
++
++
++def _stock_watchlist_with_quotes() -> list[dict[str, Any]]:
++    items = _sorted(store.list_section("stock_watchlist"), key="updated_at")
++    quotes: list[dict[str, Any]] = []
++    for item in items:
++        symbol = str(item.get("symbol") or "")
++        try:
++            quote = stock_quote(symbol)
++            quotes.append({**item, "quote": quote, "position": _stock_position_snapshot(item, quote), "error": ""})
++        except Exception as exc:
++            quotes.append({**item, "quote": None, "position": {}, "error": str(exc)[:240]})
++    return quotes
++
++
++@app.post("/api/stocks/watchlist")
++def api_upsert_stock_watchlist(payload: dict[str, Any]) -> dict[str, Any]:
++    symbol = normalize_stock_symbol(str(payload.get("symbol") or ""), str(payload.get("market") or ""))
++    if not symbol:
++        raise HTTPException(status_code=400, detail="股票代码不能为空。")
++    now = now_iso()
++    record = {
++        "id": symbol,
++        "symbol": symbol,
++        "name": str(payload.get("name") or symbol).strip(),
++        "market": str(payload.get("market") or "").strip() or "",
++        "cost": payload.get("cost") or "",
++        "shares": payload.get("shares") or "",
++        "alert_high": payload.get("alert_high") or "",
++        "alert_low": payload.get("alert_low") or "",
++        "notes": str(payload.get("notes") or "").strip(),
++        "created_at": now,
++        "updated_at": now,
++    }
++
++    def updater(state: dict[str, Any]) -> dict[str, Any]:
++        items = list(state.get("stock_watchlist", []))
++        for index, item in enumerate(items):
++            if str(item.get("symbol")) == symbol:
++                record["created_at"] = item.get("created_at") or now
++                items[index] = {**item, **record}
++                state["stock_watchlist"] = items
++                return items[index]
++        items.append(record)
++        state["stock_watchlist"] = items
++        return record
++
++    return store.mutate(updater)
++
++
++@app.delete("/api/stocks/watchlist/{symbol}")
++def api_delete_stock_watchlist(symbol: str) -> dict[str, Any]:
++    normalized = normalize_stock_symbol(symbol)
++
++    def updater(state: dict[str, Any]) -> int:
++        items = list(state.get("stock_watchlist", []))
++        before = len(items)
++        state["stock_watchlist"] = [item for item in items if str(item.get("symbol")) != normalized]
++        return before - len(state["stock_watchlist"])
++
++    return {"deleted": normalized, "removed": store.mutate(updater)}
++
++
++def _stock_position_snapshot(item: dict[str, Any], quote: dict[str, Any]) -> dict[str, Any]:
++    price = _float_or_none(quote.get("price"))
++    cost = _float_or_none(item.get("cost"))
++    shares = _float_or_none(item.get("shares"))
++    alert_high = _float_or_none(item.get("alert_high"))
++    alert_low = _float_or_none(item.get("alert_low"))
++    market_value = price * shares if price is not None and shares is not None else None
++    cost_value = cost * shares if cost is not None and shares is not None else None
++    profit = market_value - cost_value if market_value is not None and cost_value is not None else None
++    profit_percent = (profit / cost_value * 100) if profit is not None and cost_value else None
++    alerts: list[str] = []
++    if price is not None and alert_high is not None and price >= alert_high:
++        alerts.append(f"已触及上方预警 {alert_high}")
++    if price is not None and alert_low is not None and price <= alert_low:
++        alerts.append(f"已触及下方预警 {alert_low}")
++    if profit_percent is not None and profit_percent <= -8:
++        alerts.append("持仓浮亏超过 8%，建议复核止损纪律")
++    return {
++        "market_value": round(market_value, 2) if market_value is not None else None,
++        "profit": round(profit, 2) if profit is not None else None,
++        "profit_percent": round(profit_percent, 2) if profit_percent is not None else None,
++        "alerts": alerts,
++    }
++
++
++def _float_or_none(value: Any) -> float | None:
++    try:
++        if value in {"", None}:
++            return None
++        return float(value)
++    except (TypeError, ValueError):
++        return None
++
++
++@app.get("/api/stocks/quote")
++def api_stock_quote(symbol: str = Query("")) -> dict[str, Any]:
++    if not symbol:
++        raise HTTPException(status_code=400, detail="股票代码不能为空。")
++    return stock_quote(symbol)
++
++
++@app.get("/api/stocks/market")
++def api_stock_market_overview() -> dict[str, Any]:
++    indexes = [
++        {"symbol": "^GSPC", "name": "标普500"},
++        {"symbol": "^IXIC", "name": "纳斯达克"},
++        {"symbol": "^DJI", "name": "道琼斯"},
++        {"symbol": "000001.SS", "name": "上证指数"},
++        {"symbol": "399001.SZ", "name": "深证成指"},
++        {"symbol": "^HSI", "name": "恒生指数"},
++    ]
++    items: list[dict[str, Any]] = []
++    for item in indexes:
++        try:
++            quote = stock_quote(item["symbol"])
++            items.append({**item, **quote, "error": ""})
++        except Exception as exc:
++            items.append({**item, "error": str(exc)[:180]})
++    valid_changes = [float(item.get("change_percent") or 0) for item in items if not item.get("error")]
++    average_change = sum(valid_changes) / len(valid_changes) if valid_changes else 0
++    if average_change >= 0.6:
++        mood = "偏积极"
++    elif average_change <= -0.6:
++        mood = "偏谨慎"
++    else:
++        mood = "中性分化"
++    return {"items": items, "mood": mood, "average_change": round(average_change, 2), "fetched_at": now_iso()}
++
++
++@app.post("/api/stocks/analyze")
++def api_stock_analyze(payload: dict[str, Any]) -> dict[str, Any]:
++    symbol = str(payload.get("symbol") or "").strip()
++    if not symbol:
++        raise HTTPException(status_code=400, detail="股票代码不能为空。")
++    result = analyze_stock(symbol, question=str(payload.get("question") or "").strip())
++    record = {
++        "id": make_id("stock_analysis"),
++        "created_at": now_iso(),
++        "symbol": result["quote"]["symbol"],
++        "name": result["quote"]["name"],
++        "score": result["score"],
++        "stance": result["stance"],
++        "report": result["report"],
++    }
++    store.add_record("stock_analysis_history", record)
++    return result
++
++
++@app.post("/api/stocks/skills/run")
++def api_run_stock_skill(payload: dict[str, Any]) -> dict[str, Any]:
++    skill_id = str(payload.get("skill_id") or "").strip()
++    if not skill_id:
++        raise HTTPException(status_code=400, detail="Stock Skill 不能为空。")
++    symbol = str(payload.get("symbol") or "").strip()
++    question = str(payload.get("question") or "").strip()
++    latest_analysis = payload.get("latest_analysis") if isinstance(payload.get("latest_analysis"), dict) else None
++    watchlist = _stock_watchlist_with_quotes()
++    try:
++        result = run_stock_skill(
++            skill_id,
++            symbol=symbol,
++            question=question,
++            watchlist=watchlist,
++            latest_analysis=latest_analysis,
++        )
++    except ValueError as exc:
++        raise HTTPException(status_code=404, detail=str(exc)) from exc
++    record = {
++        "id": make_id("stock_skill"),
++        "created_at": now_iso(),
++        "skill_id": result.get("skill_id"),
++        "symbol": result.get("symbol") or symbol,
++        "title": result.get("title"),
++        "report": result.get("report"),
++        "cards": result.get("cards") or [],
++        "items": result.get("items") or [],
++    }
++    store.add_record("stock_skill_runs", record)
++    return {**result, "run_id": record["id"], "created_at": record["created_at"]}
++
++
++@app.get("/api/stocks/analysis-history")
++def api_stock_analysis_history(symbol: str = Query("")) -> dict[str, Any]:
++    normalized = normalize_stock_symbol(symbol) if symbol else ""
++    items = _sorted(store.list_section("stock_analysis_history"))
++    if normalized:
++        items = [item for item in items if str(item.get("symbol")) == normalized]
++    return {"items": items[:50]}
++
++
++@app.get("/api/stocks/skill-runs")
++def api_stock_skill_runs() -> dict[str, Any]:
++    return {"items": _sorted(store.list_section("stock_skill_runs"))[:50]}
++
++
+ @app.get("/api/dashboard")
+ def dashboard() -> dict[str, Any]:
+     uploads = _sorted(store.list_section("uploads"))
+diff --git a/studio_backend/stock_skills.py b/studio_backend/stock_skills.py
+new file mode 100644
+index 0000000..d945523
+--- /dev/null
++++ b/studio_backend/stock_skills.py
+@@ -0,0 +1,343 @@
++from __future__ import annotations
++
++import re
++from typing import Any
++
++from .stocks import analyze_stock
++
++
++STOCK_SKILLS: list[dict[str, Any]] = [
++    {
++        "id": "single_stock_diagnosis",
++        "name": "个股诊断",
++        "description": "从趋势、量能、技术指标、支撑压力、风险机会生成个股复盘卡。",
++        "inputs": ["symbol", "question"],
++    },
++    {
++        "id": "watchlist_review",
++        "name": "自选股复盘",
++        "description": "结合自选股行情、成本、仓位和预警线，输出今天最该关注的标的。",
++        "inputs": ["watchlist"],
++    },
++    {
++        "id": "condition_screening",
++        "name": "条件选股",
++        "description": "在已有自选股内按自然语言条件筛选，例如强趋势、超卖、低波动、突破。",
++        "inputs": ["watchlist", "question"],
++    },
++    {
++        "id": "financial_checklist",
++        "name": "财报解读清单",
++        "description": "生成财报/估值/现金流核验清单，避免在没有真实财报数据时误判。",
++        "inputs": ["symbol", "question"],
++    },
++    {
++        "id": "news_risk_scan",
++        "name": "公告新闻风险扫描",
++        "description": "基于价格异动生成公告、新闻、财报、行业政策的核验路径。",
++        "inputs": ["symbol", "question"],
++    },
++    {
++        "id": "money_flow_sentiment",
++        "name": "资金情绪推断",
++        "description": "用价格、成交量、波动和市场温度做资金情绪的本地推断。",
++        "inputs": ["symbol", "question"],
++    },
++    {
++        "id": "followup_qa",
++        "name": "多轮追问",
++        "description": "基于最近一次分析继续回答用户追问，保留数据边界和风险提示。",
++        "inputs": ["symbol", "question", "latest_analysis"],
++    },
++]
++
++
++def list_stock_skills() -> list[dict[str, Any]]:
++    return [dict(item) for item in STOCK_SKILLS]
++
++
++def run_stock_skill(
++    skill_id: str,
++    *,
++    symbol: str = "",
++    question: str = "",
++    watchlist: list[dict[str, Any]] | None = None,
++    latest_analysis: dict[str, Any] | None = None,
++) -> dict[str, Any]:
++    normalized = str(skill_id or "").strip()
++    if normalized == "single_stock_diagnosis":
++        return _single_stock_diagnosis(symbol, question)
++    if normalized == "watchlist_review":
++        return _watchlist_review(watchlist or [])
++    if normalized == "condition_screening":
++        return _condition_screening(watchlist or [], question)
++    if normalized == "financial_checklist":
++        return _financial_checklist(symbol, question)
++    if normalized == "news_risk_scan":
++        return _news_risk_scan(symbol, question)
++    if normalized == "money_flow_sentiment":
++        return _money_flow_sentiment(symbol, question)
++    if normalized == "followup_qa":
++        return _followup_qa(symbol, question, latest_analysis)
++    raise ValueError(f"unknown stock skill: {skill_id}")
++
++
++def _single_stock_diagnosis(symbol: str, question: str) -> dict[str, Any]:
++    analysis = analyze_stock(symbol, question=question)
++    return _skill_result(
++        "single_stock_diagnosis",
++        analysis["quote"]["symbol"],
++        "个股诊断已完成",
++        analysis["report"],
++        analysis=analysis,
++        cards=[
++            {"title": "评分", "value": f"{analysis['score']}/100", "note": analysis["stance"]},
++            {"title": "趋势", "value": analysis["indicators"].get("trend"), "note": "均线结构"},
++            {"title": "情绪", "value": analysis["sentiment"].get("label"), "note": analysis["sentiment"].get("note")},
++        ],
++    )
++
++
++def _watchlist_review(watchlist: list[dict[str, Any]]) -> dict[str, Any]:
++    if not watchlist:
++        return _skill_result("watchlist_review", "", "自选股为空", "请先添加自选股，再运行自选股复盘。", cards=[])
++    rows = []
++    alert_rows = []
++    for item in watchlist:
++        quote = item.get("quote") or {}
++        position = item.get("position") or {}
++        if not quote:
++            continue
++        score = _watch_score(item)
++        alerts = position.get("alerts") if isinstance(position.get("alerts"), list) else []
++        row = {
++            "symbol": item.get("symbol"),
++            "name": item.get("name") or quote.get("name") or item.get("symbol"),
++            "change_percent": quote.get("change_percent"),
++            "profit_percent": position.get("profit_percent"),
++            "alerts": alerts,
++            "score": score,
++        }
++        rows.append(row)
++        if alerts:
++            alert_rows.append(row)
++    rows.sort(key=lambda item: item["score"], reverse=True)
++    lines = ["## 自选股复盘", ""]
++    for row in rows[:8]:
++        lines.append(
++            f"- {row['name']}（{row['symbol']}）：涨跌幅 {row.get('change_percent')}%，"
++            f"持仓盈亏 {row.get('profit_percent') if row.get('profit_percent') is not None else '--'}%，"
++            f"关注优先级 {row['score']}/100。"
++        )
++    if alert_rows:
++        lines.extend(["", "### 需要立刻检查的预警"])
++        for row in alert_rows:
++            lines.append(f"- {row['name']}：{'；'.join(row['alerts'])}")
++    lines.extend(_risk_footer())
++    return _skill_result(
++        "watchlist_review",
++        "",
++        "自选股复盘已完成",
++        "\n".join(lines),
++        cards=[{"title": item["name"], "value": f"{item['score']}/100", "note": f"{item.get('change_percent')}%"} for item in rows[:4]],
++        items=rows,
++    )
++
++
++def _condition_screening(watchlist: list[dict[str, Any]], question: str) -> dict[str, Any]:
++    if not watchlist:
++        return _skill_result("condition_screening", "", "暂无可筛选股票", "当前只在自选股范围内筛选。请先加入自选股。", cards=[])
++    query = str(question or "").strip()
++    rules = _screening_rules(query)
++    matches = []
++    for item in watchlist:
++        quote = item.get("quote") or {}
++        if not quote:
++            continue
++        cp = _num(quote.get("change_percent")) or 0
++        position = item.get("position") or {}
++        pp = _num(position.get("profit_percent"))
++        ok = True
++        if rules["strong"] and cp < 1:
++            ok = False
++        if rules["weak"] and cp > -1:
++            ok = False
++        if rules["alert"] and not position.get("alerts"):
++            ok = False
++        if rules["profit"] and (pp is None or pp <= 0):
++            ok = False
++        if rules["loss"] and (pp is None or pp >= 0):
++            ok = False
++        if ok:
++            matches.append({"symbol": item.get("symbol"), "name": item.get("name") or quote.get("name"), "change_percent": cp, "profit_percent": pp})
++    lines = [f"## 条件选股：{query or '默认强弱筛选'}", "", "筛选范围：当前自选股。"]
++    if matches:
++        lines.append("")
++        for item in matches[:12]:
++            lines.append(f"- {item['name']}（{item['symbol']}）：涨跌幅 {item['change_percent']}%，持仓盈亏 {item['profit_percent'] if item['profit_percent'] is not None else '--'}%。")
++    else:
++        lines.extend(["", "- 当前自选股中没有匹配项，可以放宽条件或先扩充观察池。"])
++    lines.extend(_risk_footer())
++    return _skill_result("condition_screening", "", "条件筛选已完成", "\n".join(lines), items=matches)
++
++
++def _financial_checklist(symbol: str, question: str) -> dict[str, Any]:
++    analysis = analyze_stock(symbol, question=question)
++    quote = analysis["quote"]
++    lines = [
++        f"## {quote.get('name')}（{quote.get('symbol')}）财报解读清单",
++        "",
++        "当前版本尚未接入真实财报数据库，所以这里输出核验清单，不伪造财务结论。",
++        "",
++        "### 必查项目",
++        "- 收入增速：同比、环比、是否靠一次性项目拉动。",
++        "- 利润质量：毛利率、净利率、费用率是否改善。",
++        "- 现金流：经营现金流是否跟利润同向。",
++        "- 资产负债：有息负债、短债压力、商誉和存货风险。",
++        "- 估值位置：PE/PB/PS 与自身历史和同行相比是否极端。",
++        "",
++        "### 和当前行情结合",
++        f"- 技术面状态：{analysis['indicators'].get('trend')}，评分 {analysis['score']}/100。",
++        f"- 如果财报确认增长修复，可关注 {analysis['indicators'].get('resistance')} 附近突破质量。",
++        f"- 如果财报低于预期，优先检查 {analysis['indicators'].get('support')} 附近防守是否失效。",
++        *_risk_footer(),
++    ]
++    return _skill_result("financial_checklist", quote.get("symbol"), "财报核验清单已生成", "\n".join(lines), analysis=analysis)
++
++
++def _news_risk_scan(symbol: str, question: str) -> dict[str, Any]:
++    analysis = analyze_stock(symbol, question=question)
++    quote = analysis["quote"]
++    risks = list(analysis.get("risks") or [])
++    lines = [
++        f"## {quote.get('name')}（{quote.get('symbol')}）公告新闻风险扫描",
++        "",
++        "当前版本尚未接入公告/新闻全文数据，因此先基于行情异动给出核验路径。",
++        "",
++        "### 需要核验",
++        "- 公司公告：业绩预告、减持、回购、诉讼、重组、分红。",
++        "- 行业政策：监管、补贴、价格管制、出口限制。",
++        "- 财报日期：临近财报期时，波动可能提前放大。",
++        "- 研报/评级：是否出现集中上调或下调。",
++        "",
++        "### 由行情触发的风险提示",
++        *[f"- {item}" for item in risks],
++        *_risk_footer(),
++    ]
++    return _skill_result("news_risk_scan", quote.get("symbol"), "风险扫描路径已生成", "\n".join(lines), analysis=analysis)
++
++
++def _money_flow_sentiment(symbol: str, question: str) -> dict[str, Any]:
++    analysis = analyze_stock(symbol, question=question)
++    quote = analysis["quote"]
++    indicators = analysis["indicators"]
++    lines = [
++        f"## {quote.get('name')}（{quote.get('symbol')}）资金情绪推断",
++        "",
++        "当前资金情绪由价格、成交量、波动率和趋势规则推断；不等同于真实主力资金流数据。",
++        "",
++        f"- 情绪标签：{analysis['sentiment'].get('label')}，分数 {analysis['sentiment'].get('score')}/100。",
++        f"- 量能比：{indicators.get('volume_ratio')}，20日波动率：{indicators.get('volatility20')}%。",
++        f"- 市场上下文：{analysis['market_context'].get('regime')}。",
++        f"- MACD：{(indicators.get('macd') or {}).get('signal')}，KDJ：{(indicators.get('kdj') or {}).get('signal')}。",
++        "",
++        "### 下一步",
++        "- 若放量上涨且突破压力位，再核验新闻/财报是否同步支持。",
++        "- 若放量下跌，先排查公告、行业政策和大盘系统性风险。",
++        *_risk_footer(),
++    ]
++    return _skill_result("money_flow_sentiment", quote.get("symbol"), "资金情绪推断已完成", "\n".join(lines), analysis=analysis)
++
++
++def _followup_qa(symbol: str, question: str, latest_analysis: dict[str, Any] | None) -> dict[str, Any]:
++    analysis = latest_analysis if isinstance(latest_analysis, dict) and latest_analysis.get("quote") else analyze_stock(symbol, question=question)
++    quote = analysis.get("quote") or {}
++    indicators = analysis.get("indicators") or {}
++    lines = [
++        f"## 追问：{question or '继续分析'}",
++        "",
++        f"基于最近一次 {quote.get('name')}（{quote.get('symbol')}）分析：",
++        f"- 评分：{analysis.get('score')}/100，结论：{analysis.get('stance')}",
++        f"- 趋势：{indicators.get('trend')}，支撑/压力：{indicators.get('support')} / {indicators.get('resistance')}",
++        "",
++        "### 回答",
++        _answer_followup(question, analysis),
++        *_risk_footer(),
++    ]
++    return _skill_result("followup_qa", quote.get("symbol"), "追问回答已生成", "\n".join(lines), analysis=analysis)
++
++
++def _answer_followup(question: str, analysis: dict[str, Any]) -> str:
++    text = str(question or "")
++    if re.search(r"止损|防守|跌破|风险", text):
++        return "优先看 20 日低点、MA20 和你自己的最大可承受亏损。若价格跌破技术防守位，同时原始买入理由没有新证据支持，应先降低风险暴露。"
++    if re.search(r"买|加仓|进场|追", text):
++        return "不建议只因为评分或单日上涨就行动。更稳的确认条件是：突破压力位、量能健康放大、市场环境不拖累、新闻/财报至少一项同步支持。"
++    if re.search(r"卖|减仓|止盈", text):
++        return "可以把压力位、RSI过热、放量滞涨和单票仓位过高作为减仓观察条件。核心不是猜最高点，而是把利润回撤控制在可接受范围。"
++    return "当前更适合按观察计划执行：看趋势是否延续、量能是否配合、支撑压力是否有效，再结合公告、财报和行业消息做二次确认。"
++
++
++def _screening_rules(question: str) -> dict[str, bool]:
++    text = str(question or "").lower()
++    return {
++        "strong": bool(re.search(r"强|上涨|突破|多头|领涨|positive|up", text)),
++        "weak": bool(re.search(r"弱|下跌|破位|空头|谨慎|negative|down", text)),
++        "alert": bool(re.search(r"预警|止损|突破|触发|alert", text)),
++        "profit": bool(re.search(r"盈利|赚钱|浮盈|profit", text)),
++        "loss": bool(re.search(r"亏损|浮亏|回撤|loss", text)),
++    }
++
++
++def _watch_score(item: dict[str, Any]) -> int:
++    quote = item.get("quote") or {}
++    position = item.get("position") or {}
++    score = 50
++    cp = _num(quote.get("change_percent")) or 0
++    pp = _num(position.get("profit_percent"))
++    if cp > 2:
++        score += 15
++    elif cp < -2:
++        score += 12
++    if position.get("alerts"):
++        score += 20
++    if pp is not None and pp <= -8:
++        score += 12
++    if item.get("notes"):
++        score += 4
++    return max(0, min(100, int(score)))
++
++
++def _skill_result(
++    skill_id: str,
++    symbol: str | None,
++    title: str,
++    report: str,
++    *,
++    analysis: dict[str, Any] | None = None,
++    cards: list[dict[str, Any]] | None = None,
++    items: list[dict[str, Any]] | None = None,
++) -> dict[str, Any]:
++    return {
++        "skill_id": skill_id,
++        "symbol": symbol or "",
++        "title": title,
++        "report": report,
++        "analysis": analysis,
++        "cards": cards or [],
++        "items": items or [],
++        "disclaimer": "仅供学习研究和个人复盘，不构成投资建议。",
++    }
++
++
++def _risk_footer() -> list[str]:
++    return ["", "### 风险提示", "- 以上仅供学习研究和个人复盘，不构成投资建议；请结合公开披露信息和自身风险承受能力独立判断。"]
++
++
++def _num(value: Any) -> float | None:
++    try:
++        if value in {"", None}:
++            return None
++        return float(value)
++    except (TypeError, ValueError):
++        return None
+diff --git a/studio_backend/stocks.py b/studio_backend/stocks.py
+new file mode 100644
+index 0000000..86bcc33
+--- /dev/null
++++ b/studio_backend/stocks.py
+@@ -0,0 +1,530 @@
++from __future__ import annotations
++
++import json
++import math
++import time
++import urllib.parse
++import urllib.request
++from typing import Any
++
++
++YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
++YAHOO_SEARCH_URL = "https://query1.finance.yahoo.com/v1/finance/search"
++
++
++def normalize_stock_symbol(symbol: str, market: str = "") -> str:
++    raw = str(symbol or "").strip().upper()
++    normalized_market = str(market or "").strip().upper()
++    if not raw:
++        return ""
++    if "." in raw or "-" in raw:
++        return raw
++    if normalized_market in {"US", "NYSE", "NASDAQ"}:
++        return raw
++    if normalized_market in {"HK", "HKG"}:
++        return f"{raw.zfill(4)}.HK" if raw.isdigit() else raw
++    if normalized_market in {"CN", "A", "ASHARE", "A股"}:
++        if raw.startswith(("5", "6", "9")):
++            return f"{raw}.SS"
++        return f"{raw}.SZ"
++    if raw.isdigit():
++        if len(raw) <= 5:
++            return f"{raw.zfill(4)}.HK"
++        if raw.startswith(("5", "6", "9")):
++            return f"{raw}.SS"
++        return f"{raw}.SZ"
++    return raw
++
++
++def infer_market(symbol: str) -> str:
++    text = str(symbol or "").upper()
++    if text.endswith(".SS") or text.endswith(".SZ"):
++        return "A股"
++    if text.endswith(".HK"):
++        return "港股"
++    return "美股"
++
++
++def _http_json(url: str, timeout: int = 12) -> dict[str, Any]:
++    request = urllib.request.Request(
++        url,
++        headers={
++            "User-Agent": "Mozilla/5.0 CreatorStudio/stock-module",
++            "Accept": "application/json,text/plain,*/*",
++        },
++    )
++    with urllib.request.urlopen(request, timeout=timeout) as response:
++        return json.loads(response.read().decode("utf-8", errors="replace"))
++
++
++def fetch_stock_chart(symbol: str, *, range_text: str = "6mo", interval: str = "1d") -> dict[str, Any]:
++    safe_symbol = urllib.parse.quote(normalize_stock_symbol(symbol), safe="")
++    if not safe_symbol:
++        raise ValueError("stock symbol is required")
++    query = urllib.parse.urlencode({"range": range_text, "interval": interval, "includePrePost": "false"})
++    data = _http_json(f"{YAHOO_CHART_URL.format(symbol=safe_symbol)}?{query}")
++    result = ((data.get("chart") or {}).get("result") or [None])[0]
++    if not result:
++        error = (data.get("chart") or {}).get("error") or {}
++        raise RuntimeError(error.get("description") or "stock data unavailable")
++    meta = result.get("meta") or {}
++    timestamps = result.get("timestamp") or []
++    quote = (((result.get("indicators") or {}).get("quote") or [{}])[0]) or {}
++    closes = quote.get("close") or []
++    opens = quote.get("open") or []
++    highs = quote.get("high") or []
++    lows = quote.get("low") or []
++    volumes = quote.get("volume") or []
++    points: list[dict[str, Any]] = []
++    for index, ts in enumerate(timestamps):
++        close = _num(closes[index] if index < len(closes) else None)
++        if close is None:
++            continue
++        points.append(
++            {
++                "time": time.strftime("%Y-%m-%d", time.localtime(int(ts))),
++                "open": _num(opens[index] if index < len(opens) else None),
++                "high": _num(highs[index] if index < len(highs) else None),
++                "low": _num(lows[index] if index < len(lows) else None),
++                "close": close,
++                "volume": _num(volumes[index] if index < len(volumes) else None) or 0,
++            }
++        )
++    return {
++        "symbol": meta.get("symbol") or normalize_stock_symbol(symbol),
++        "name": meta.get("shortName") or meta.get("longName") or meta.get("symbol") or symbol,
++        "currency": meta.get("currency") or "",
++        "exchange": meta.get("exchangeName") or meta.get("fullExchangeName") or "",
++        "market": infer_market(meta.get("symbol") or symbol),
++        "regular_market_price": _num(meta.get("regularMarketPrice")),
++        "previous_close": _num(meta.get("chartPreviousClose") or meta.get("previousClose")),
++        "points": points,
++        "fetched_at": time.strftime("%Y-%m-%d %H:%M:%S"),
++    }
++
++
++def stock_quote(symbol: str) -> dict[str, Any]:
++    chart = fetch_stock_chart(symbol, range_text="5d", interval="1d")
++    points = chart["points"]
++    latest = points[-1] if points else {}
++    previous = chart.get("previous_close")
++    if previous is None and len(points) >= 2:
++        previous = points[-2].get("close")
++    price = chart.get("regular_market_price") or latest.get("close")
++    change = price - previous if price is not None and previous else 0
++    change_percent = (change / previous * 100) if previous else 0
++    return {
++        **{key: chart[key] for key in ["symbol", "name", "currency", "exchange", "market", "fetched_at"]},
++        "price": round(price, 4) if price is not None else None,
++        "previous_close": round(previous, 4) if previous is not None else None,
++        "change": round(change, 4),
++        "change_percent": round(change_percent, 2),
++        "volume": latest.get("volume", 0),
++    }
++
++
++def search_stocks(query: str) -> list[dict[str, Any]]:
++    text = str(query or "").strip()
++    if not text:
++        return []
++    url = f"{YAHOO_SEARCH_URL}?{urllib.parse.urlencode({'q': text, 'quotesCount': 10, 'newsCount': 0})}"
++    data = _http_json(url)
++    items = []
++    for item in data.get("quotes", [])[:10]:
++        symbol = item.get("symbol") or ""
++        if not symbol:
++            continue
++        items.append(
++            {
++                "symbol": symbol,
++                "name": item.get("shortname") or item.get("longname") or symbol,
++                "exchange": item.get("exchDisp") or item.get("exchange") or "",
++                "market": infer_market(symbol),
++                "type": item.get("quoteType") or "",
++            }
++        )
++    return items
++
++
++def analyze_stock(symbol: str, *, question: str = "") -> dict[str, Any]:
++    chart = fetch_stock_chart(symbol)
++    quote = stock_quote(chart["symbol"])
++    points = chart["points"]
++    closes = [float(item["close"]) for item in points if item.get("close") is not None]
++    volumes = [float(item.get("volume") or 0) for item in points]
++    indicators = _technical_indicators(closes, volumes)
++    score, stance, risks, opportunities = _score_stock(quote, indicators)
++    report = _build_report(quote, indicators, score, stance, risks, opportunities, question=question)
++    return {
++        "quote": quote,
++        "kline": points[-80:],
++        "indicators": indicators,
++        "score": score,
++        "stance": stance,
++        "opportunities": opportunities,
++        "risks": risks,
++        "alerts": _suggest_alerts(quote, indicators),
++        "sentiment": _sentiment_stub(quote, indicators),
++        "market_context": _market_context_stub(quote, indicators),
++        "position_plan": _position_plan(quote, indicators),
++        "report": report,
++        "disclaimer": "AI 和规则分析仅供学习研究，不构成投资建议。请结合公开披露信息、风险承受能力和专业意见独立判断。",
++    }
++
++
++def _technical_indicators(closes: list[float], volumes: list[float]) -> dict[str, Any]:
++    latest = closes[-1] if closes else None
++    ma5 = _ma(closes, 5)
++    ma20 = _ma(closes, 20)
++    ma60 = _ma(closes, 60)
++    rsi14 = _rsi(closes, 14)
++    vol5 = _ma(volumes, 5)
++    vol20 = _ma(volumes, 20)
++    high20 = max(closes[-20:]) if len(closes) >= 20 else latest
++    low20 = min(closes[-20:]) if len(closes) >= 20 else latest
++    drawdown20 = ((latest - high20) / high20 * 100) if latest and high20 else 0
++    macd = _macd(closes)
++    boll = _boll(closes, 20)
++    kdj = _kdj_from_closes(closes)
++    return5 = _return(closes, 5)
++    return20 = _return(closes, 20)
++    volatility20 = _volatility(closes, 20)
++    return {
++        "latest": _round(latest),
++        "ma5": _round(ma5),
++        "ma20": _round(ma20),
++        "ma60": _round(ma60),
++        "rsi14": _round(rsi14),
++        "volume_ma5": _round(vol5),
++        "volume_ma20": _round(vol20),
++        "volume_ratio": _round(vol5 / vol20) if vol5 and vol20 else None,
++        "high20": _round(high20),
++        "low20": _round(low20),
++        "drawdown20": _round(drawdown20),
++        "return5": _round(return5),
++        "return20": _round(return20),
++        "volatility20": _round(volatility20),
++        "macd": macd,
++        "boll": boll,
++        "kdj": kdj,
++        "support": _round(low20),
++        "resistance": _round(high20),
++        "trend": _trend_label(latest, ma5, ma20, ma60),
++    }
++
++
++def _score_stock(quote: dict[str, Any], indicators: dict[str, Any]) -> tuple[int, str, list[str], list[str]]:
++    score = 50
++    risks: list[str] = []
++    opportunities: list[str] = []
++    cp = float(quote.get("change_percent") or 0)
++    rsi = indicators.get("rsi14")
++    volume_ratio = indicators.get("volume_ratio")
++    trend = indicators.get("trend")
++    macd = indicators.get("macd") or {}
++    boll = indicators.get("boll") or {}
++    return20 = indicators.get("return20")
++    volatility20 = indicators.get("volatility20")
++    if trend == "多头排列":
++        score += 15
++        opportunities.append("均线呈多头排列，趋势动能较强。")
++    elif trend == "空头排列":
++        score -= 15
++        risks.append("均线呈空头排列，趋势仍偏弱。")
++    if rsi is not None:
++        if rsi >= 75:
++            score -= 10
++            risks.append("RSI 偏高，短线可能存在过热回撤风险。")
++        elif rsi <= 30:
++            score += 8
++            opportunities.append("RSI 偏低，若基本面未恶化，可能进入超卖观察区。")
++    if volume_ratio and volume_ratio >= 1.5:
++        opportunities.append("近期成交量明显放大，需要结合新闻确认资金来源。")
++        if cp < 0:
++            risks.append("放量下跌，需警惕资金分歧或利空释放。")
++        else:
++            score += 6
++    if macd.get("signal") == "金叉偏多":
++        score += 6
++        opportunities.append("MACD 出现金叉/向上信号，趋势修复概率提高。")
++    elif macd.get("signal") == "死叉偏空":
++        score -= 6
++        risks.append("MACD 偏空，短线仍需等待动能修复。")
++    if boll.get("position") == "上轨附近":
++        risks.append("价格靠近布林上轨，短线追高性价比下降。")
++    elif boll.get("position") == "下轨附近":
++        opportunities.append("价格靠近布林下轨，可观察是否出现止跌与缩量。")
++    if return20 is not None and return20 <= -12:
++        risks.append("近 20 日跌幅较深，需区分技术反弹与趋势反转。")
++    if volatility20 is not None and volatility20 >= 45:
++        risks.append("20 日波动率偏高，仓位和止损线需要更保守。")
++    if abs(cp) >= 5:
++        risks.append("单日波动较大，追涨杀跌风险上升。")
++    score = max(0, min(100, int(round(score))))
++    if score >= 70:
++        stance = "偏强观察"
++    elif score >= 55:
++        stance = "中性偏多"
++    elif score >= 40:
++        stance = "中性观望"
++    else:
++        stance = "偏弱谨慎"
++    if not opportunities:
++        opportunities.append("当前没有明显技术面优势，适合等待更明确的趋势或基本面信号。")
++    if not risks:
++        risks.append("仍需关注大盘环境、行业政策、财报和突发新闻。")
++    return score, stance, risks[:5], opportunities[:5]
++
++
++def _build_report(
++    quote: dict[str, Any],
++    indicators: dict[str, Any],
++    score: int,
++    stance: str,
++    risks: list[str],
++    opportunities: list[str],
++    *,
++    question: str,
++) -> str:
++    lines = [
++        f"## {quote.get('name')}（{quote.get('symbol')}）AI 辅助分析",
++        "",
++        f"- 市场：{quote.get('market')} / {quote.get('exchange')}",
++        f"- 最新价：{quote.get('price')} {quote.get('currency')}，涨跌幅：{quote.get('change_percent')}%",
++        f"- 综合评分：{score}/100，结论：{stance}",
++        f"- 趋势：{indicators.get('trend')}，MA5/MA20/MA60：{indicators.get('ma5')} / {indicators.get('ma20')} / {indicators.get('ma60')}",
++        f"- RSI14：{indicators.get('rsi14')}，量能比：{indicators.get('volume_ratio')}",
++        f"- MACD：{(indicators.get('macd') or {}).get('signal')}，BOLL：{(indicators.get('boll') or {}).get('position')}",
++        f"- 近5日/20日收益：{indicators.get('return5')}% / {indicators.get('return20')}%，20日波动率：{indicators.get('volatility20')}%",
++        "",
++        "### 机会",
++        *[f"- {item}" for item in opportunities],
++        "",
++        "### 风险",
++        *[f"- {item}" for item in risks],
++        "",
++        "### 操作纪律",
++        "- 不把这份分析当作买卖指令；先确认财报、公告、行业政策和仓位风险。",
++        "- 若已有持仓，优先检查成本线、止损线和单票仓位上限。",
++        "- 若准备新开仓，等待价格、量能和市场情绪至少两项信号同向。",
++    ]
++    if question:
++        lines.extend(["", "### 你的问题", f"- {question}"])
++    return "\n".join(lines)
++
++
++def _suggest_alerts(quote: dict[str, Any], indicators: dict[str, Any]) -> list[dict[str, Any]]:
++    price = quote.get("price") or indicators.get("latest")
++    if not price:
++        return []
++    high = indicators.get("high20") or price * 1.08
++    low = indicators.get("low20") or price * 0.92
++    return [
++        {"type": "breakout", "label": "突破 20 日高点", "price": _round(high), "enabled": False},
++        {"type": "stop_loss", "label": "跌破 20 日低点", "price": _round(low), "enabled": False},
++        {"type": "ma20", "label": "回踩/跌破 MA20", "price": indicators.get("ma20"), "enabled": False},
++        {"type": "daily_move", "label": "单日涨跌超过 5%", "percent": 5, "enabled": False},
++    ]
++
++
++def _sentiment_stub(quote: dict[str, Any], indicators: dict[str, Any]) -> dict[str, Any]:
++    cp = float(quote.get("change_percent") or 0)
++    trend = indicators.get("trend")
++    if cp > 2 and trend in {"多头排列", "短线强于中期"}:
++        label = "偏积极"
++        score = 68
++    elif cp < -2:
++        label = "偏谨慎"
++        score = 38
++    else:
++        label = "中性"
++        score = 52
++    return {
++        "label": label,
++        "score": score,
++        "note": "当前情绪基于价格和量能规则估算；接入新闻/社媒数据后可升级为真实舆情分析。",
++    }
++
++
++def _market_context_stub(quote: dict[str, Any], indicators: dict[str, Any]) -> dict[str, Any]:
++    cp = float(quote.get("change_percent") or 0)
++    trend = indicators.get("trend")
++    if cp >= 1.5 and trend in {"多头排列", "短线强于中期"}:
++        regime = "风险偏好回升"
++    elif cp <= -1.5 or trend == "空头排列":
++        regime = "风险偏好承压"
++    else:
++        regime = "结构性分化"
++    return {
++        "regime": regime,
++        "focus": ["大盘指数方向", "行业资金流", "公司公告/财报", "隔夜外围市场"],
++        "note": "市场上下文为本地规则推断；后续可接入东方财富/问财/雪球等数据源进一步增强。",
++    }
++
++
++def _position_plan(quote: dict[str, Any], indicators: dict[str, Any]) -> list[dict[str, str]]:
++    price = quote.get("price") or indicators.get("latest")
++    support = indicators.get("support")
++    resistance = indicators.get("resistance")
++    trend = indicators.get("trend")
++    return [
++        {"title": "观察位", "text": f"围绕 {price} 附近观察量价是否同向，趋势标签：{trend}。"},
++        {"title": "防守位", "text": f"若有效跌破 {support} 或 MA20，需要降低仓位或重新评估逻辑。"},
++        {"title": "进攻位", "text": f"若放量突破 {resistance}，再结合新闻/财报确认突破质量。"},
++    ]
++
++
++def _trend_label(latest: float | None, ma5: float | None, ma20: float | None, ma60: float | None) -> str:
++    if latest and ma5 and ma20 and ma60:
++        if latest > ma5 > ma20 > ma60:
++            return "多头排列"
++        if latest < ma5 < ma20 < ma60:
++            return "空头排列"
++        if latest > ma5 and ma5 > ma20:
++            return "短线强于中期"
++        if latest < ma5 and ma5 < ma20:
++            return "短线弱于中期"
++    return "震荡观察"
++
++
++def _ma(values: list[float], window: int) -> float | None:
++    if len(values) < window:
++        return None
++    return sum(values[-window:]) / window
++
++
++def _rsi(values: list[float], window: int) -> float | None:
++    if len(values) <= window:
++        return None
++    gains: list[float] = []
++    losses: list[float] = []
++    for previous, current in zip(values[-window - 1 : -1], values[-window:]):
++        change = current - previous
++        gains.append(max(change, 0))
++        losses.append(abs(min(change, 0)))
++    avg_gain = sum(gains) / window
++    avg_loss = sum(losses) / window
++    if avg_loss == 0:
++        return 100.0
++    rs = avg_gain / avg_loss
++    return 100 - (100 / (1 + rs))
++
++
++def _ema(values: list[float], window: int) -> float | None:
++    if len(values) < window:
++        return None
++    multiplier = 2 / (window + 1)
++    ema = sum(values[:window]) / window
++    for value in values[window:]:
++        ema = (value - ema) * multiplier + ema
++    return ema
++
++
++def _macd(values: list[float]) -> dict[str, Any]:
++    if len(values) < 35:
++        return {"dif": None, "dea": None, "histogram": None, "signal": "数据不足"}
++    ema12 = _ema(values, 12)
++    ema26 = _ema(values, 26)
++    if ema12 is None or ema26 is None:
++        return {"dif": None, "dea": None, "histogram": None, "signal": "数据不足"}
++    dif_series: list[float] = []
++    for index in range(26, len(values) + 1):
++        short = _ema(values[:index], 12)
++        long = _ema(values[:index], 26)
++        if short is not None and long is not None:
++            dif_series.append(short - long)
++    dea = _ema(dif_series, 9)
++    dif = ema12 - ema26
++    histogram = (dif - dea) * 2 if dea is not None else None
++    previous_histogram = None
++    if len(dif_series) >= 10:
++        previous_dea = _ema(dif_series[:-1], 9)
++        previous_histogram = (dif_series[-2] - previous_dea) * 2 if previous_dea is not None else None
++    if histogram is not None and previous_histogram is not None and previous_histogram <= 0 < histogram:
++        signal = "金叉偏多"
++    elif histogram is not None and previous_histogram is not None and previous_histogram >= 0 > histogram:
++        signal = "死叉偏空"
++    elif histogram is not None and histogram > 0:
++        signal = "红柱延续"
++    elif histogram is not None:
++        signal = "绿柱延续"
++    else:
++        signal = "数据不足"
++    return {"dif": _round(dif), "dea": _round(dea), "histogram": _round(histogram), "signal": signal}
++
++
++def _boll(values: list[float], window: int) -> dict[str, Any]:
++    if len(values) < window:
++        return {"upper": None, "middle": None, "lower": None, "position": "数据不足"}
++    sample = values[-window:]
++    middle = sum(sample) / window
++    variance = sum((value - middle) ** 2 for value in sample) / window
++    std = math.sqrt(variance)
++    upper = middle + 2 * std
++    lower = middle - 2 * std
++    latest = values[-1]
++    if latest >= upper * 0.98:
++        position = "上轨附近"
++    elif latest <= lower * 1.02:
++        position = "下轨附近"
++    else:
++        position = "通道中部"
++    return {"upper": _round(upper), "middle": _round(middle), "lower": _round(lower), "position": position}
++
++
++def _kdj_from_closes(values: list[float]) -> dict[str, Any]:
++    if len(values) < 9:
++        return {"k": None, "d": None, "j": None, "signal": "数据不足"}
++    sample = values[-9:]
++    low = min(sample)
++    high = max(sample)
++    rsv = 50 if high == low else (values[-1] - low) / (high - low) * 100
++    k = (2 / 3) * 50 + (1 / 3) * rsv
++    d = (2 / 3) * 50 + (1 / 3) * k
++    j = 3 * k - 2 * d
++    if j >= 90:
++        signal = "短线过热"
++    elif j <= 10:
++        signal = "短线超卖"
++    elif k > d:
++        signal = "偏多"
++    else:
++        signal = "偏弱"
++    return {"k": _round(k), "d": _round(d), "j": _round(j), "signal": signal}
++
++
++def _return(values: list[float], window: int) -> float | None:
++    if len(values) <= window or values[-window - 1] == 0:
++        return None
++    return (values[-1] - values[-window - 1]) / values[-window - 1] * 100
++
++
++def _volatility(values: list[float], window: int) -> float | None:
++    if len(values) <= window:
++        return None
++    returns = []
++    for previous, current in zip(values[-window - 1 : -1], values[-window:]):
++        if previous:
++            returns.append((current - previous) / previous)
++    if len(returns) < 2:
++        return None
++    mean = sum(returns) / len(returns)
++    variance = sum((item - mean) ** 2 for item in returns) / (len(returns) - 1)
++    return math.sqrt(variance) * math.sqrt(252) * 100
++
++
++def _num(value: Any) -> float | None:
++    try:
++        if value is None:
++            return None
++        number = float(value)
++        if math.isnan(number) or math.isinf(number):
++            return None
++        return number
++    except (TypeError, ValueError):
++        return None
++
++
++def _round(value: Any, digits: int = 2) -> float | None:
++    number = _num(value)
++    return round(number, digits) if number is not None else None
+diff --git a/studio_backend/storage.py b/studio_backend/storage.py
+index 20e5802..d200f84 100644
+--- a/studio_backend/storage.py
++++ b/studio_backend/storage.py
+@@ -32,6 +32,9 @@ DEFAULT_STATE: dict[str, Any] = {
+     "wechat_callback_events": [], # 微信回调事件
+     "ai_trends": [],            # AI趋势数据
+     "obsidian_archives": [],    # Obsidian归档
++    "stock_watchlist": [],      # 股票自选与预警
++    "stock_analysis_history": [], # 股票AI分析历史
++    "stock_skill_runs": [],     # 股票Skill运行历史
+     "avatar_settings": {},      # 数字人设置
+ }
+ 
+diff --git a/studio_frontend/src/App.vue b/studio_frontend/src/App.vue
+index bad1e8b..b177a02 100644
+--- a/studio_frontend/src/App.vue
++++ b/studio_frontend/src/App.vue
+@@ -81,6 +81,26 @@ const referenceImageUrl = ref("");
+ const maodouVoiceUrl = ref("");
+ const peanutVoiceUrl = ref("");
+ const publishDrafts = reactive({});
++const stockWatchlist = ref([]);
++const stockAnalysis = ref(null);
++const stockSearchResults = ref([]);
++const stockMarket = ref(null);
++const stockHistory = ref([]);
++const stockSkills = ref([]);
++const stockSkillResult = ref(null);
++const stockSkillRuns = ref([]);
++const selectedStockSkill = ref("single_stock_diagnosis");
++const stockForm = reactive({
++  symbol: "AAPL",
++  market: "US",
++  name: "",
++  cost: "",
++  shares: "",
++  alert_high: "",
++  alert_low: "",
++  notes: ""
++});
++const stockQuestion = ref("请从趋势、量能、风险和适合我的观察动作分析这只股票。");
+ 
+ const voicePresets = [
+   { label: "温暖真人女声（推荐）", value: "zh-CN-XiaoxiaoNeural" },
+@@ -105,7 +125,15 @@ const busy = reactive({
+   previewScript: false,
+   reviseScript: false,
+   generate: false,
+-  publish: ""
++  publish: "",
++  stockRefresh: false,
++  stockSearch: false,
++  stockSave: false,
++  stockAnalyze: false,
++  stockMarket: false,
++  stockHistory: false,
++  stockSkills: false,
++  stockSkillRun: false
+ });
+ 
+ const kidsForm = reactive({
+@@ -935,6 +963,208 @@ async function archiveCurrentScript() {
+   }
+ }
+ 
++async function refreshStockWatchlist() {
++  busy.stockRefresh = true;
++  try {
++    const result = await requestApi("/api/stocks/watchlist", {}, 30000);
++    stockWatchlist.value = Array.isArray(result.items) ? result.items : [];
++  } catch (error) {
++    setError(normalizeErrorMessage(error, "刷新股票自选失败。"));
++  } finally {
++    busy.stockRefresh = false;
++  }
++}
++
++async function refreshStockMarket() {
++  busy.stockMarket = true;
++  try {
++    stockMarket.value = await requestApi("/api/stocks/market", {}, 45000);
++  } catch (error) {
++    setError(normalizeErrorMessage(error, "刷新市场概览失败。"));
++  } finally {
++    busy.stockMarket = false;
++  }
++}
++
++async function refreshStockHistory(symbol = "") {
++  busy.stockHistory = true;
++  try {
++    const query = symbol ? `?symbol=${encodeURIComponent(symbol)}` : "";
++    const result = await requestApi(`/api/stocks/analysis-history${query}`, {}, 30000);
++    stockHistory.value = Array.isArray(result.items) ? result.items : [];
++  } catch (error) {
++    setError(normalizeErrorMessage(error, "刷新分析历史失败。"));
++  } finally {
++    busy.stockHistory = false;
++  }
++}
++
++async function refreshStockSkills() {
++  busy.stockSkills = true;
++  try {
++    const [skills, runs] = await Promise.all([
++      requestApi("/api/stocks/skills", {}, 30000),
++      requestApi("/api/stocks/skill-runs", {}, 30000)
++    ]);
++    stockSkills.value = Array.isArray(skills.items) ? skills.items : [];
++    stockSkillRuns.value = Array.isArray(runs.items) ? runs.items : [];
++    if (!stockSkills.value.some((item) => item.id === selectedStockSkill.value)) {
++      selectedStockSkill.value = stockSkills.value[0]?.id || "single_stock_diagnosis";
++    }
++  } catch (error) {
++    setError(normalizeErrorMessage(error, "刷新股票 Skill 失败。"));
++  } finally {
++    busy.stockSkills = false;
++  }
++}
++
++async function searchStockSymbols() {
++  const query = stockForm.symbol.trim();
++  if (!query) return;
++  busy.stockSearch = true;
++  try {
++    const result = await requestApi(`/api/stocks/search?q=${encodeURIComponent(query)}`, {}, 30000);
++    stockSearchResults.value = Array.isArray(result.items) ? result.items : [];
++  } catch (error) {
++    setError(normalizeErrorMessage(error, "搜索股票失败。"));
++  } finally {
++    busy.stockSearch = false;
++  }
++}
++
++function chooseStockSearchResult(item) {
++  if (!item?.symbol) return;
++  stockForm.symbol = item.symbol;
++  stockForm.name = item.name || item.symbol;
++  stockForm.market = item.market || stockForm.market;
++  stockSearchResults.value = [];
++}
++
++async function saveStockToWatchlist() {
++  if (!stockForm.symbol.trim()) {
++    setError("请先输入股票代码。");
++    return;
++  }
++  busy.stockSave = true;
++  try {
++    await requestApi("/api/stocks/watchlist", {
++      method: "POST",
++      headers: { "Content-Type": "application/json; charset=utf-8" },
++      body: JSON.stringify(stockForm)
++    }, 30000);
++    setNotice("已加入股票自选。");
++    await refreshStockWatchlist();
++  } catch (error) {
++    setError(normalizeErrorMessage(error, "保存股票自选失败。"));
++  } finally {
++    busy.stockSave = false;
++  }
++}
++
++async function deleteStockFromWatchlist(symbol) {
++  if (!symbol) return;
++  try {
++    await requestApi(`/api/stocks/watchlist/${encodeURIComponent(symbol)}`, { method: "DELETE" }, 30000);
++    setNotice("已移除自选股票。");
++    await refreshStockWatchlist();
++  } catch (error) {
++    setError(normalizeErrorMessage(error, "移除股票失败。"));
++  }
++}
++
++async function analyzeStock(symbol = stockForm.symbol) {
++  const value = String(symbol || "").trim();
++  if (!value) {
++    setError("请先输入或选择股票代码。");
++    return;
++  }
++  busy.stockAnalyze = true;
++  try {
++    const result = await requestApi("/api/stocks/analyze", {
++      method: "POST",
++      headers: { "Content-Type": "application/json; charset=utf-8" },
++      body: JSON.stringify({ symbol: value, question: stockQuestion.value })
++    }, 45000);
++    stockAnalysis.value = result;
++    stockForm.symbol = result.quote?.symbol || value;
++    stockForm.name = result.quote?.name || stockForm.name;
++    setNotice("股票分析已生成。");
++    await refreshStockHistory(result.quote?.symbol || value);
++  } catch (error) {
++    setError(normalizeErrorMessage(error, "股票分析失败。"));
++  } finally {
++    busy.stockAnalyze = false;
++  }
++}
++
++async function runStockSkill(skillId = selectedStockSkill.value, symbol = stockForm.symbol) {
++  const selected = String(skillId || "").trim();
++  if (!selected) {
++    setError("请先选择一个股票 Skill。");
++    return;
++  }
++  const needsSymbol = !["watchlist_review", "condition_screening"].includes(selected);
++  const value = String(symbol || "").trim();
++  if (needsSymbol && !value) {
++    setError("这个 Skill 需要先输入股票代码。");
++    return;
++  }
++  busy.stockSkillRun = true;
++  try {
++    const result = await requestApi("/api/stocks/skills/run", {
++      method: "POST",
++      headers: { "Content-Type": "application/json; charset=utf-8" },
++      body: JSON.stringify({
++        skill_id: selected,
++        symbol: value,
++        question: stockQuestion.value,
++        latest_analysis: stockAnalysis.value || null
++      })
++    }, 90000);
++    stockSkillResult.value = result;
++    if (result.analysis) stockAnalysis.value = result.analysis;
++    if (result.symbol) stockForm.symbol = result.symbol;
++    setNotice("股票 Skill 已运行。");
++    await refreshStockSkills();
++  } catch (error) {
++    setError(normalizeErrorMessage(error, "股票 Skill 运行失败。"));
++  } finally {
++    busy.stockSkillRun = false;
++  }
++}
++
++function stockSkillName(skillId) {
++  return stockSkills.value.find((item) => item.id === skillId)?.name || skillId || "Stock Skill";
++}
++
++function formatStockNumber(value, digits = 2) {
++  const number = Number(value);
++  if (!Number.isFinite(number)) return "--";
++  return number.toFixed(digits);
++}
++
++function stockChangeClass(value) {
++  const number = Number(value);
++  if (number > 0) return "up";
++  if (number < 0) return "down";
++  return "";
++}
++
++function stockKlinePoints(points = []) {
++  const values = (Array.isArray(points) ? points : []).slice(-42).map((item) => Number(item.close)).filter(Number.isFinite);
++  if (!values.length) return "";
++  const min = Math.min(...values);
++  const max = Math.max(...values);
++  const width = 320;
++  const height = 88;
++  const span = max - min || 1;
++  return values.map((value, index) => {
++    const x = values.length === 1 ? width : (index / (values.length - 1)) * width;
++    const y = height - ((value - min) / span) * height;
++    return `${x.toFixed(1)},${y.toFixed(1)}`;
++  }).join(" ");
++}
++
+ function jobProgress(job) {
+   const raw = Number(job?.progress_percent);
+   if (Number.isFinite(raw)) return Math.min(100, Math.max(0, Math.round(raw)));
+@@ -1026,13 +1256,13 @@ const coreModules = [
+     key: "analysis",
+     number: "03",
+     title: "股票分析",
+-    desc: "基于实时行情、舆情与个人持仓，输出当日复盘卡片与操作建议。打通信息流，让认知到决策不再脱节。",
++    desc: "基于实时行情、技术指标、市场温度与个人持仓，输出复盘卡片、风险提示和下一步观察动作。",
+     icon: "stock",
+-    status: "开发中",
+-    action: "加入资料库",
++    status: "已上线",
++    action: "进入模块",
+     tab: "stocks",
+     target: "stock-panel",
+-    bullets: ["行情 + 舆情双引擎", "个人持仓追踪", "每日 AI 复盘卡片"]
++    bullets: ["A/HK/US 行情分析", "个人持仓与预警", "AI 辅助复盘报告"]
+   }
+ ];
+ const studioStats = computed(() => [
+@@ -1081,6 +1311,10 @@ onMounted(async () => {
+   await refreshJobs();
+   await refreshWechatMaterials();
+   await refreshAiTrends();
++  await refreshStockWatchlist();
++  await refreshStockMarket();
++  await refreshStockHistory();
++  await refreshStockSkills();
+   pollTimer = window.setInterval(() => {
+     if (runningKidsJobs.value.length) refreshJobs();
+   }, 3000);
+@@ -1139,7 +1373,7 @@ onBeforeUnmount(() => {
+           <div class="landing-copy">
+             <span class="version-pill">v2.0 · 个人成长系统全新升级</span>
+             <h1>一个人的 <span>AI 成长工作台</span></h1>
+-            <p>AI 洞察 · 软件开发 · 职场成长 · 内容创作。实时抓取行业资讯，素材一键生成文案与视频，股票决策辅助即将上线。</p>
++            <p>AI 洞察 · 软件开发 · 职场成长 · 内容创作。实时抓取行业资讯，素材一键生成文案与视频，股票决策辅助已接入工作台。</p>
+             <div class="landing-actions">
+               <button class="btn accent" type="button" @click="openStudioModule('materials', 'script-panel')">开始今日创作</button>
+               <button class="btn secondary" type="button" @click="openStudioModule('trends', 'trends-panel')">查看演示</button>
+@@ -1827,30 +2061,256 @@ onBeforeUnmount(() => {
+       <section id="stock-panel" class="panel stock-module">
+         <div class="panel-header">
+           <h2>股票分析</h2>
+-          <span class="eyebrow">行情 · 舆情 · 持仓 · 复盘</span>
++          <span class="eyebrow">行情 · 技术指标 · 持仓 · 预警 · 复盘</span>
+         </div>
+-        <div class="stock-grid">
+-          <div class="stock-feature-card">
+-            <span class="module-icon" data-icon="live" aria-hidden="true"></span>
+-            <strong>行情 + 舆情双引擎</strong>
+-            <p>预留实时行情、行业新闻、公司公告和情绪评分入口，后续可接入自选股与持仓数据。</p>
+-          </div>
+-          <div class="stock-feature-card">
+-            <span class="module-icon" data-icon="user" aria-hidden="true"></span>
+-            <strong>个人持仓追踪</strong>
+-            <p>按你的仓位、成本线、关注理由和风险边界，沉淀一份能持续更新的个人投资档案。</p>
++        <div class="stock-workbench">
++          <div class="stock-control-panel">
++            <div class="field-grid">
++              <label class="field">
++                <span>股票代码 / 名称</span>
++                <input v-model="stockForm.symbol" placeholder="AAPL / 00700 / 600519" @keyup.enter="searchStockSymbols" />
++              </label>
++              <label class="field">
++                <span>市场</span>
++                <select v-model="stockForm.market">
++                  <option value="US">美股</option>
++                  <option value="HK">港股</option>
++                  <option value="CN">A股</option>
++                </select>
++              </label>
++              <label class="field">
++                <span>显示名称</span>
++                <input v-model="stockForm.name" placeholder="可选" />
++              </label>
++              <label class="field">
++                <span>成本价</span>
++                <input v-model="stockForm.cost" inputmode="decimal" placeholder="可选" />
++              </label>
++              <label class="field">
++                <span>持仓数量</span>
++                <input v-model="stockForm.shares" inputmode="decimal" placeholder="可选" />
++              </label>
++              <label class="field">
++                <span>上方预警</span>
++                <input v-model="stockForm.alert_high" inputmode="decimal" placeholder="突破提醒" />
++              </label>
++              <label class="field">
++                <span>下方预警</span>
++                <input v-model="stockForm.alert_low" inputmode="decimal" placeholder="止损提醒" />
++              </label>
++              <label class="field">
++                <span>关注理由</span>
++                <input v-model="stockForm.notes" placeholder="财报、行业、策略..." />
++              </label>
++            </div>
++            <textarea v-model="stockQuestion" class="stock-question" rows="3"></textarea>
++            <div class="stock-actions">
++              <button class="btn secondary" type="button" :disabled="busy.stockSearch" @click="searchStockSymbols">
++                {{ busy.stockSearch ? "搜索中..." : "搜索标的" }}
++              </button>
++              <button class="btn secondary" type="button" :disabled="busy.stockSave" @click="saveStockToWatchlist">
++                {{ busy.stockSave ? "保存中..." : "加入/更新自选" }}
++              </button>
++              <button class="btn accent" type="button" :disabled="busy.stockAnalyze" @click="analyzeStock()">
++                {{ busy.stockAnalyze ? "分析中..." : "生成 AI 辅助分析" }}
++              </button>
++            </div>
++            <div v-if="stockSearchResults.length" class="stock-search-results">
++              <button v-for="item in stockSearchResults" :key="item.symbol" type="button" @click="chooseStockSearchResult(item)">
++                <strong>{{ item.symbol }}</strong>
++                <span>{{ item.name }} · {{ item.exchange || item.market }}</span>
++              </button>
++            </div>
+           </div>
+-          <div class="stock-feature-card">
+-            <span class="module-icon" data-icon="card" aria-hidden="true"></span>
+-            <strong>每日 AI 复盘卡片</strong>
+-            <p>把涨跌原因、关键新闻、下一步观察点整理成卡片，减少信息噪音和临时情绪决策。</p>
++
++          <div class="stock-market-card">
++            <div class="stock-section-head">
++              <strong>全球市场温度</strong>
++              <button class="btn secondary small" type="button" :disabled="busy.stockMarket" @click="refreshStockMarket">
++                {{ busy.stockMarket ? "刷新中" : "刷新" }}
++              </button>
++            </div>
++            <div class="market-mood">
++              <span>{{ stockMarket?.mood || "待刷新" }}</span>
++              <strong :class="stockChangeClass(stockMarket?.average_change)">{{ formatStockNumber(stockMarket?.average_change) }}%</strong>
++            </div>
++            <div class="market-index-list">
++              <div v-for="item in stockMarket?.items || []" :key="item.symbol" class="market-index-row">
++                <span>{{ item.name }}</span>
++                <strong>{{ item.price || "--" }}</strong>
++                <em :class="stockChangeClass(item.change_percent)">{{ formatStockNumber(item.change_percent) }}%</em>
++              </div>
++            </div>
+           </div>
+         </div>
+-        <div class="stock-placeholder">
+-          <strong>模块正在开发中</strong>
+-          <p>当前先保留完整入口与页面结构，下一步可接入行情接口、自选股列表、持仓录入和每日复盘生成。</p>
+-          <button class="btn accent" type="button" @click="openStudioModule('trends', 'trends-panel')">先查看实时数据</button>
++
++        <section class="stock-skill-panel">
++          <div class="stock-section-head">
++            <strong>Stock Skills</strong>
++            <button class="btn secondary small" type="button" :disabled="busy.stockSkills" @click="refreshStockSkills">
++              {{ busy.stockSkills ? "刷新中" : "刷新 Skills" }}
++            </button>
++          </div>
++          <div class="stock-skill-grid">
++            <button
++              v-for="skill in stockSkills"
++              :key="skill.id"
++              type="button"
++              class="stock-skill-card"
++              :class="{ active: selectedStockSkill === skill.id }"
++              @click="selectedStockSkill = skill.id"
++            >
++              <strong>{{ skill.name }}</strong>
++              <span>{{ skill.description }}</span>
++            </button>
++          </div>
++          <div class="stock-actions">
++            <button class="btn accent" type="button" :disabled="busy.stockSkillRun" @click="runStockSkill()">
++              {{ busy.stockSkillRun ? "运行中..." : `运行 ${stockSkillName(selectedStockSkill)}` }}
++            </button>
++            <button class="btn secondary" type="button" :disabled="busy.stockSkillRun" @click="runStockSkill('watchlist_review', '')">
++              自选股一键复盘
++            </button>
++            <button class="btn secondary" type="button" :disabled="busy.stockSkillRun" @click="runStockSkill('condition_screening', '')">
++              按问题筛选自选
++            </button>
++          </div>
++          <div v-if="stockSkillResult" class="stock-skill-result">
++            <div class="stock-score-line">
++              <span>{{ stockSkillResult.title }}</span>
++              <em>{{ stockSkillName(stockSkillResult.skill_id) }}</em>
++            </div>
++            <div v-if="stockSkillResult.cards?.length" class="indicator-grid">
++              <span v-for="card in stockSkillResult.cards" :key="card.title">
++                {{ card.title }}
++                <strong>{{ card.value }}</strong>
++                <small>{{ card.note }}</small>
++              </span>
++            </div>
++            <pre class="stock-report">{{ stockSkillResult.report }}</pre>
++            <small>{{ stockSkillResult.disclaimer }}</small>
++          </div>
++        </section>
++
++        <div class="stock-dashboard-grid">
++          <section class="stock-list-panel">
++            <div class="stock-section-head">
++              <strong>自选与持仓</strong>
++              <button class="btn secondary small" type="button" :disabled="busy.stockRefresh" @click="refreshStockWatchlist">
++                {{ busy.stockRefresh ? "刷新中" : "刷新行情" }}
++              </button>
++            </div>
++            <div v-if="!stockWatchlist.length" class="stock-empty">还没有自选股，先搜索代码并加入。</div>
++            <article v-for="item in stockWatchlist" :key="item.symbol" class="stock-watch-card">
++              <div class="stock-watch-main">
++                <div>
++                  <strong>{{ item.name || item.symbol }}</strong>
++                  <span>{{ item.symbol }} · {{ item.quote?.market || item.market }}</span>
++                </div>
++                <div class="stock-price">
++                  <strong>{{ item.quote?.price ?? "--" }}</strong>
++                  <em :class="stockChangeClass(item.quote?.change_percent)">{{ formatStockNumber(item.quote?.change_percent) }}%</em>
++                </div>
++              </div>
++              <div class="stock-mini-meta">
++                <span>成本 {{ item.cost || "--" }}</span>
++                <span>数量 {{ item.shares || "--" }}</span>
++                <span>市值 {{ item.position?.market_value ?? "--" }}</span>
++                <span :class="stockChangeClass(item.position?.profit_percent)">盈亏 {{ formatStockNumber(item.position?.profit_percent) }}%</span>
++              </div>
++              <div v-if="item.position?.alerts?.length" class="stock-alerts">
++                <span v-for="alert in item.position.alerts" :key="alert">{{ alert }}</span>
++              </div>
++              <p v-if="item.notes">{{ item.notes }}</p>
++              <div class="stock-row-actions">
++                <button class="btn secondary small" type="button" @click="analyzeStock(item.symbol)">分析</button>
++                <button class="btn secondary small danger-action" type="button" @click="deleteStockFromWatchlist(item.symbol)">移除</button>
++              </div>
++            </article>
++          </section>
++
++          <section class="stock-analysis-panel">
++            <div class="stock-section-head">
++              <strong>AI 辅助分析报告</strong>
++              <button class="btn secondary small" type="button" :disabled="!stockAnalysis?.report" @click="copyText(stockAnalysis?.report, '股票分析报告已复制。')">复制报告</button>
++            </div>
++            <div v-if="!stockAnalysis" class="stock-empty">输入股票代码后生成分析，会展示趋势、指标、风险、机会和预警线。</div>
++            <div v-else class="stock-analysis-result">
++              <div class="stock-score-line">
++                <span>{{ stockAnalysis.quote?.name }} · {{ stockAnalysis.quote?.symbol }}</span>
++                <strong>{{ stockAnalysis.score }}/100</strong>
++                <em>{{ stockAnalysis.stance }}</em>
++              </div>
++              <svg class="stock-sparkline" viewBox="0 0 320 88" preserveAspectRatio="none" aria-hidden="true">
++                <polyline :points="stockKlinePoints(stockAnalysis.kline)" fill="none" stroke="#00d5e8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
++              </svg>
++              <div class="indicator-grid">
++                <span>趋势 <strong>{{ stockAnalysis.indicators?.trend }}</strong></span>
++                <span>RSI <strong>{{ stockAnalysis.indicators?.rsi14 ?? "--" }}</strong></span>
++                <span>MACD <strong>{{ stockAnalysis.indicators?.macd?.signal }}</strong></span>
++                <span>BOLL <strong>{{ stockAnalysis.indicators?.boll?.position }}</strong></span>
++                <span>5日收益 <strong>{{ stockAnalysis.indicators?.return5 ?? "--" }}%</strong></span>
++                <span>20日波动 <strong>{{ stockAnalysis.indicators?.volatility20 ?? "--" }}%</strong></span>
++              </div>
++              <div class="stock-signal-columns">
++                <div>
++                  <strong>机会</strong>
++                  <p v-for="item in stockAnalysis.opportunities" :key="item">{{ item }}</p>
++                </div>
++                <div>
++                  <strong>风险</strong>
++                  <p v-for="item in stockAnalysis.risks" :key="item">{{ item }}</p>
++                </div>
++              </div>
++              <div class="stock-signal-columns">
++                <div>
++                  <strong>预警线</strong>
++                  <p v-for="item in stockAnalysis.alerts" :key="item.label">{{ item.label }}：{{ item.price || item.percent + '%' }}</p>
++                </div>
++                <div>
++                  <strong>持仓动作</strong>
++                  <p v-for="item in stockAnalysis.position_plan" :key="item.title">{{ item.title }}：{{ item.text }}</p>
++                </div>
++              </div>
++              <pre class="stock-report">{{ stockAnalysis.report }}</pre>
++              <small>{{ stockAnalysis.disclaimer }}</small>
++            </div>
++          </section>
+         </div>
++
++        <section class="stock-history-panel">
++          <div class="stock-section-head">
++            <strong>分析历史</strong>
++            <button class="btn secondary small" type="button" :disabled="busy.stockHistory" @click="refreshStockHistory">
++              {{ busy.stockHistory ? "刷新中" : "查看全部" }}
++            </button>
++          </div>
++          <div v-if="!stockHistory.length" class="stock-empty">暂无历史报告。</div>
++          <div v-else class="stock-history-list">
++            <button v-for="item in stockHistory" :key="item.id" type="button" @click="stockAnalysis = { ...stockAnalysis, report: item.report, score: item.score, stance: item.stance, quote: { symbol: item.symbol, name: item.name } }">
++              <span>{{ item.created_at }}</span>
++              <strong>{{ item.name }} · {{ item.symbol }}</strong>
++              <em>{{ item.score }}/100 · {{ item.stance }}</em>
++            </button>
++          </div>
++        </section>
++
++        <section class="stock-history-panel">
++          <div class="stock-section-head">
++            <strong>Stock Skill 运行历史</strong>
++            <button class="btn secondary small" type="button" :disabled="busy.stockSkills" @click="refreshStockSkills">
++              {{ busy.stockSkills ? "刷新中" : "刷新" }}
++            </button>
++          </div>
++          <div v-if="!stockSkillRuns.length" class="stock-empty">暂无 Skill 运行记录。</div>
++          <div v-else class="stock-history-list">
++            <button v-for="item in stockSkillRuns" :key="item.id" type="button" @click="stockSkillResult = item">
++              <span>{{ item.created_at }}</span>
++              <strong>{{ item.title }}</strong>
++              <em>{{ stockSkillName(item.skill_id) }} · {{ item.symbol || "自选股" }}</em>
++            </button>
++          </div>
++        </section>
+       </section>
+     </div>
+ 
+@@ -3940,6 +4400,347 @@ textarea {
+   margin-top: 18px;
+ }
+ 
++.stock-workbench,
++.stock-dashboard-grid {
++  display: grid;
++  gap: 18px;
++  margin-top: 18px;
++}
++
++.stock-workbench {
++  grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.8fr);
++}
++
++.stock-dashboard-grid {
++  grid-template-columns: minmax(300px, 0.92fr) minmax(0, 1.35fr);
++}
++
++.stock-control-panel,
++.stock-market-card,
++.stock-list-panel,
++.stock-analysis-panel,
++.stock-history-panel,
++.stock-skill-panel {
++  border: 1px solid rgba(142, 171, 205, 0.18);
++  border-radius: 8px;
++  background: rgba(9, 21, 34, 0.64);
++  padding: 16px;
++}
++
++.stock-question {
++  width: 100%;
++  margin-top: 12px;
++}
++
++.stock-actions,
++.stock-row-actions,
++.stock-section-head {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 10px;
++  align-items: center;
++  justify-content: space-between;
++}
++
++.stock-actions {
++  justify-content: flex-start;
++  margin-top: 12px;
++}
++
++.stock-search-results,
++.market-index-list,
++.stock-history-list {
++  display: grid;
++  gap: 8px;
++  margin-top: 12px;
++}
++
++.stock-search-results button,
++.stock-history-list button {
++  display: grid;
++  grid-template-columns: 120px minmax(0, 1fr);
++  gap: 4px 12px;
++  width: 100%;
++  border: 1px solid rgba(142, 171, 205, 0.18);
++  border-radius: 8px;
++  padding: 10px;
++  color: #dcecff;
++  text-align: left;
++  background: rgba(142, 171, 205, 0.08);
++  cursor: pointer;
++}
++
++.stock-search-results button span,
++.stock-history-list button span,
++.stock-history-list button em {
++  color: #a9bfda;
++  font-size: 12px;
++  font-style: normal;
++}
++
++.stock-history-list button strong {
++  color: #f7fbff;
++}
++
++.market-mood {
++  display: flex;
++  align-items: baseline;
++  justify-content: space-between;
++  margin-top: 12px;
++  padding: 14px;
++  border-radius: 8px;
++  background: rgba(0, 213, 232, 0.08);
++}
++
++.market-mood span {
++  color: #bdf7ff;
++  font-weight: 800;
++}
++
++.market-mood strong {
++  font-size: 28px;
++}
++
++.market-index-row {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) auto auto;
++  gap: 10px;
++  align-items: center;
++  padding: 9px 0;
++  border-bottom: 1px solid rgba(142, 171, 205, 0.12);
++}
++
++.market-index-row:last-child {
++  border-bottom: 0;
++}
++
++.market-index-row span,
++.market-index-row em {
++  color: #a9bfda;
++  font-style: normal;
++}
++
++.stock-empty {
++  margin-top: 12px;
++  border: 1px dashed rgba(142, 171, 205, 0.24);
++  border-radius: 8px;
++  padding: 16px;
++  color: #a9bfda;
++  background: rgba(142, 171, 205, 0.05);
++}
++
++.stock-watch-card {
++  display: grid;
++  gap: 10px;
++  margin-top: 12px;
++  border: 1px solid rgba(142, 171, 205, 0.16);
++  border-radius: 8px;
++  padding: 12px;
++  background: rgba(13, 27, 42, 0.78);
++}
++
++.stock-watch-main,
++.stock-mini-meta {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 10px;
++  align-items: center;
++  justify-content: space-between;
++}
++
++.stock-watch-main strong,
++.stock-section-head strong {
++  color: #f7fbff;
++}
++
++.stock-watch-main span,
++.stock-mini-meta span,
++.stock-watch-card p,
++.stock-analysis-result small {
++  color: #a9bfda;
++}
++
++.stock-price {
++  display: grid;
++  gap: 2px;
++  justify-items: end;
++}
++
++.stock-price em,
++.market-index-row em,
++.stock-mini-meta .up,
++.stock-mini-meta .down,
++.market-mood .up,
++.market-mood .down {
++  font-style: normal;
++  font-weight: 900;
++}
++
++.up {
++  color: #ff7a3d !important;
++}
++
++.down {
++  color: #40d990 !important;
++}
++
++.stock-alerts {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 8px;
++}
++
++.stock-alerts span {
++  border-radius: 999px;
++  padding: 4px 8px;
++  color: #ffcfb7;
++  background: rgba(255, 122, 61, 0.12);
++  font-size: 12px;
++  font-weight: 800;
++}
++
++.stock-analysis-result {
++  display: grid;
++  gap: 14px;
++  margin-top: 12px;
++}
++
++.stock-score-line {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 10px;
++  align-items: center;
++}
++
++.stock-score-line span {
++  color: #a9bfda;
++}
++
++.stock-score-line strong {
++  color: #00d5e8;
++  font-size: 28px;
++}
++
++.stock-score-line em {
++  border-radius: 999px;
++  padding: 5px 10px;
++  color: #06111c;
++  background: #00d5e8;
++  font-style: normal;
++  font-weight: 900;
++}
++
++.stock-sparkline {
++  width: 100%;
++  height: 96px;
++  border-radius: 8px;
++  padding: 8px;
++  background: rgba(0, 213, 232, 0.06);
++}
++
++.indicator-grid {
++  display: grid;
++  grid-template-columns: repeat(3, minmax(0, 1fr));
++  gap: 8px;
++}
++
++.indicator-grid span {
++  display: grid;
++  gap: 4px;
++  border: 1px solid rgba(142, 171, 205, 0.16);
++  border-radius: 8px;
++  padding: 10px;
++  color: #a9bfda;
++  background: rgba(142, 171, 205, 0.06);
++}
++
++.indicator-grid strong {
++  color: #f7fbff;
++}
++
++.stock-signal-columns {
++  display: grid;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 12px;
++}
++
++.stock-signal-columns > div {
++  border: 1px solid rgba(142, 171, 205, 0.16);
++  border-radius: 8px;
++  padding: 12px;
++  background: rgba(142, 171, 205, 0.05);
++}
++
++.stock-signal-columns p {
++  margin: 8px 0 0;
++  color: #a9bfda;
++  line-height: 1.55;
++}
++
++.stock-report {
++  max-height: 360px;
++  overflow: auto;
++  margin: 0;
++  border: 1px solid rgba(142, 171, 205, 0.16);
++  border-radius: 8px;
++  padding: 12px;
++  color: #dcecff;
++  white-space: pre-wrap;
++  word-break: break-word;
++  background: #091522;
++}
++
++.stock-history-panel {
++  margin-top: 18px;
++}
++
++.stock-skill-panel {
++  display: grid;
++  gap: 14px;
++  margin-top: 18px;
++}
++
++.stock-skill-grid {
++  display: grid;
++  grid-template-columns: repeat(4, minmax(0, 1fr));
++  gap: 10px;
++}
++
++.stock-skill-card {
++  display: grid;
++  gap: 8px;
++  min-height: 116px;
++  border: 1px solid rgba(142, 171, 205, 0.18);
++  border-radius: 8px;
++  padding: 12px;
++  color: #dcecff;
++  text-align: left;
++  background: rgba(142, 171, 205, 0.06);
++  cursor: pointer;
++}
++
++.stock-skill-card:hover,
++.stock-skill-card.active {
++  border-color: rgba(0, 213, 232, 0.48);
++  background: rgba(0, 213, 232, 0.1);
++}
++
++.stock-skill-card strong {
++  color: #f7fbff;
++}
++
++.stock-skill-card span,
++.stock-skill-result small,
++.indicator-grid small {
++  color: #a9bfda;
++  line-height: 1.5;
++}
++
++.stock-skill-result {
++  display: grid;
++  gap: 12px;
++}
++
+ @media (max-width: 760px) {
+   .studio-page {
+     padding-left: 0;
+@@ -4003,6 +4804,11 @@ textarea {
+   .workflow-grid,
+   .metric-grid,
+   .stock-grid,
++  .stock-workbench,
++  .stock-dashboard-grid,
++  .stock-signal-columns,
++  .indicator-grid,
++  .stock-skill-grid,
+   .console-grid {
+     grid-template-columns: 1fr;
+   }
+-- 
+2.50.0.windows.2
+
