@@ -705,8 +705,8 @@ def _generate_tool_tutorial_screenshots(
             output.append(
                 {
                     "src": "tutorial_screenshots/01.png",
-                    "alt": f"{tool_name} 官方入口真实截图",
-                    "caption": f"真实截图：先确认地址栏是官方入口 {official_url}，再找 Download / Get Started / Sign in。",
+                    "alt": f"{tool_name} 官方入口",
+                    "caption": f"① 打开浏览器，在地址栏确认域名是 {official_url}，找到 Download 或 Get Started 按钮再进行下一步。",
                     "kind": "real",
                 }
             )
@@ -715,16 +715,16 @@ def _generate_tool_tutorial_screenshots(
         p = image_dir / "01.png"
         _tutorial_screenshot_card(
             p,
-            title="示意图 1：确认官方入口",
-            subtitle="给读者看：域名、下载入口、登录入口是不是官方页面。",
+            title="第 1 步：确认官方入口",
+            subtitle=f"打开浏览器，地址栏输入 {official_url}，确认是官方页面再往下走。",
             rows=[
-                ("确认", f"地址栏应看到官方链接：{official_url}", "#177ddc"),
-                ("按钮", "画面里要能看到 Download / Get Started / Sign in 这类入口。", "#10b8d8"),
-                ("避坑", "如果打不开，先换浏览器或网络，不要马上搜索陌生安装包。", "#ff7a45"),
+                ("确认", "地址栏域名必须和官网一致，不要从搜索结果广告位点进去。", "#177ddc"),
+                ("找入口", "找 Download / Get Started / Sign in，这三个按钮是唯一起点。", "#10b8d8"),
+                ("避坑", "打不开先换网络，不要去搜索陌生下载站。", "#ff7a45"),
             ],
-            footer="小白看这张图，要能确认：我从哪里进、下一步点哪里。",
+            footer="确认官方域名 → 找到入口按钮 → 再进行下一步。",
         )
-        output.append({"src": "tutorial_screenshots/01.png", "alt": "示意图 1：确认官方入口", "caption": "先确认是官方入口，再找 Download / Sign in。", "kind": "illustration"})
+        output.append({"src": "tutorial_screenshots/01.png", "alt": f"{tool_name} 官方入口", "caption": f"① 打开浏览器，地址栏确认是官方域名，找到 Download 或 Get Started 再进行下一步。", "kind": "illustration"})
 
     # Slot 2：文件管理器模拟截图
     p2 = image_dir / "02.png"
@@ -732,7 +732,7 @@ def _generate_tool_tutorial_screenshots(
     output.append({
         "src": "tutorial_screenshots/02.png",
         "alt": f"新建 {tool_name}-test 测试文件夹",
-        "caption": f"在桌面新建 {tool_name}-test 文件夹，只放一个测试 README，不要放客户资料或账号密码。",
+        "caption": f"② 在桌面新建一个文件夹，命名 {tool_name}-test，里面只放一个 README.md（写清楚你想解决什么问题）。客户资料、账号密码、私人聊天一律不放进来。",
         "kind": "illustration",
     })
 
@@ -742,7 +742,7 @@ def _generate_tool_tutorial_screenshots(
     output.append({
         "src": "tutorial_screenshots/03.png",
         "alt": "输入第一条安全提示词",
-        "caption": "第一条提示词只问"这里有什么" — 先让工具解释，不要直接让它改文件。",
+        "caption": f"③ 打开 {tool_name}，第一条提示词固定用这句：「我是新手，请先不要修改文件，请解释这里有什么，并列出下一步最小动作和风险。」等它回复完再决定下一步。",
         "kind": "illustration",
     })
 
@@ -752,7 +752,7 @@ def _generate_tool_tutorial_screenshots(
     output.append({
         "src": "tutorial_screenshots/04.png",
         "alt": "检查 AI 输出结果并复盘",
-        "caption": "AI 输出不等于事实 — 用核查清单逐项确认，填复盘记录，下一篇会更好。",
+        "caption": "④ 收到输出后逐项核查：有没有说明依据？有没有胡编官网、价格、功能？确认无误再让它动手。最后记一条复盘：省了哪步、哪里不准、下次提示词怎么改。",
         "kind": "illustration",
     })
 
@@ -762,23 +762,15 @@ def _generate_tool_tutorial_screenshots(
 def _inject_tool_tutorial_screenshots(article_html: str, images: list[dict[str, str]]) -> str:
     if not images or "tutorial_screenshots/" in article_html:
         return article_html
-    has_real = any(item.get("kind") == "real" for item in images)
-    intro = (
-        "第一张是服务器自动截取的公开官网真实截图；后面的图是系统按步骤生成的操作示意图，用来提示你正式发布前还需要替换哪些真实操作画面。"
-        if has_real
-        else "下面这 4 张图是系统按步骤生成的操作示意图，不是真实网页截图。它们用于帮读者理解该截哪里；正式发布前，建议替换成你实际操作时截到的官网、下载页、工作台和首次输出页面。"
-    )
-    heading = "配图实操版：真实截图 + 操作示意图" if has_real else "配图实操版：操作示意图"
     figures = [
-        f'<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">{heading}</h2>',
-        f'<p style="font-size:16px;line-height:1.9;color:#243241;margin:0 0 16px;">{html.escape(intro)}</p>',
+        '<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">实操步骤图解</h2>',
     ]
     for item in images:
         figures.append(
             '<figure style="margin:22px 0;">'
             f'<img src="{html.escape(item["src"])}" alt="{html.escape(item["alt"])}" '
             'style="max-width:100%;border-radius:12px;border:1px solid #d0d5dd;">'
-            f'<figcaption style="font-size:14px;color:#667085;line-height:1.7;margin-top:8px;">{html.escape(item["caption"])}</figcaption>'
+            f'<figcaption style="font-size:15px;color:#243241;line-height:1.8;margin-top:10px;">{html.escape(item["caption"])}</figcaption>'
             "</figure>"
         )
     insert = "".join(figures)
