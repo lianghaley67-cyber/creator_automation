@@ -459,6 +459,228 @@ def _download_remote_image(url: str, output_path: Path) -> bool:
         return False
 
 
+def _draw_window_chrome(draw: "ImageDraw.ImageDraw", x: int, y: int, w: int, title: str, dark: bool, font: "ImageFont.FreeTypeFont") -> int:
+    """绘制模拟系统窗口标题栏，返回内容区起始 y 坐标。"""
+    bar_h = 52
+    bar_color = "#2d2d2d" if dark else "#e8e8e8"
+    draw.rectangle((x, y, x + w, y + bar_h), fill=bar_color)
+    # macOS 三个圆点
+    for i, dot_color in enumerate(("#ff5f56", "#ffbd2e", "#27c93f")):
+        draw.ellipse((x + 22 + i * 26, y + 17, x + 38 + i * 26, y + 33), fill=dot_color)
+    # 标题
+    draw.text((x + w // 2, y + bar_h // 2), title, font=font, fill="#cccccc" if dark else "#333333", anchor="mm")
+    return y + bar_h
+
+
+def _tutorial_folder_mockup(output_path: Path, *, tool_name: str) -> None:
+    """示意图 2：文件管理器界面 — 新建安全测试文件夹。"""
+    from PIL import Image, ImageDraw
+    W, H = 1800, 1080
+    img = Image.new("RGB", (W, H), "#f0f0f0")
+    draw = ImageDraw.Draw(img)
+    # 外框
+    draw.rounded_rectangle((40, 40, W - 40, H - 40), radius=20, fill="#ffffff", outline="#cccccc", width=2)
+    # 顶部步骤标签
+    step_font = _tutorial_font(32, bold=True)
+    title_font = _tutorial_font(44, bold=True)
+    mono_font = _tutorial_font(34)
+    small_font = _tutorial_font(28)
+    draw.rounded_rectangle((80, 64, 380, 116), radius=12, fill="#10b981")
+    draw.text((230, 90), "第 2 步 / 4", font=step_font, fill="#ffffff", anchor="mm")
+    draw.text((420, 90), "新建安全测试文件夹", font=title_font, fill="#101828", anchor="lm")
+    # 窗口
+    win_x, win_y, win_w, win_h = 80, 136, W - 160, H - 200
+    draw.rounded_rectangle((win_x, win_y, win_x + win_w, win_y + win_h), radius=16, fill="#f7f7f7", outline="#d0d5dd", width=2)
+    content_y = _draw_window_chrome(draw, win_x, win_y, win_w, "文件管理器 — 桌面", dark=False, font=step_font)
+    # 左侧边栏
+    sidebar_w = 280
+    draw.rectangle((win_x, content_y, win_x + sidebar_w, win_y + win_h), fill="#ececec")
+    sidebar_items = ["📍 常用位置", "  🖥  桌面", "  📂 文档", "  ⬇  下载", "  🏠 个人主文件夹"]
+    sy = content_y + 28
+    for item in sidebar_items:
+        color = "#177ddc" if "桌面" in item else "#444444"
+        weight = True if "桌面" in item else False
+        f = _tutorial_font(26, bold=weight)
+        draw.text((win_x + 24, sy), item, font=f, fill=color)
+        sy += 44
+    # 主区域：文件夹列表
+    mx = win_x + sidebar_w + 24
+    my = content_y + 28
+    # 路径栏
+    draw.rounded_rectangle((mx, my, win_x + win_w - 24, my + 44), radius=8, fill="#ffffff", outline="#d0d5dd", width=1)
+    draw.text((mx + 16, my + 22), f"  桌面 /", font=small_font, fill="#666666", anchor="lm")
+    my += 64
+    # 普通文件夹（灰色）
+    for fname in ["文档", "图片", "下载"]:
+        draw.text((mx + 10, my), f"📁  {fname}", font=mono_font, fill="#888888")
+        my += 52
+    my += 16
+    # 高亮：测试文件夹
+    hl_folder = f"📁  {tool_name}-test"
+    draw.rounded_rectangle((mx, my - 8, win_x + win_w - 80, my + 52), radius=10, fill="#e8f4fd", outline="#177ddc", width=3)
+    draw.text((mx + 10, my + 18), hl_folder, font=_tutorial_font(36, bold=True), fill="#177ddc", anchor="lm")
+    # 新建标签
+    draw.rounded_rectangle((win_x + win_w - 200, my, win_x + win_w - 48, my + 44), radius=8, fill="#10b981")
+    draw.text((win_x + win_w - 124, my + 22), "✓ 新建", font=step_font, fill="#ffffff", anchor="mm")
+    my += 70
+    # 子内容：README
+    draw.text((mx + 56, my + 14), "📄  README.md", font=mono_font, fill="#333333")
+    draw.rounded_rectangle((mx + 350, my + 4, mx + 660, my + 44), radius=8, fill="#fef3c7", outline="#f59e0b", width=2)
+    draw.text((mx + 505, my + 24), "只放这一个文件", font=small_font, fill="#92400e", anchor="mm")
+    my += 70
+    # 禁止区（红色警告）
+    warn_y = win_y + win_h - 130
+    draw.rounded_rectangle((mx, warn_y, win_x + win_w - 24, warn_y + 90), radius=12, fill="#fff1f0", outline="#ff4d4f", width=2)
+    draw.text((mx + 20, warn_y + 18), "🚫  禁止放入:", font=_tutorial_font(28, bold=True), fill="#cf1322")
+    draw.text((mx + 200, warn_y + 18), "客户资料  /  账号密码  /  合同  /  私人聊天记录", font=_tutorial_font(28), fill="#cf1322")
+    # 底部说明
+    draw.text((win_x + win_w // 2, win_y + win_h + 30), "第一次测试范围要小，出问题也只影响这一个文件夹。", font=small_font, fill="#475467", anchor="mm")
+    img.save(output_path, quality=96)
+
+
+def _tutorial_terminal_mockup(output_path: Path, *, tool_name: str) -> None:
+    """示意图 3：终端窗口 — 输入第一条安全提示词。"""
+    from PIL import Image, ImageDraw
+    W, H = 1800, 1080
+    img = Image.new("RGB", (W, H), "#1e1e2e")
+    draw = ImageDraw.Draw(img)
+    step_font = _tutorial_font(30, bold=True)
+    mono_font = _tutorial_font(32)
+    small_font = _tutorial_font(26)
+    label_font = _tutorial_font(28, bold=True)
+    # 步骤标签
+    draw.rounded_rectangle((40, 32, 320, 84), radius=12, fill="#177ddc")
+    draw.text((180, 58), "第 3 步 / 4", font=step_font, fill="#ffffff", anchor="mm")
+    draw.text((340, 58), "输入第一条提示词", font=_tutorial_font(38, bold=True), fill="#e2e8f0", anchor="lm")
+    # 终端窗口外框
+    win_x, win_y, win_w, win_h = 40, 104, W - 80, H - 144
+    draw.rounded_rectangle((win_x, win_y, win_x + win_w, win_y + win_h), radius=16, fill="#12121a", outline="#374151", width=2)
+    content_y = _draw_window_chrome(draw, win_x, win_y, win_w, f"终端  —  {tool_name}-test", dark=True, font=step_font)
+    # 终端内容
+    cx = win_x + 48
+    ty = content_y + 36
+    line_h = 50
+    # 启动命令
+    draw.text((cx, ty), "$ ", font=mono_font, fill="#6ee7b7")
+    draw.text((cx + 32, ty), f"cd ~/ Desktop/{tool_name}-test", font=mono_font, fill="#e2e8f0")
+    ty += line_h
+    draw.text((cx, ty), "$ ", font=mono_font, fill="#6ee7b7")
+    draw.text((cx + 32, ty), "claude", font=mono_font, fill="#e2e8f0")
+    ty += line_h
+    draw.text((cx, ty), f"  ✓  {tool_name} 已启动，当前目录：{tool_name}-test/", font=mono_font, fill="#6ee7b7")
+    ty += line_h + 16
+    # 用户输入框（带高亮边框）
+    prompt_text = "我是新手，请先不要修改文件，请解释这里有什么，"
+    prompt_text2 = "并列出下一步最小动作和风险。"
+    box_h = 108
+    draw.rounded_rectangle((cx - 16, ty - 12, win_x + win_w - 48, ty + box_h), radius=10, fill="#1e293b", outline="#177ddc", width=3)
+    draw.text((cx + 8, ty + 8), "> ", font=mono_font, fill="#60a5fa")
+    draw.text((cx + 52, ty + 8), prompt_text, font=mono_font, fill="#e2e8f0")
+    draw.text((cx + 52, ty + 56), prompt_text2, font=mono_font, fill="#e2e8f0")
+    # 标注气泡
+    draw.rounded_rectangle((win_x + win_w - 420, ty - 16, win_x + win_w - 48, ty + 52), radius=8, fill="#0f4c81")
+    draw.text((win_x + win_w - 234, ty + 18), "✓  先解释，不动文件", font=label_font, fill="#93c5fd", anchor="mm")
+    ty += box_h + 32
+    # AI 回复
+    draw.text((cx, ty), "  ◆ ", font=mono_font, fill="#a78bfa")
+    draw.text((cx + 56, ty), f"{tool_name}:", font=_tutorial_font(32, bold=True), fill="#a78bfa")
+    ty += line_h
+    reply_lines = [
+        "  当前目录包含 1 个文件：README.md",
+        "  内容摘要：你想解决 [你写的问题]",
+        "  建议下一步：先确认目标，不修改任何文件",
+        "  风险提示：✓ 范围受控，✓ 无敏感数据",
+    ]
+    for rline in reply_lines:
+        draw.text((cx, ty), rline, font=mono_font, fill="#94a3b8")
+        ty += line_h
+    # 底部注意
+    note_y = win_y + win_h - 80
+    draw.rounded_rectangle((cx - 16, note_y - 12, win_x + win_w - 48, note_y + 52), radius=8, fill="#1c1a08", outline="#d97706", width=2)
+    draw.text((cx + 8, note_y + 18), "⚠  关键原则：第一条指令只问 '这里有什么'，不说 '帮我改'。", font=small_font, fill="#fbbf24", anchor="lm")
+    img.save(output_path, quality=96)
+
+
+def _tutorial_review_mockup(output_path: Path, *, tool_name: str) -> None:
+    """示意图 4：结果核查清单 — AI 输出后人工判断。"""
+    from PIL import Image, ImageDraw
+    W, H = 1800, 1080
+    img = Image.new("RGB", (W, H), "#f8fafc")
+    draw = ImageDraw.Draw(img)
+    step_font = _tutorial_font(30, bold=True)
+    title_font = _tutorial_font(44, bold=True)
+    mono_font = _tutorial_font(32)
+    small_font = _tutorial_font(28)
+    # 顶部步骤标签
+    draw.rounded_rectangle((40, 32, 320, 84), radius=12, fill="#7c3aed")
+    draw.text((180, 58), "第 4 步 / 4", font=step_font, fill="#ffffff", anchor="mm")
+    draw.text((340, 58), "检查结果和复盘", font=title_font, fill="#101828", anchor="lm")
+    # 左侧：AI 输出模拟框
+    left_x, top_y = 60, 112
+    left_w = int(W * 0.46)
+    box_h = H - 180
+    draw.rounded_rectangle((left_x, top_y, left_x + left_w, top_y + box_h), radius=16, fill="#ffffff", outline="#d0d5dd", width=2)
+    _draw_window_chrome(draw, left_x, top_y, left_w, f"{tool_name} 输出", dark=False, font=step_font)
+    lx = left_x + 28
+    ly = top_y + 72
+    output_lines = [
+        ("◆ 分析完成", "#6d28d9"),
+        ("", ""),
+        ("发现的文件：", "#334155"),
+        ("  📄 README.md  (本地测试文档)", "#475467"),
+        ("", ""),
+        ("当前目录内容：", "#334155"),
+        ("  你写的问题背景", "#475467"),
+        ("  你的测试目标", "#475467"),
+        ("", ""),
+        ("建议下一步：", "#334155"),
+        ("  1. 确认目标 ✓", "#059669"),
+        ("  2. 生成草稿（先预览）", "#475467"),
+        ("  3. 需要核验：官方文档链接", "#d97706"),
+        ("", ""),
+        ("⚠ 价格信息请去官网核实", "#ef4444"),
+    ]
+    for text, color in output_lines:
+        if text:
+            draw.text((lx, ly), text, font=mono_font, fill=color)
+        ly += 48
+    # 右侧：核查清单
+    rx = left_x + left_w + 40
+    rw = W - rx - 60
+    draw.rounded_rectangle((rx, top_y, rx + rw, top_y + box_h), radius=16, fill="#ffffff", outline="#d0d5dd", width=2)
+    _draw_window_chrome(draw, rx, top_y, rw, "核查清单", dark=False, font=step_font)
+    checks = [
+        (True,  "✓  有说明依据，不是凭空编造",       "#065f46", "#d1fae5"),
+        (True,  "✓  没有胡编官网 / 价格 / 权限",     "#065f46", "#d1fae5"),
+        (False, "⚠  官方链接需要人工核验",            "#92400e", "#fef3c7"),
+        (True,  "✓  只读取了测试文件夹，未修改",      "#065f46", "#d1fae5"),
+        (False, "⚠  价格信息标注"需要核验"",          "#92400e", "#fef3c7"),
+        (True,  "✓  有具体下一步建议，可照做",        "#065f46", "#d1fae5"),
+    ]
+    cy = top_y + 76
+    check_font = _tutorial_font(30)
+    for _, text, text_color, bg_color in checks:
+        draw.rounded_rectangle((rx + 24, cy, rx + rw - 24, cy + 58), radius=10, fill=bg_color)
+        draw.text((rx + 48, cy + 28), text, font=check_font, fill=text_color, anchor="lm")
+        cy += 74
+    # 复盘记录框
+    cy += 16
+    draw.rounded_rectangle((rx + 24, cy, rx + rw - 24, cy + 180), radius=12, fill="#f0f9ff", outline="#0ea5e9", width=2)
+    draw.text((rx + 48, cy + 20), "📝  本次复盘（发布前填）", font=_tutorial_font(28, bold=True), fill="#0369a1")
+    note_lines = [
+        "省了哪一步：___________________",
+        "哪里不准：____________________",
+        "下次提示词怎么改：_____________",
+    ]
+    ny = cy + 68
+    for note in note_lines:
+        draw.text((rx + 60, ny), note, font=small_font, fill="#475467")
+        ny += 44
+    # 底部
+    draw.text((W // 2, H - 36), "AI 输出不等于事实 — 保留人工判断，复盘才能让下一篇更好。", font=small_font, fill="#475467", anchor="mm")
+    img.save(output_path, quality=96)
+
+
 def _generate_tool_tutorial_screenshots(
     package_dir: Path,
     *,
@@ -475,6 +697,8 @@ def _generate_tool_tutorial_screenshots(
     tool_name = _compact(tool_name or "这个工具", 24)
     official_url = official_url or "先核验官方入口，不要用陌生下载站。"
     output: list[dict[str, str]] = []
+
+    # Slot 1：Playwright 截官网真实页面
     if _is_public_https_url(official_url):
         real_path = image_dir / "01.png"
         if _capture_public_webpage_screenshot(official_url, real_path):
@@ -486,90 +710,52 @@ def _generate_tool_tutorial_screenshots(
                     "kind": "real",
                 }
             )
-    # Tavily 图片搜索：为 slot 2-4 尝试获取真实截图
-    _tavily_slot_queries = [
-        f"{tool_name} official website download page screenshot",
-        f"{tool_name} interface getting started tutorial screenshot",
-        f"{tool_name} first prompt AI assistant screenshot",
-        f"{tool_name} output result review screenshot",
-    ]
-    tavily_images: list[str | None] = [None, None, None, None]
-    for slot_index, query in enumerate(_tavily_slot_queries):
-        results = _tavily_search_images(query, max_results=3)
-        for img_url in results:
-            slot_path = image_dir / f"tavily_{slot_index + 1:02d}.png"
-            if _download_remote_image(img_url, slot_path):
-                tavily_images[slot_index] = str(slot_path)
-                break
-
-    specs = [
-        (
-            "示意图 1：确认官方入口",
-            "给读者看：域名、下载入口、登录入口是不是官方页面。",
-            [
+    # Slot 1 降级：普通示意卡
+    if not output:
+        p = image_dir / "01.png"
+        _tutorial_screenshot_card(
+            p,
+            title="示意图 1：确认官方入口",
+            subtitle="给读者看：域名、下载入口、登录入口是不是官方页面。",
+            rows=[
                 ("确认", f"地址栏应看到官方链接：{official_url}", "#177ddc"),
                 ("按钮", "画面里要能看到 Download / Get Started / Sign in 这类入口。", "#10b8d8"),
                 ("避坑", "如果打不开，先换浏览器或网络，不要马上搜索陌生安装包。", "#ff7a45"),
             ],
-            "小白看这张图，要能确认：我从哪里进、下一步点哪里。",
-        ),
-        (
-            "示意图 2：新建安全测试文件夹",
-            "给读者看：第一次不要拿真实项目和私人资料测试。",
-            [
-                ("文件夹", f"桌面新建 {tool_name}-test，只放测试 README。", "#10b981"),
-                ("内容", "README 写：我想解决什么、我卡在哪里、我希望输出什么。", "#10b8d8"),
-                ("边界", "不要放客户资料、账号、合同、私人聊天记录。", "#ff7a45"),
-            ],
-            "小白看这张图，要能确认：测试范围很小，风险可控。",
-        ),
-        (
-            "示意图 3：输入第一条提示词",
-            "给读者看：先解释和列计划，不要上来就让工具乱改。",
-            [
-                ("提示", "我是新手，请先不要修改文件，请解释这里有什么。", "#177ddc"),
-                ("要求", "列出下一步最小动作和风险，不确定的地方标注需要核验。", "#10b8d8"),
-                ("成功", "输出里应有：看到的信息、建议步骤、风险提醒。", "#10b981"),
-            ],
-            "小白看这张图，要能确认：第一条提示词没有让工具直接动手。",
-        ),
-        (
-            "示意图 4：检查结果和复盘",
-            "给读者看：AI 输出以后，仍然要人工判断。",
-            [
-                ("检查", "有没有说明依据？有没有胡编官网、价格、功能边界？", "#ff7a45"),
-                ("限制", "第一次只允许它改一个小文件，或生成一个小清单。", "#10b8d8"),
-                ("复盘", "记下：省了哪一步、哪里不准、下次提示词怎么改。", "#10b981"),
-            ],
-            "小白看这张图，要能确认：这次测试能沉淀成下一次流程。",
-        ),
-    ]
-    for index, (title, subtitle, rows, footer) in enumerate(specs, start=1):
-        if output and index == 1:
-            continue
-        # 优先用 Tavily 搜到的真实截图
-        tavily_path = tavily_images[index - 1]
-        if tavily_path and Path(tavily_path).exists():
-            output.append(
-                {
-                    "src": f"tutorial_screenshots/tavily_{index:02d}.png",
-                    "alt": f"{tool_name} 真实截图 - {title}",
-                    "caption": f"来自网络的真实截图参考：{footer}",
-                    "kind": "real",
-                }
-            )
-            continue
-        # 降级到 PIL 示意图
-        path = image_dir / f"{index:02d}.png"
-        _tutorial_screenshot_card(path, title=title, subtitle=subtitle, rows=rows, footer=footer)
-        output.append(
-            {
-                "src": f"tutorial_screenshots/{index:02d}.png",
-                "alt": title,
-                "caption": footer,
-                "kind": "illustration",
-            }
+            footer="小白看这张图，要能确认：我从哪里进、下一步点哪里。",
         )
+        output.append({"src": "tutorial_screenshots/01.png", "alt": "示意图 1：确认官方入口", "caption": "先确认是官方入口，再找 Download / Sign in。", "kind": "illustration"})
+
+    # Slot 2：文件管理器模拟截图
+    p2 = image_dir / "02.png"
+    _tutorial_folder_mockup(p2, tool_name=tool_name)
+    output.append({
+        "src": "tutorial_screenshots/02.png",
+        "alt": f"新建 {tool_name}-test 测试文件夹",
+        "caption": f"在桌面新建 {tool_name}-test 文件夹，只放一个测试 README，不要放客户资料或账号密码。",
+        "kind": "illustration",
+    })
+
+    # Slot 3：终端窗口模拟截图
+    p3 = image_dir / "03.png"
+    _tutorial_terminal_mockup(p3, tool_name=tool_name)
+    output.append({
+        "src": "tutorial_screenshots/03.png",
+        "alt": "输入第一条安全提示词",
+        "caption": "第一条提示词只问"这里有什么" — 先让工具解释，不要直接让它改文件。",
+        "kind": "illustration",
+    })
+
+    # Slot 4：核查清单模拟截图
+    p4 = image_dir / "04.png"
+    _tutorial_review_mockup(p4, tool_name=tool_name)
+    output.append({
+        "src": "tutorial_screenshots/04.png",
+        "alt": "检查 AI 输出结果并复盘",
+        "caption": "AI 输出不等于事实 — 用核查清单逐项确认，填复盘记录，下一篇会更好。",
+        "kind": "illustration",
+    })
+
     return output
 
 
