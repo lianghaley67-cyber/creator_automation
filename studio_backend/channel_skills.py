@@ -1128,7 +1128,7 @@ def _ai_generate_channel_drafts(
   }}
 }}"""
 
-    if wechat_family == "fiction_serial" and xhs_family == "fiction_serial":
+    if wechat_family == "fiction_serial":
         # 注入故事档案上下文（连载续写）
         story_context_block = ""
         if story_id:
