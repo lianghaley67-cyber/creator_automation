@@ -512,67 +512,182 @@ def _classify_step(title: str) -> str:
     t = title
     if re.search(r"官网|官方.*入口|确认.*入口|打开.*官方|下载.*入口|官方.*链接", t):
         return "website"
-    if re.search(r"安装|配置|部署|pip |npm |brew |curl |下载.*工具|install", t, re.IGNORECASE):
+    if re.search(r"配置|api.*key|api.*密钥|密钥|token|账号|登录|授权|env|environment|设置.*key", t, re.IGNORECASE):
+        return "config"
+    if re.search(r"验证|确认.*安装|检查.*版本|能否运行|是否.*成功|安装.*成功|version|--version", t, re.IGNORECASE):
+        return "verify"
+    if re.search(r"安装|下载.*工具|install|brew|pip|npm|curl.*install|部署", t, re.IGNORECASE):
         return "install"
     if re.search(r"文件夹|目录|新建.*文件|测试.*环境|创建.*项目|安全.*测试", t):
         return "folder"
     if re.search(r"提示词|prompt|第一.*对话|输入.*指令|开始.*使用|第一.*指令|第一.*提示", t, re.IGNORECASE):
         return "terminal"
-    if re.search(r"检查|核验|复盘|测试.*结果|审查|验证|结果|总结.*使用", t):
+    if re.search(r"检查|核验|复盘|测试.*结果|审查|结果|总结.*使用", t):
         return "review"
     return "card"
 
 
-def _tutorial_install_mockup(output_path: Path, *, tool_name: str, step_label: str, install_hint: str = "") -> None:
-    """安装步骤终端截图：显示安装命令和成功标志。"""
+def _draw_terminal_frame(
+    draw: Any, img_w: int, img_h: int,
+    step_label: str, step_title: str,
+    accent: str, font_step: Any, font_big: Any,
+) -> tuple[int, int, int, int, int]:
+    """绘制终端窗口框架，返回 (win_x, win_y, win_w, win_h, content_y)。"""
+    draw.rounded_rectangle((40, 32, 400, 84), radius=12, fill=accent)
+    draw.text((220, 58), step_label, font=font_step, fill="#ffffff", anchor="mm")
+    draw.text((420, 58), step_title, font=font_big, fill="#e6edf3", anchor="lm")
+    win_x, win_y, win_w, win_h = 40, 104, img_w - 80, img_h - 144
+    draw.rounded_rectangle((win_x, win_y, win_x + win_w, win_y + win_h), radius=16, fill="#161b22", outline="#30363d", width=2)
+    content_y = _draw_window_chrome(draw, win_x, win_y, win_w, "终端", dark=True, font=font_step)
+    return win_x, win_y, win_w, win_h, content_y
+
+
+def _tutorial_install_mockup(output_path: Path, *, tool_name: str, step_label: str, step_title: str = "") -> None:
+    """安装步骤：显示 macOS/Linux/Windows 三平台安装命令。"""
     from PIL import Image, ImageDraw
     W, H = 1800, 1080
     img = Image.new("RGB", (W, H), "#0d1117")
     draw = ImageDraw.Draw(img)
-    step_font = _tutorial_font(30, bold=True)
-    mono_font = _tutorial_font(32)
-    small_font = _tutorial_font(26)
-    big_font = _tutorial_font(38, bold=True)
-    # 步骤标签
-    draw.rounded_rectangle((40, 32, 380, 84), radius=12, fill="#238636")
-    draw.text((210, 58), step_label, font=step_font, fill="#ffffff", anchor="mm")
-    draw.text((400, 58), f"安装 {tool_name}", font=big_font, fill="#e6edf3", anchor="lm")
-    # 终端窗口
-    win_x, win_y, win_w, win_h = 40, 104, W - 80, H - 144
-    draw.rounded_rectangle((win_x, win_y, win_x + win_w, win_y + win_h), radius=16, fill="#161b22", outline="#30363d", width=2)
-    content_y = _draw_window_chrome(draw, win_x, win_y, win_w, f"终端", dark=True, font=step_font)
-    cx, ty = win_x + 48, content_y + 36
-    lh = 52
-    # 安装命令示例
-    hint = install_hint or f"# 以下为 {tool_name} 常见安装方式（选一种）"
-    draw.text((cx, ty), hint, font=mono_font, fill="#8b949e")
-    ty += lh + 8
-    cmd_lines = [
-        ("$ ", f"pip install {tool_name.lower().replace(' ', '-')}",  "#3fb950"),
-        ("  ", "# 或通过官方安装脚本（以官网为准）",                  "#8b949e"),
-        ("$ ", f"curl -fsSL https://install.example.com | sh",        "#3fb950"),
+    sf = _tutorial_font(30, bold=True)
+    mf = _tutorial_font(30)
+    smf = _tutorial_font(26)
+    bf = _tutorial_font(36, bold=True)
+    win_x, win_y, win_w, win_h, ty = _draw_terminal_frame(draw, W, H, step_label, step_title or f"安装 {tool_name}", "#238636", sf, bf)
+    cx, lh = win_x + 48, 48
+    tn = tool_name.lower().replace(" ", "-")
+
+    sections = [
+        ("macOS / Linux（推荐）", [
+            (f"# 使用官方安装脚本",                              "#8b949e"),
+            (f"curl -fsSL https://[官网]/install.sh | sh",      "#79c0ff"),
+            (f"# 或 Homebrew",                                   "#8b949e"),
+            (f"brew install {tn}",                               "#79c0ff"),
+        ]),
+        ("Windows", [
+            (f"# PowerShell（管理员）",                          "#8b949e"),
+            (f"winget install {tool_name}",                      "#79c0ff"),
+            (f"# 或下载官网 .exe 安装包",                        "#8b949e"),
+        ]),
     ]
-    for prefix, text, color in cmd_lines:
-        draw.text((cx, ty), prefix, font=mono_font, fill="#3fb950")
-        draw.text((cx + 32, ty), text, font=mono_font, fill=color)
+    for section_title, cmds in sections:
+        draw.text((cx, ty), f"── {section_title} ──", font=smf, fill="#6e7681")
         ty += lh
-    ty += 16
-    # 安装成功输出
-    draw.rounded_rectangle((cx - 16, ty - 8, win_x + win_w - 48, ty + lh * 4 + 16), radius=10, fill="#0d2818", outline="#238636", width=2)
-    success_lines = [
-        ("✓ ", f"Successfully installed {tool_name}",          "#3fb950"),
-        ("✓ ", "Installation complete",                         "#3fb950"),
-        ("  ", f"Run '{tool_name.lower()}' to get started",    "#e6edf3"),
-        ("⚠ ", "版本号和命令以官网实际安装步骤为准",            "#d29922"),
+        for text, color in cmds:
+            prefix = "$ " if not text.startswith("#") else "  "
+            draw.text((cx, ty), prefix + text, font=mf, fill=color)
+            ty += lh
+        ty += 8
+
+    ty += 8
+    draw.rounded_rectangle((cx - 16, ty, win_x + win_w - 48, ty + lh * 3 + 24), radius=10, fill="#0d2818", outline="#238636", width=2)
+    for line, col in [
+        (f"✓  安装完成后运行 {tn} --version 确认版本号",  "#3fb950"),
+        (f"✓  看到版本号输出 = 安装成功",                 "#3fb950"),
+        (f"⚠  命令以官网当前页面为准，本图仅示意",        "#d29922"),
+    ]:
+        draw.text((cx + 8, ty + 12), line, font=mf, fill=col)
+        ty += lh
+    ty += 32
+    draw.rounded_rectangle((cx - 16, ty, win_x + win_w - 48, ty + 56), radius=8, fill="#1c1a08", outline="#d29922", width=2)
+    draw.text((cx + 8, ty + 26), "⚠  安装前请先打开官网核查最新命令，不要直接复制本图内容运行。", font=smf, fill="#d29922", anchor="lm")
+    img.save(output_path, quality=96)
+
+
+def _tutorial_config_mockup(output_path: Path, *, tool_name: str, step_label: str, step_title: str = "") -> None:
+    """配置步骤：显示 API Key 或账号配置流程。"""
+    from PIL import Image, ImageDraw
+    W, H = 1800, 1080
+    img = Image.new("RGB", (W, H), "#0d1117")
+    draw = ImageDraw.Draw(img)
+    sf = _tutorial_font(30, bold=True)
+    mf = _tutorial_font(30)
+    smf = _tutorial_font(26)
+    bf = _tutorial_font(36, bold=True)
+    win_x, win_y, win_w, win_h, ty = _draw_terminal_frame(draw, W, H, step_label, step_title or f"配置 {tool_name}", "#6f42c1", sf, bf)
+    cx, lh = win_x + 48, 48
+    tn = tool_name.lower().replace(" ", "-")
+
+    draw.text((cx, ty), "# 方式 1：设置环境变量（推荐）", font=mf, fill="#8b949e")
+    ty += lh
+    draw.text((cx, ty), "$ export ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxx", font=mf, fill="#79c0ff")
+    ty += lh
+    draw.text((cx, ty), "  # Windows PowerShell:", font=mf, fill="#8b949e")
+    ty += lh
+    draw.text((cx, ty), "$ $env:ANTHROPIC_API_KEY='sk-ant-xxxxxxxxxx'", font=mf, fill="#79c0ff")
+    ty += lh + 12
+    draw.text((cx, ty), "# 方式 2：交互式登录", font=mf, fill="#8b949e")
+    ty += lh
+    draw.text((cx, ty), f"$ {tn} login", font=mf, fill="#79c0ff")
+    ty += lh
+    draw.text((cx, ty), "  > 粘贴你的 API Key，回车确认", font=mf, fill="#e6edf3")
+    ty += lh + 16
+
+    # 成功区
+    draw.rounded_rectangle((cx - 16, ty, win_x + win_w - 48, ty + lh * 3 + 24), radius=10, fill="#0d1f3c", outline="#388bfd", width=2)
+    for line, col in [
+        ("✓  API Key 已识别",                          "#58a6ff"),
+        ("✓  可以开始使用了",                           "#58a6ff"),
+        ("⚠  Key 只在当前终端会话有效，重启需重新设置", "#d29922"),
+    ]:
+        draw.text((cx + 8, ty + 12), line, font=mf, fill=col)
+        ty += lh
+    ty += 32
+
+    # 安全警告
+    draw.rounded_rectangle((cx - 16, ty, win_x + win_w - 48, ty + lh * 2 + 24), radius=8, fill="#3d1a1a", outline="#f85149", width=2)
+    for line in [
+        "🔑  API Key 是私密凭证 — 不要截图、不要发到群里、不要提交到 Git 仓库",
+        f"    在 {tool_name} 官网 → API Keys 页面可随时吊销和重新生成",
+    ]:
+        draw.text((cx + 8, ty + 12), line, font=smf, fill="#ff7b72")
+        ty += lh
+    img.save(output_path, quality=96)
+
+
+def _tutorial_verify_mockup(output_path: Path, *, tool_name: str, step_label: str, step_title: str = "") -> None:
+    """验证步骤：运行版本检查 + 第一次测试输出。"""
+    from PIL import Image, ImageDraw
+    W, H = 1800, 1080
+    img = Image.new("RGB", (W, H), "#0d1117")
+    draw = ImageDraw.Draw(img)
+    sf = _tutorial_font(30, bold=True)
+    mf = _tutorial_font(30)
+    smf = _tutorial_font(26)
+    bf = _tutorial_font(36, bold=True)
+    win_x, win_y, win_w, win_h, ty = _draw_terminal_frame(draw, W, H, step_label, step_title or f"验证 {tool_name} 是否正常运行", "#1f6feb", sf, bf)
+    cx, lh = win_x + 48, 48
+    tn = tool_name.lower().replace(" ", "-")
+
+    # 版本检查
+    draw.text((cx, ty), "# 第一步：确认版本号", font=mf, fill="#8b949e")
+    ty += lh
+    draw.text((cx, ty), f"$ {tn} --version", font=mf, fill="#79c0ff")
+    ty += lh
+    draw.text((cx, ty), f"  {tool_name} 1.x.x   ← 看到版本号 = 安装成功", font=mf, fill="#3fb950")
+    ty += lh + 12
+
+    # 最小测试
+    draw.text((cx, ty), "# 第二步：发一条最小测试指令", font=mf, fill="#8b949e")
+    ty += lh
+    draw.text((cx, ty), f'$ {tn} -p "你好，请用一句话回复我"', font=mf, fill="#79c0ff")
+    ty += lh
+    draw.rounded_rectangle((cx - 16, ty - 4, win_x + win_w - 48, ty + lh * 2 + 20), radius=8, fill="#0d2818", outline="#238636", width=2)
+    draw.text((cx + 8, ty + 8),  "◆  你好！我是 AI 助手，有什么可以帮你的吗？", font=mf, fill="#3fb950")
+    draw.text((cx + 8, ty + lh + 8), "   ← 看到回复 = 配置正常，可以开始正式使用", font=mf, fill="#8b949e")
+    ty += lh * 2 + 36
+
+    # 常见问题速查
+    draw.text((cx, ty), "── 常见问题速查 ──", font=smf, fill="#6e7681")
+    ty += lh
+    issues = [
+        ("command not found",   "→ 安装未完成或 PATH 未刷新，重开终端再试"),
+        ("Invalid API Key",     "→ Key 输入有误，去官网重新复制"),
+        ("Connection timeout",  "→ 网络问题，检查代理或科学上网"),
     ]
-    sy = ty + 12
-    for prefix, text, color in success_lines:
-        draw.text((cx + 8, sy), prefix + text, font=mono_font, fill=color)
-        sy += lh
-    ty += lh * 4 + 40
-    # 注意事项
-    draw.rounded_rectangle((cx - 16, ty, win_x + win_w - 48, ty + 68), radius=8, fill="#1c1a08", outline="#d29922", width=2)
-    draw.text((cx + 8, ty + 32), "⚠  安装前先核查官网最新安装命令，不要复制本图命令直接运行。", font=small_font, fill="#d29922", anchor="lm")
+    for err, fix in issues:
+        draw.text((cx, ty), f"  ✗  {err}", font=mf, fill="#f85149")
+        draw.text((cx + 600, ty), fix, font=mf, fill="#8b949e")
+        ty += lh
     img.save(output_path, quality=96)
 
 
@@ -855,7 +970,7 @@ def _generate_tool_tutorial_screenshots(
     output: list[dict[str, str]] = []
 
     # 从文章提取步骤，过滤掉无法生成操作型截图的章节
-    _OPERATIONAL = {"website", "install", "folder", "terminal", "review"}
+    _OPERATIONAL = {"website", "install", "config", "verify", "folder", "terminal", "review"}
     extracted = _extract_article_steps(article_markdown) if article_markdown else []
     extracted = [s for s in extracted if _classify_step(s["title"]) in _OPERATIONAL]
     if not extracted:
@@ -904,23 +1019,33 @@ def _generate_tool_tutorial_screenshots(
                 output.append({"src": src, "alt": f"{tool_name} 官方入口", "caption": caption, "kind": "illustration"})
 
         elif kind == "install":
-            _tutorial_install_mockup(fpath, tool_name=tool_name, step_label=step_label)
-            caption = f"{prefix} 按官网最新安装步骤操作（本图命令仅供参考，以官网实际页面为准）。安装完成后运行 `{tool_name.lower()}` 确认能正常启动。"
+            _tutorial_install_mockup(fpath, tool_name=tool_name, step_label=step_label, step_title=title)
+            caption = f"{prefix} {title} — 命令以官网当前页面为准，本图仅示意。安装后运行 `{tool_name.lower().replace(' ', '-')} --version` 确认版本号。"
             output.append({"src": src, "alt": f"安装 {tool_name}", "caption": caption, "kind": "illustration"})
+
+        elif kind == "config":
+            _tutorial_config_mockup(fpath, tool_name=tool_name, step_label=step_label, step_title=title)
+            caption = f"{prefix} {title} — 在官网申请 API Key 后按图中方式填入。Key 是私密凭证，不要截图分享或提交到代码仓库。"
+            output.append({"src": src, "alt": f"配置 {tool_name}", "caption": caption, "kind": "illustration"})
+
+        elif kind == "verify":
+            _tutorial_verify_mockup(fpath, tool_name=tool_name, step_label=step_label, step_title=title)
+            caption = f"{prefix} {title} — 运行 `--version` 看到版本号即安装成功；再发一条测试指令确认 AI 正常回复，再进行下一步。"
+            output.append({"src": src, "alt": f"验证 {tool_name} 是否正常运行", "caption": caption, "kind": "illustration"})
 
         elif kind == "folder":
             _tutorial_folder_mockup(fpath, tool_name=tool_name)
-            caption = f"{prefix} 在桌面新建文件夹命名 {tool_name}-test，里面只放一个 README.md（写清楚你想解决什么问题）。客户资料、账号密码一律不放进来。"
+            caption = f"{prefix} {title} — 在桌面新建 {tool_name}-test 文件夹，里面只放一个 README.md（写清楚你想解决什么问题）。客户资料、账号密码一律不放进来。"
             output.append({"src": src, "alt": f"新建 {tool_name}-test 测试文件夹", "caption": caption, "kind": "illustration"})
 
         elif kind == "terminal":
             _tutorial_terminal_mockup(fpath, tool_name=tool_name)
-            caption = f"{prefix} 打开 {tool_name}，第一条提示词固定用这句：「我是新手，请先不要修改文件，请解释这里有什么，并列出下一步最小动作和风险。」等它回复完再决定下一步。"
+            caption = f"{prefix} {title} — 第一条提示词固定用这句：「我是新手，请先不要修改文件，请解释这里有什么，并列出下一步最小动作和风险。」等它回复完再决定下一步。"
             output.append({"src": src, "alt": "输入第一条安全提示词", "caption": caption, "kind": "illustration"})
 
         elif kind == "review":
             _tutorial_review_mockup(fpath, tool_name=tool_name)
-            caption = f"{prefix} 收到输出后逐项核查：有没有说明依据？有没有胡编官网、价格、功能？确认无误再让它动手。最后记一条复盘：省了哪步、哪里不准、下次提示词怎么改。"
+            caption = f"{prefix} {title} — 收到输出后逐项核查：有没有说明依据？有没有胡编官网、价格、功能？确认无误再让它动手。最后记一条复盘：省了哪步、哪里不准、下次提示词怎么改。"
             output.append({"src": src, "alt": "检查 AI 输出结果并复盘", "caption": caption, "kind": "illustration"})
 
         else:
