@@ -122,7 +122,7 @@ const xhsSkillManuallySelected = ref(false);
 const skillSelectorVisible = ref(false); // 是否展开 skill 选择面板
 const trendDiscussionOpen = ref(false); // 多轮讨论是否展开
 const trendFreshHighlight = ref(false); // 资讯刷新后的短暂高亮
-const trendDistributionView = ref("xiaohongshu"); // xiaohongshu | wechat
+const trendDistributionView = ref("wechat"); // xiaohongshu | wechat
 const busy_trendSummarize = ref(false);
 const busy_trendChat = ref(false);
 const canRecordTrendVoice = computed(() => (
@@ -927,6 +927,7 @@ async function prepareTrendDistribution(preferGeneratedScript = false, destinati
   const baseScript = sourceItem ? itemScript : (preferGeneratedScript ? String(generated?.script || "").trim() : "");
   const direction = trendContentDirection.value.trim();
   const script = [
+    "【信息密度要求】\n默认使用本次抓取到的全部资讯、摘要、链接和角度补充文章颗粒度。若用户只选中其中一条资讯，请把它作为主线，但仍要从其他检索结果里补充背景、对比、限制、安装/使用细节、风险边界和可执行步骤；不要只复述单条资讯。",
     direction
       ? `【我的内容方向】\n${direction}\n\n请生成内容时优先服务这个方向：用大白话讲清楚，适合对 AI 感兴趣的普通人和知识成长女性阅读；少空话，多给真实判断、操作步骤、官方链接、风险边界和可复用方法。`
       : "",
@@ -937,7 +938,7 @@ async function prepareTrendDistribution(preferGeneratedScript = false, destinati
     return;
   }
   if (sourceItem) {
-    trendDistributionView.value = destination === "wechat" ? "wechat" : "xiaohongshu";
+    trendDistributionView.value = destination === "xiaohongshu" ? "xiaohongshu" : "wechat";
   }
   busy.trendDistribution = true;
   try {
@@ -958,6 +959,7 @@ async function prepareTrendDistribution(preferGeneratedScript = false, destinati
       30000
     );
     trendDistributionDraft.value = result;
+    trendDistributionView.value = destination === "xiaohongshu" ? "xiaohongshu" : "wechat";
     trendWorkflowReview.value = null;
     setNotice(
       sourceItem

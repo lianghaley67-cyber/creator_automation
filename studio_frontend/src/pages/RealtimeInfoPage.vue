@@ -324,15 +324,15 @@ export default {
               <button
                 type="button"
                 class="channel-tab"
-                :class="{ active: trendDistributionView === 'xiaohongshu' }"
-                @click="trendDistributionView = 'xiaohongshu'"
-              >小红书图文</button>
-              <button
-                type="button"
-                class="channel-tab"
                 :class="{ active: trendDistributionView === 'wechat' }"
                 @click="trendDistributionView = 'wechat'"
               >公众号文章</button>
+              <button
+                type="button"
+                class="channel-tab"
+                :class="{ active: trendDistributionView === 'xiaohongshu' }"
+                @click="trendDistributionView = 'xiaohongshu'"
+              >小红书图文</button>
             </div>
 
             <div class="workflow-review-panel">
@@ -400,26 +400,39 @@ export default {
                   :disabled="busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) || trendDistributionDraft.xiaohongshu?.status === 'published'"
                   @click="directPublishXiaohongshu(trendDistributionDraft, applyTrendDistributionResult)"
                 >{{ busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) ? "发布中..." : "直接发布到小红书" }}</button>
-                <label class="upload-audio-label">
-                  {{ busy.wechatCover ? "上传封面中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
-                  <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
-                </label>
-                <button
-                  class="btn accent small"
-                  :disabled="busy.wechatDraft === String(trendDistributionDraft.id)"
-                  @click="createTrendWechatDraft"
-                >
-                  {{
-                    busy.wechatDraft === String(trendDistributionDraft.id)
-                      ? "发送中..."
-                      : "发送到公众号草稿箱"
-                  }}
-                </button>
-                <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览公众号文章</a>
                 <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.title, '小红书标题已复制。')">复制标题</button>
                 <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
                 <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.xiaohongshu?.package_url)" download>下载备用图文包</a>
               </div>
+              <div class="xiaohongshu-progress">
+                <strong>小红书状态：{{ xiaohongshuStatusLabel(trendDistributionDraft) }}</strong>
+                <template v-if="['publishing', 'failed'].includes(trendDistributionDraft.xiaohongshu?.status)">
+                  <input
+                    v-model="xiaohongshuPublishUrls[trendDistributionDraft.id]"
+                    placeholder="发布后，把小红书笔记链接粘贴到这里"
+                  />
+                  <button
+                    class="btn accent small"
+                    :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
+                    @click="finishXiaohongshuPublishing(trendDistributionDraft, applyTrendDistributionResult)"
+                  >标记已发布</button>
+                  <button
+                    v-if="trendDistributionDraft.xiaohongshu?.status !== 'published'"
+                    class="btn secondary small"
+                    :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
+                    @click="failXiaohongshuPublishing(trendDistributionDraft, applyTrendDistributionResult)"
+                  >记录失败</button>
+                </template>
+                <a
+                  v-if="trendDistributionDraft.xiaohongshu?.published_note_url"
+                  :href="trendDistributionDraft.xiaohongshu.published_note_url"
+                  target="_blank"
+                  rel="noreferrer"
+                >查看已发布笔记</a>
+              </div>
+              <ol>
+                <li v-for="step in trendDistributionDraft.xiaohongshu?.publish_steps || []" :key="step">{{ step }}</li>
+              </ol>
             </div>
 
             <div v-else class="channel-preview-pane">
@@ -450,42 +463,13 @@ export default {
                 </button>
               </div>
             </div>
-            <p v-if="wechatDraftErrors[trendDistributionDraft.id]" class="error-text">
+            <p v-if="trendDistributionView === 'wechat' && wechatDraftErrors[trendDistributionDraft.id]" class="error-text">
               {{ wechatDraftErrors[trendDistributionDraft.id] }}
             </p>
-            <div class="xiaohongshu-progress">
-              <strong>小红书状态：{{ xiaohongshuStatusLabel(trendDistributionDraft) }}</strong>
-              <template v-if="['publishing', 'failed'].includes(trendDistributionDraft.xiaohongshu?.status)">
-                <input
-                  v-model="xiaohongshuPublishUrls[trendDistributionDraft.id]"
-                  placeholder="发布后，把小红书笔记链接粘贴到这里"
-                />
-                <button
-                  class="btn accent small"
-                  :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
-                  @click="finishXiaohongshuPublishing(trendDistributionDraft, applyTrendDistributionResult)"
-                >标记已发布</button>
-                <button
-                  v-if="trendDistributionDraft.xiaohongshu?.status !== 'published'"
-                  class="btn secondary small"
-                  :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
-                  @click="failXiaohongshuPublishing(trendDistributionDraft, applyTrendDistributionResult)"
-                >记录失败</button>
-              </template>
-              <a
-                v-if="trendDistributionDraft.xiaohongshu?.published_note_url"
-                :href="trendDistributionDraft.xiaohongshu.published_note_url"
-                target="_blank"
-                rel="noreferrer"
-              >查看已发布笔记</a>
-            </div>
-            <p v-if="trendDistributionDraft.wechat?.verified" class="meta">
+            <p v-if="trendDistributionView === 'wechat' && trendDistributionDraft.wechat?.verified" class="meta">
               公众号草稿已由微信读取核验 · AppID {{ trendDistributionDraft.wechat?.app_id_masked }}
               · 草稿ID {{ trendDistributionDraft.wechat?.draft_media_id }}
             </p>
-            <ol>
-              <li v-for="step in trendDistributionDraft.xiaohongshu?.publish_steps || []" :key="step">{{ step }}</li>
-            </ol>
           </div>
           <div v-if="notebookLmPackage" class="notebooklm-box">
             <strong>NotebookLM 导入包</strong>
