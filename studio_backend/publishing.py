@@ -970,7 +970,7 @@ def _generate_tool_tutorial_screenshots(
     output: list[dict[str, str]] = []
 
     # 从文章提取步骤，过滤掉无法生成操作型截图的章节
-    _OPERATIONAL = {"website", "install", "config", "verify", "folder", "terminal", "review"}
+    _OPERATIONAL = {"website", "install", "config", "verify", "folder", "terminal"}
     extracted = _extract_article_steps(article_markdown) if article_markdown else []
     extracted = [s for s in extracted if _classify_step(s["title"]) in _OPERATIONAL]
     if not extracted:
