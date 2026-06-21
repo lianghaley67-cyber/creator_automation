@@ -2213,7 +2213,7 @@ async def upload_official_account_cover(file: UploadFile = File(...)) -> dict[st
 
 @app.post("/api/wechat/cover/generate")
 async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
-    """用 DALL-E 2 或 PIL 生成 4 张公众号封面供选择。"""
+    """优先用智谱 CogView 生成 4 张公众号封面，降级到 DALL-E 或 PIL。"""
     body = await request.json()
     title = str(body.get("title") or "").strip()
     summary = str(body.get("summary") or "").strip()
@@ -2224,58 +2224,113 @@ async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
     covers_dir.mkdir(parents=True, exist_ok=True)
 
     from .storage import to_media_url, now_iso
-    import uuid
-
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com").strip()
+    import uuid, base64
 
     urls: list[str] = []
 
-    if api_key:
+    # 1. 优先：智谱 CogView（项目已有 ZHIPUAI_API_KEY）
+    zhipu_key = (
+        os.getenv("ZHIPUAI_API_KEY", "").strip()
+        or os.getenv("BIGMODEL_API_KEY", "").strip()
+        or os.getenv("GLM_API_KEY", "").strip()
+    )
+    if zhipu_key:
+        prompt = (
+            f"公众号文章封面图，横版 16:9，无文字。主题：{title[:60]}。"
+            + (f"背景内容：{summary[:80]}。" if summary else "")
+            + "风格：现代简约，科技感，适合中文社交媒体，高质量配图。"
+        )
         styles = [
-            "minimalist dark tech aesthetic, Chinese social media cover",
-            "warm gradient lifestyle aesthetic, Chinese social media cover",
-            "bold typography modern design, Chinese social media cover",
-            "clean professional blue tone, Chinese social media cover",
+            "暗色极简科技风格，蓝绿渐变光效",
+            "温暖橙金色调，温情生活感",
+            "深紫色调，未来感插画",
+            "清爽白蓝商务风，专业干净",
         ]
-        prompt_base = f"Professional WeChat article cover image, 16:9 ratio, no text. Topic: {title[:80]}."
-        if summary:
-            prompt_base += f" Context: {summary[:120]}."
-
+        zhipu_endpoint = "https://open.bigmodel.cn/api/paas/v4/images/generations"
+        zhipu_model = os.getenv("ZHIPU_IMAGE_MODEL", "cogview-3-flash").strip() or "cogview-3-flash"
         for style in styles:
             try:
-                prompt = f"{prompt_base} Style: {style}."
                 payload = json.dumps({
-                    "model": "dall-e-3",
-                    "prompt": prompt,
-                    "n": 1,
-                    "size": "1792x1024",
-                    "quality": "standard",
+                    "model": zhipu_model,
+                    "prompt": f"{prompt}具体风格：{style}。",
+                    "size": "1440x960",
                 }).encode("utf-8")
                 req = urllib.request.Request(
-                    base_url.rstrip("/") + "/v1/images/generations",
+                    zhipu_endpoint,
                     data=payload,
                     method="POST",
                     headers={
-                        "Authorization": f"Bearer {api_key}",
+                        "Authorization": f"Bearer {zhipu_key}",
                         "Content-Type": "application/json",
                     },
                 )
                 with urllib.request.urlopen(req, timeout=60) as resp:
                     data = json.loads(resp.read().decode("utf-8", errors="replace"))
-                img_url = data["data"][0].get("url") or data["data"][0].get("b64_json", "")
+                img_entry = (data.get("data") or [{}])[0]
+                img_url = str(img_entry.get("url") or "")
+                b64 = str(img_entry.get("b64_json") or "")
                 if img_url.startswith("http"):
                     with urllib.request.urlopen(img_url, timeout=30) as img_resp:
                         img_bytes = img_resp.read()
+                elif b64:
+                    img_bytes = base64.b64decode(b64)
                 else:
-                    import base64
-                    img_bytes = base64.b64decode(img_url)
+                    continue
                 fname = covers_dir / f"{uuid.uuid4().hex}.jpg"
                 fname.write_bytes(img_bytes)
                 urls.append(to_media_url(fname))
             except Exception:
                 pass
 
+    # 2. 降级：DALL-E 3（逐张，OpenAI）
+    if len(urls) < 4:
+        openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+        openai_base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com").strip()
+        if openai_key:
+            styles_en = [
+                "minimalist dark tech aesthetic",
+                "warm gradient lifestyle aesthetic",
+                "bold modern design purple tones",
+                "clean professional blue tone",
+            ]
+            prompt_base = f"Professional WeChat article cover, 16:9, no text. Topic: {title[:80]}."
+            for style in styles_en[len(urls):]:
+                try:
+                    payload = json.dumps({
+                        "model": "dall-e-3",
+                        "prompt": f"{prompt_base} Style: {style}.",
+                        "n": 1,
+                        "size": "1792x1024",
+                        "quality": "standard",
+                    }).encode("utf-8")
+                    req = urllib.request.Request(
+                        openai_base.rstrip("/") + "/v1/images/generations",
+                        data=payload,
+                        method="POST",
+                        headers={
+                            "Authorization": f"Bearer {openai_key}",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                    img_entry = (data.get("data") or [{}])[0]
+                    img_url = str(img_entry.get("url") or "")
+                    b64 = str(img_entry.get("b64_json") or "")
+                    if img_url.startswith("http"):
+                        with urllib.request.urlopen(img_url, timeout=30) as img_resp:
+                            img_bytes = img_resp.read()
+                    elif b64:
+                        img_bytes = base64.b64decode(b64)
+                    else:
+                        continue
+                    fname = covers_dir / f"{uuid.uuid4().hex}.jpg"
+                    fname.write_bytes(img_bytes)
+                    urls.append(to_media_url(fname))
+                except Exception:
+                    pass
+
+    # 3. 最终降级：PIL 渐变色占位封面
     if len(urls) < 4:
         try:
             from PIL import Image, ImageDraw, ImageFont
@@ -2287,32 +2342,33 @@ async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
                 ("#0f2027", "#f97316", "#1a3a1a"),
                 ("#0d1117", "#3b82f6", "#0a1628"),
             ]
-            for idx, (bg, accent, mid) in enumerate(color_themes[len(urls):]):
-                img = Image.new("RGB", (1792, 1024), bg)
+            for bg, accent, mid in color_themes[len(urls):]:
+                img = Image.new("RGB", (1440, 960), bg)
                 draw = ImageDraw.Draw(img)
-                for y in range(1024):
-                    ratio = y / 1024
+                for y in range(960):
+                    ratio = y / 960
                     r1, g1, b1 = int(bg[1:3], 16), int(bg[3:5], 16), int(bg[5:7], 16)
                     r2, g2, b2 = int(mid[1:3], 16), int(mid[3:5], 16), int(mid[5:7], 16)
-                    r = int(r1 + (r2 - r1) * ratio)
-                    g = int(g1 + (g2 - g1) * ratio)
-                    b = int(b1 + (b2 - b1) * ratio)
-                    draw.line([(0, y), (1792, y)], fill=(r, g, b))
+                    draw.line([(0, y), (1440, y)], fill=(
+                        int(r1 + (r2 - r1) * ratio),
+                        int(g1 + (g2 - g1) * ratio),
+                        int(b1 + (b2 - b1) * ratio),
+                    ))
                 ar, ag, ab = int(accent[1:3], 16), int(accent[3:5], 16), int(accent[5:7], 16)
                 for i in range(4):
-                    draw.rounded_rectangle([60 - i, 80 - i, 300 + i, 96 + i], radius=8, outline=(ar, ag, ab))
+                    draw.rounded_rectangle([60 - i, 60 - i, 260 + i, 76 + i], radius=8, outline=(ar, ag, ab))
                 try:
-                    font_title = ImageFont.truetype("arial.ttf", 72)
-                    font_small = ImageFont.truetype("arial.ttf", 36)
+                    font_title = ImageFont.truetype("arial.ttf", 64)
+                    font_small = ImageFont.truetype("arial.ttf", 32)
                 except Exception:
                     font_title = ImageFont.load_default()
                     font_small = font_title
-                lines = textwrap.wrap(title, width=20)[:3]
-                y_pos = 420 - len(lines) * 44
+                lines = textwrap.wrap(title, width=18)[:3]
+                y_pos = 380 - len(lines) * 40
                 for line in lines:
-                    draw.text((896, y_pos), line, font=font_title, fill=(255, 255, 255), anchor="mm")
-                    y_pos += 90
-                draw.text((896, y_pos + 30), "AI 内容创作", font=font_small, fill=(ar, ag, ab), anchor="mm")
+                    draw.text((720, y_pos), line, font=font_title, fill=(255, 255, 255), anchor="mm")
+                    y_pos += 84
+                draw.text((720, y_pos + 28), "AI 内容创作", font=font_small, fill=(ar, ag, ab), anchor="mm")
                 fname = covers_dir / f"{uuid.uuid4().hex}.jpg"
                 img.save(str(fname), "JPEG", quality=92)
                 urls.append(to_media_url(fname))

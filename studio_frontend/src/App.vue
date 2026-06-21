@@ -1060,7 +1060,7 @@ async function createWechatDraft(job) {
 async function submitWechatDraftTask(task, applyResult) {
   if (!task?.id) return;
   if (!wechatEntry.value?.cover_configured) {
-    wechatDraftErrors[task.id] = "请先点击“上传公众号封面”。微信规定草稿必须带封面，上传成功后才能发送。";
+    wechatDraftErrors[task.id] = '请先点击【生成封面】按钮，选用一张封面图后再发送草稿。微信规定草稿必须带封面。';
     setError(wechatDraftErrors[task.id]);
     return;
   }
@@ -1153,16 +1153,23 @@ async function generateCoverImages() {
 
 async function useGeneratedCover(url) {
   coverModal.value.usingUrl = url;
+  coverModal.value.error = "";
   try {
     const result = await requestApi("/api/wechat/cover/use-generated", {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify({ url }),
     });
-    if (result.settings) {
-      const entry = await requestApi("/api/integrations/wechat").catch(() => null);
-      if (entry) wechatEntry.value = entry;
+    // 直接标记封面已配置，不等待 wechatEntry 刷新
+    if (wechatEntry.value) {
+      wechatEntry.value = { ...wechatEntry.value, cover_configured: true };
+    } else {
+      wechatEntry.value = { cover_configured: true };
     }
+    // 后台刷新完整 entry
+    requestApi("/api/integrations/wechat/entry").then(entry => {
+      if (entry) wechatEntry.value = entry;
+    }).catch(() => {});
     setNotice("公众号封面已上传并保存，以后创建草稿会自动使用它。");
     coverModal.value.visible = false;
   } catch (err) {
