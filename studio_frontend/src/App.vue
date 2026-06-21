@@ -1993,6 +1993,57 @@ async function loadPresetTopicsAndSkills() {
   } catch (_) { /* ignore */ }
 }
 
+const uploadSkillModal = ref({
+  visible: false,
+  channel: "wechat",
+  name: "",
+  description: "",
+  tags: "",
+  file: null,
+  uploading: false,
+  error: "",
+});
+
+function openUploadSkill(channel) {
+  uploadSkillModal.value = { visible: true, channel, name: "", description: "", tags: "", file: null, uploading: false, error: "" };
+}
+
+async function submitUploadSkill() {
+  const m = uploadSkillModal.value;
+  if (!m.name.trim()) { m.error = "请填写 Skill 名称"; return; }
+  if (!m.file) { m.error = "请选择 .md 文件"; return; }
+  m.uploading = true;
+  m.error = "";
+  try {
+    const fd = new FormData();
+    fd.append("file", m.file);
+    fd.append("name", m.name.trim());
+    fd.append("channel", m.channel);
+    fd.append("description", m.description.trim());
+    fd.append("persona_tags", JSON.stringify(m.tags.split(",").map(t => t.trim()).filter(Boolean)));
+    const base = verifiedApiBase.value || configuredApiBase.value || "";
+    const res = await fetch(`${base}/api/channel-skills/upload`, { method: "POST", body: fd });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
+    uploadSkillModal.value.visible = false;
+    await loadPresetTopicsAndSkills();
+  } catch (err) {
+    m.error = err.message || "上传失败";
+  } finally {
+    m.uploading = false;
+  }
+}
+
+async function deleteSkill(skillId, skillName) {
+  if (!confirm(`确认删除 Skill「${skillName}」？`)) return;
+  try {
+    const base = verifiedApiBase.value || configuredApiBase.value || "";
+    await fetch(`${base}/api/channel-skills/${encodeURIComponent(skillId)}`, { method: "DELETE" });
+    await loadPresetTopicsAndSkills();
+  } catch (err) {
+    setError(`删除失败：${err.message}`);
+  }
+}
+
 async function generateTrendAiSummary() {
   if (!aiTrends.value.length) return;
   busy.trendSummarize = true;
@@ -2097,8 +2148,12 @@ const studioContext = {
   createWechatDraft,
   deepseekReview,
   deleteHistoryJob,
+  deleteSkill,
   deleteStockFromWatchlist,
   deleteWechatMaterial,
+  openUploadSkill,
+  submitUploadSkill,
+  uploadSkillModal,
   deletingJobId,
   directPublishXiaohongshu,
   distributionDrafts,
@@ -3955,6 +4010,125 @@ textarea {
   border-color: #00d5e8;
   background: rgba(0, 213, 232, 0.12);
   box-shadow: inset 0 0 0 1px rgba(0, 213, 232, 0.35);
+}
+
+.skill-channel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.skill-channel-head h4 {
+  margin: 0;
+}
+
+.btn-upload-skill {
+  background: transparent;
+  border: 1px dashed rgba(0, 213, 232, 0.45);
+  border-radius: 8px;
+  color: #00d5e8;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-upload-skill:hover {
+  background: rgba(0, 213, 232, 0.1);
+}
+
+.skill-delete-btn {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: rgba(169, 191, 218, 0.5);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.skill-delete-btn:hover {
+  color: #ff6b6b;
+}
+
+.skill-upload-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 17, 28, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.skill-upload-modal {
+  background: #0d1f33;
+  border: 1px solid rgba(142, 171, 205, 0.2);
+  border-radius: 14px;
+  width: 440px;
+  max-width: 92vw;
+  overflow: hidden;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(142, 171, 205, 0.15);
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: #a9bfda;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.modal-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  color: #a9bfda;
+}
+
+.modal-field input[type="text"],
+.modal-field input[type="file"] {
+  background: rgba(142, 171, 205, 0.07);
+  border: 1px solid rgba(142, 171, 205, 0.2);
+  border-radius: 7px;
+  color: #e2eaf4;
+  font-size: 13px;
+  padding: 7px 10px;
+}
+
+.modal-error {
+  color: #ff6b6b;
+  font-size: 12px;
+  margin: 0;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid rgba(142, 171, 205, 0.15);
 }
 
 .channel-tabs {

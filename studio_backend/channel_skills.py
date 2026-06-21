@@ -132,9 +132,29 @@ PRESET_TOPICS = [
 ]
 
 
+USER_SKILLS_FILE = SKILLS_DIR / "user_skills.json"
+
+
+def _load_user_skills() -> dict[str, Any]:
+    if USER_SKILLS_FILE.exists():
+        try:
+            return json.loads(USER_SKILLS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {"skills": {}, "deleted": []}
+
+
+def _save_user_skills(data: dict[str, Any]) -> None:
+    USER_SKILLS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def list_channel_skills() -> list[dict[str, Any]]:
+    user_data = _load_user_skills()
+    deleted = set(user_data.get("deleted", []))
     output = []
     for skill_id, metadata in CHANNEL_SKILLS.items():
+        if skill_id in deleted:
+            continue
         skill_path = SKILLS_DIR / metadata["file"]
         output.append(
             {
@@ -146,13 +166,64 @@ def list_channel_skills() -> list[dict[str, Any]]:
                 "persona_tags": metadata.get("persona_tags", []),
                 "example": metadata.get("example", {}),
                 "configured": skill_path.exists(),
+                "builtin": True,
+            }
+        )
+    for skill_id, metadata in user_data.get("skills", {}).items():
+        if skill_id in deleted:
+            continue
+        skill_path = SKILLS_DIR / metadata["file"]
+        output.append(
+            {
+                "id": skill_id,
+                "name": metadata["name"],
+                "channel": metadata["channel"],
+                "file": metadata["file"],
+                "description": metadata.get("description", ""),
+                "persona_tags": metadata.get("persona_tags", []),
+                "example": metadata.get("example", {}),
+                "configured": skill_path.exists(),
+                "builtin": False,
             }
         )
     return output
 
 
+def add_user_skill(
+    skill_id: str,
+    name: str,
+    channel: str,
+    file_rel: str,
+    description: str = "",
+    persona_tags: list[str] | None = None,
+) -> None:
+    data = _load_user_skills()
+    data.setdefault("skills", {})[skill_id] = {
+        "name": name,
+        "channel": channel,
+        "file": file_rel,
+        "description": description,
+        "persona_tags": persona_tags or [],
+        "example": {},
+    }
+    data.setdefault("deleted", [])
+    if skill_id in data["deleted"]:
+        data["deleted"].remove(skill_id)
+    _save_user_skills(data)
+
+
+def delete_user_skill(skill_id: str) -> bool:
+    data = _load_user_skills()
+    data.setdefault("deleted", [])
+    if skill_id not in data["deleted"]:
+        data["deleted"].append(skill_id)
+    _save_user_skills(data)
+    return True
+
+
 def load_skill_content(skill_id: str) -> str:
-    metadata = CHANNEL_SKILLS.get(skill_id)
+    user_data = _load_user_skills()
+    metadata = CHANNEL_SKILLS.get(skill_id) or user_data.get("skills", {}).get(skill_id)
     if not metadata:
         return ""
     skill_path = SKILLS_DIR / metadata["file"]

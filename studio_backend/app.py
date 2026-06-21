@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .analysis import analyze_media_file, detect_media_kind, transcribe_audio
-from .channel_skills import list_channel_skills
+from .channel_skills import list_channel_skills, add_user_skill, delete_user_skill, SKILLS_DIR
 from .ai_trends import (
     archive_markdown_to_obsidian,
     build_notebooklm_import_package,
@@ -1993,6 +1993,39 @@ def receive_wechat_material(payload: WeChatMaterialRequest) -> dict[str, Any]:
 @app.get("/api/channel-skills")
 def get_channel_skills() -> dict[str, Any]:
     return {"items": list_channel_skills()}
+
+
+@app.post("/api/channel-skills/upload")
+async def upload_channel_skill(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    channel: str = Form(...),
+    description: str = Form(""),
+    persona_tags: str = Form("[]"),
+) -> dict[str, Any]:
+    if not file.filename or not file.filename.endswith(".md"):
+        raise HTTPException(status_code=400, detail="只支持上传 .md 文件")
+    if channel not in ("wechat", "xiaohongshu", "shared"):
+        raise HTTPException(status_code=400, detail="channel 必须是 wechat / xiaohongshu / shared")
+    safe_name = re.sub(r"[^\w\-.]", "_", Path(file.filename).stem)
+    file_rel = f"{channel}/{safe_name}.md"
+    dest = SKILLS_DIR / file_rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    content = await file.read()
+    dest.write_bytes(content)
+    skill_id = f"{channel}_{safe_name}_user_v1"
+    try:
+        tags = json.loads(persona_tags) if persona_tags.strip() else []
+    except Exception:
+        tags = [t.strip() for t in persona_tags.split(",") if t.strip()]
+    add_user_skill(skill_id, name, channel, file_rel, description, tags)
+    return {"ok": True, "skill_id": skill_id, "file": file_rel}
+
+
+@app.delete("/api/channel-skills/{skill_id}")
+def remove_channel_skill(skill_id: str) -> dict[str, Any]:
+    delete_user_skill(skill_id)
+    return {"ok": True, "skill_id": skill_id}
 
 
 @app.get("/api/ai-trends/preset-topics")

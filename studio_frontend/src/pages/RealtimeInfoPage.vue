@@ -193,7 +193,10 @@ export default {
             <div v-if="skillSelectorVisible" class="skill-selector-body">
               <!-- 公众号 Skill -->
               <div class="skill-channel-group">
-                <h4>公众号文章 Skill</h4>
+                <div class="skill-channel-head">
+                  <h4>公众号文章 Skill</h4>
+                  <button class="btn-upload-skill" @click.stop="openUploadSkill('wechat')">+ 上传 Skill</button>
+                </div>
                 <div class="skill-cards-row">
                   <div
                     v-for="skill in channelSkillsList.filter(s => s.channel === 'wechat')"
@@ -206,6 +209,11 @@ export default {
                     <div class="skill-card-header">
                       <strong>{{ skill.name }}</strong>
                       <span v-if="selectedWechatSkill === skill.id" class="skill-selected-badge">✓ 已选</span>
+                      <button
+                        class="skill-delete-btn"
+                        title="删除此 Skill"
+                        @click.stop="deleteSkill(skill.id, skill.name)"
+                      >✕</button>
                     </div>
                     <p class="skill-desc">{{ skill.description }}</p>
                     <div class="skill-tags">
@@ -221,7 +229,10 @@ export default {
               </div>
               <!-- 小红书 Skill -->
               <div class="skill-channel-group">
-                <h4>小红书笔记 Skill</h4>
+                <div class="skill-channel-head">
+                  <h4>小红书笔记 Skill</h4>
+                  <button class="btn-upload-skill" @click.stop="openUploadSkill('xiaohongshu')">+ 上传 Skill</button>
+                </div>
                 <div class="skill-cards-row">
                   <div
                     v-for="skill in channelSkillsList.filter(s => s.channel === 'xiaohongshu')"
@@ -234,6 +245,11 @@ export default {
                     <div class="skill-card-header">
                       <strong>{{ skill.name }}</strong>
                       <span v-if="selectedXhsSkill === skill.id" class="skill-selected-badge">✓ 已选</span>
+                      <button
+                        class="skill-delete-btn"
+                        title="删除此 Skill"
+                        @click.stop="deleteSkill(skill.id, skill.name)"
+                      >✕</button>
                     </div>
                     <p class="skill-desc">{{ skill.description }}</p>
                     <div class="skill-tags">
@@ -245,6 +261,41 @@ export default {
                       <div v-if="skill.example.body" class="skill-example-body">{{ skill.example.body?.slice(0, 120) }}...</div>
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 上传 Skill 弹窗 -->
+            <div v-if="uploadSkillModal.visible" class="skill-upload-modal-overlay" @click.self="uploadSkillModal.visible = false">
+              <div class="skill-upload-modal">
+                <div class="modal-head">
+                  <strong>上传新 Skill（{{ uploadSkillModal.channel === 'wechat' ? '公众号' : '小红书' }}）</strong>
+                  <button class="modal-close" @click="uploadSkillModal.visible = false">✕</button>
+                </div>
+                <div class="modal-body">
+                  <label class="modal-field">
+                    <span>Skill 名称</span>
+                    <input v-model="uploadSkillModal.name" type="text" placeholder="例：情感共鸣类" />
+                  </label>
+                  <label class="modal-field">
+                    <span>描述（一句话）</span>
+                    <input v-model="uploadSkillModal.description" type="text" placeholder="例：从普通人视角解读AI对生活的影响" />
+                  </label>
+                  <label class="modal-field">
+                    <span>标签（逗号分隔）</span>
+                    <input v-model="uploadSkillModal.tags" type="text" placeholder="例：情感,普通人,AI影响" />
+                  </label>
+                  <label class="modal-field">
+                    <span>选择 .md 文件</span>
+                    <input type="file" accept=".md" @change="uploadSkillModal.file = $event.target.files[0]" />
+                  </label>
+                  <p v-if="uploadSkillModal.error" class="modal-error">{{ uploadSkillModal.error }}</p>
+                </div>
+                <div class="modal-footer">
+                  <button class="btn secondary small" @click="uploadSkillModal.visible = false">取消</button>
+                  <button class="btn accent small" :disabled="uploadSkillModal.uploading" @click="submitUploadSkill">
+                    {{ uploadSkillModal.uploading ? '上传中...' : '确认上传' }}
+                  </button>
                 </div>
               </div>
             </div>
