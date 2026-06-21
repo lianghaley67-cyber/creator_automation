@@ -1057,32 +1057,28 @@ def _generate_tool_tutorial_screenshots(
 def _inject_tool_tutorial_screenshots(article_html: str, images: list[dict[str, str]]) -> str:
     if not images or "tutorial_screenshots/" in article_html:
         return article_html
-    figures = [
-        '<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">实操步骤图解</h2>',
-    ]
+    heading = '<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:36px;margin-bottom:6px;">实操步骤图解</h2>'
+    figures = [heading]
     for item in images:
         figures.append(
-            '<figure style="margin:22px 0;">'
+            '<figure style="margin:24px 0;">'
             f'<img src="{html.escape(item["src"])}" alt="{html.escape(item["alt"])}" '
-            'style="max-width:100%;border-radius:12px;border:1px solid #d0d5dd;">'
+            'style="max-width:100%;border-radius:12px;border:1px solid #d0d5dd;display:block;">'
             f'<figcaption style="font-size:15px;color:#243241;line-height:1.8;margin-top:10px;">{html.escape(item["caption"])}</figcaption>'
             "</figure>"
         )
     insert = "".join(figures)
-    existing_heading = re.search(
-        r'(<h2[^>]*>\s*配图实操版[^<]*</h2>)',
-        article_html,
-        flags=re.IGNORECASE,
-    )
-    if existing_heading:
-        return (
-            article_html[: existing_heading.end()]
-            + "".join(figures[1:])
-            + article_html[existing_heading.end() :]
-        )
-    marker = '<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">安装：小白照着这几步走</h2>'
-    if marker in article_html:
-        return article_html.replace(marker, insert + marker, 1)
+    # 插到"安装和上手步骤"之后、下一个 h2 章节之前
+    after_steps = re.search(r'(<h2[^>]*>[^<]*卡住[^<]*</h2>)', article_html)
+    if after_steps:
+        pos = after_steps.start()
+        return article_html[:pos] + insert + article_html[pos:]
+    # 兼容旧模板标题
+    for anchor in ("安装：小白照着这几步走", "配置检查", "进阶使用"):
+        m = re.search(rf'(<h2[^>]*>[^<]*{re.escape(anchor)}[^<]*</h2>)', article_html)
+        if m:
+            pos = m.start()
+            return article_html[:pos] + insert + article_html[pos:]
     return article_html.replace("</body></html>", insert + "</body></html>")
 
 
