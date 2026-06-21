@@ -2086,6 +2086,10 @@ async function loadStories() {
   try {
     const result = await requestApi("/api/stories");
     stories.value = Array.isArray(result?.items) ? result.items : [];
+    // 只有一个故事时自动选中，避免忘记选择
+    if (stories.value.length === 1 && !selectedStoryId.value) {
+      selectedStoryId.value = stories.value[0].id;
+    }
   } catch (_) { /* ignore */ }
 }
 
