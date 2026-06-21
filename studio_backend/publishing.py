@@ -654,7 +654,7 @@ def _tutorial_review_mockup(output_path: Path, *, tool_name: str) -> None:
         (True,  "✓  没有胡编官网 / 价格 / 权限",     "#065f46", "#d1fae5"),
         (False, "⚠  官方链接需要人工核验",            "#92400e", "#fef3c7"),
         (True,  "✓  只读取了测试文件夹，未修改",      "#065f46", "#d1fae5"),
-        (False, "⚠  价格信息标注"需要核验"",          "#92400e", "#fef3c7"),
+        (False, "⚠  价格信息标注「需要核验」",          "#92400e", "#fef3c7"),
         (True,  "✓  有具体下一步建议，可照做",        "#065f46", "#d1fae5"),
     ]
     cy = top_y + 76
