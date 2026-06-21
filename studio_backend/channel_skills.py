@@ -659,8 +659,9 @@ def build_channel_drafts_with_ai(
                 base_url=base_url,
                 model=model,
             )
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as _exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning("_ai_generate_channel_drafts failed: %s", _exc)
 
     fallback = build_channel_drafts(
         source_text=source_text,
@@ -668,6 +669,8 @@ def build_channel_drafts_with_ai(
         summary=summary,
         source_type=source_type,
         hashtags=hashtags,
+        wechat_skill_id=wechat_skill_id,
+        xiaohongshu_skill_id=xiaohongshu_skill_id,
     )
     fallback["wechat"]["skill_id"] = wechat_skill_id or fallback["wechat"]["skill_id"]
     fallback["xiaohongshu"]["skill_id"] = xiaohongshu_skill_id or fallback["xiaohongshu"]["skill_id"]
@@ -721,9 +724,25 @@ def _ai_generate_channel_drafts(
         f"""飞轮运营专项规则：
 - 先给结论，再解释原因；常用"不是X，而是Y"制造认知转折。
 - 每篇落到一个最小动作，不写空泛鸡汤；不夸大收益，不承诺变现数字。
-- 公众号结构：开头一句话结论 → 我的判断（为什么值得/不值得盲目跟） → 适合谁 → 怎么做（3-5步流程） → 坑点 → 今天最小动作 → 写在最后（回到长期复利）。
+- 公众号结构（必须严格按照这8段输出，不能替换成其他结构）：
+  ① 标题：直接说读者能解决什么问题
+  ② 开头：一句话给结论，指出常见误区
+  ③ ## 我的判断：这件事为什么值得/不值得普通人关注
+  ④ ## 适合谁：2-3类具体人群
+  ⑤ ## 怎么做：3-5步可执行流程（用1. 2. 3.列举，不用"### 第X步："格式）
+  ⑥ ## 容易踩的坑：哪些地方要核验、哪些话术别信
+  ⑦ ## 今天就做一个动作：10-15分钟内能完成的最小任务
+  ⑧ ## 写在最后：回到长期复利，不喊口号
 - 小红书结构：第一行反常识钩子 → 我的判断 → 适合谁 → 3-5步操作 → 避坑 → 可复制动作 → 互动问题。
 - 不堆工具名，不写"资讯检索""值得关注"这类无信息量的话。
+
+【格式禁令（最高优先级）】：
+- 严禁使用工具安装教程格式，以下内容一律禁止出现：
+  × "### 第一步：" "### 第二步：" 等步骤标题
+  × "安装前先做4项核验" 类表格
+  × "卡住了怎么排查" 章节
+  × "下载安装" "配置账号和API Key" 等安装步骤小节
+- 如果素材是关于某个工具的，不要把它写成安装教程，而是写成"这个工具和普通人有什么关系、今天最小动作是什么"的运营观点文。
 
 姜胡说式思考框架（只吸收方法，不模仿男性口吻，不自称姜胡说）：
 {jianghushuo_lens}"""
@@ -731,8 +750,23 @@ def _ai_generate_channel_drafts(
         else ""
     )
 
+    # 通用文章 skill 也有自己的禁令
+    general_article_rules = (
+        """深度文章专项规则：
+- 公众号结构：开头钩子（我的具体困境/反直觉发现/和读者共同疑问） → 主体（工具类：是什么→我怎么用→对你的价值→我踩过的坑；资讯类：发生了什么→对普通人意味着什么→我的判断→你可以做的一件事） → 结尾CTA（互动/关注/行动引导之一）。
+- 每完成2-3步后插入一句个人感受或踩坑。
+- 总字数800-1500字。
+- 不使用"### 第X步："格式，步骤用"1. 2. 3."或"**第一件事：**"等自然格式。"""
+        if not is_flywheel and not is_tool_tutorial
+        else ""
+    )
+
     # ── 拼装 system prompt ────────────────────────────────────
-    skill_type_block = tool_tutorial_rules if is_tool_tutorial else flywheel_rules
+    skill_type_block = (
+        tool_tutorial_rules if is_tool_tutorial
+        else flywheel_rules if is_flywheel
+        else general_article_rules
+    )
 
     system_prompt = f"""你是一位中文自媒体内容创作专家。
 账号定位：吸引对AI感兴趣的普通人，人设是知识成长女性，用大白话科普AI知识，目标是让人人都能听懂AI。
@@ -791,7 +825,7 @@ def _ai_generate_channel_drafts(
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.72,
-        max_tokens=2400,
+        max_tokens=4000,
     )
 
     # 提取 JSON（兼容被 ``` 包裹的情况）
@@ -838,13 +872,17 @@ def build_channel_drafts(
     summary: str,
     source_type: str,
     hashtags: list[str],
+    wechat_skill_id: str = "wechat_tool_deep_review_v1",
+    xiaohongshu_skill_id: str = "xiaohongshu_tool_deep_review_v1",
 ) -> dict[str, Any]:
     paragraphs = _paragraphs(source_text)
     if not paragraphs:
         paragraphs = [_compact(source_text, 500)]
     is_trend = source_type == "ai_trends"
     final_title = _compact(title, 64) or ("今天值得关注的 3 个变化" if is_trend else "这件事，我终于想明白了")
-    if is_trend and _is_tool_research_request(final_title, source_text, source_type):
+    # 只有明确选用工具类 Skill 才使用工具模板，避免覆盖其他 Skill 的格式
+    is_tool_skill = any(k in wechat_skill_id for k in ("tool_deep_review", "tool_research"))
+    if is_trend and is_tool_skill and _is_tool_research_request(final_title, source_text, source_type):
         return _build_tool_research_fallback(
             source_text=source_text,
             title=final_title,
