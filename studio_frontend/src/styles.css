@@ -617,6 +617,214 @@ a {
 .topic-chip:hover { border-color: var(--teal); color: var(--teal); }
 .topic-chip.active { border-color: var(--teal); background: var(--teal-soft); color: var(--teal); }
 
+/* ===== 实时信息工作流 ===== */
+.content-workflow-panel {
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid rgba(0, 213, 232, 0.28);
+  border-radius: 10px;
+  background: rgba(0, 213, 232, 0.06);
+}
+
+.content-workflow-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(138, 164, 190, 0.18);
+}
+
+.content-workflow-header div {
+  display: grid;
+  gap: 5px;
+}
+
+.content-workflow-header strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.content-workflow-header span {
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.content-workflow-header b {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--teal);
+  color: #06111c;
+  font-size: 12px;
+}
+
+.content-workflow-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.workflow-step {
+  min-height: 76px;
+  padding: 10px;
+  border: 1px solid rgba(138, 164, 190, 0.2);
+  border-radius: 8px;
+  background: rgba(7, 20, 34, 0.72);
+}
+
+.workflow-step span,
+.workflow-step small {
+  display: block;
+}
+
+.workflow-step span {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.workflow-step small {
+  margin-top: 5px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.workflow-step.done {
+  border-color: rgba(44, 231, 157, 0.45);
+  background: rgba(44, 231, 157, 0.08);
+}
+
+.workflow-step.active {
+  border-color: var(--orange);
+  background: rgba(255, 122, 61, 0.12);
+}
+
+.trend-direction-box {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-strong);
+}
+
+.trend-direction-box label {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.trend-direction-box textarea {
+  min-height: 92px;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.65;
+}
+
+.trend-direction-box textarea:focus {
+  outline: none;
+  border-color: var(--teal);
+}
+
+.trend-direction-box span {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.workflow-review-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(138, 164, 190, 0.22);
+  border-radius: 8px;
+  background: rgba(7, 20, 34, 0.62);
+}
+
+.workflow-review-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-review-head div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.workflow-review-head strong {
+  color: var(--ink);
+}
+
+.workflow-review-head span {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.workflow-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.workflow-review-actions select {
+  min-width: 150px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--card);
+  color: var(--ink);
+}
+
+.workflow-review-result {
+  display: grid;
+  gap: 8px;
+  border-left: 3px solid var(--orange);
+  padding-left: 10px;
+}
+
+.workflow-review-result.pass {
+  border-left-color: #2ce79d;
+}
+
+.workflow-review-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.workflow-review-checks span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 122, 61, 0.12);
+  color: var(--orange);
+  font-size: 12px;
+}
+
+.workflow-review-checks span.pass {
+  background: rgba(44, 231, 157, 0.1);
+  color: #2ce79d;
+}
+
+.workflow-review-result ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
 /* ===== AI 摘要区块 ===== */
 .trend-ai-summary-block {
   margin: 16px 0;

@@ -29,6 +29,26 @@ class PublishingTests(unittest.TestCase):
         self.assertIn("新手先测小任务", html_output)
         self.assertNotIn("| 维度 | Trae | 同类工具 |", html_output)
 
+    def test_wechat_channel_html_renders_table_with_blank_lines(self):
+        html_output = publishing._wechat_channel_html(
+            "\n".join(
+                [
+                    "## 同类工具怎么比",
+                    "| 维度 | Claude Code | 同类工具 |",
+                    "| --- | --- | --- |",
+                    "",
+                    "| 适合人群 | 适合命令行用户 | 看是否更适合图形界面新手 |",
+                    "",
+                    "| 数据风险 | 先看项目权限 | 敏感资料谨慎上传 |",
+                ]
+            )
+        )
+
+        self.assertIn("<table", html_output)
+        self.assertIn("Claude Code", html_output)
+        self.assertIn("敏感资料谨慎上传", html_output)
+        self.assertNotIn("| 数据风险 |", html_output)
+
     def test_tool_tutorial_images_are_labeled_as_illustrations(self):
         article_html = "<!doctype html><html><body><p>正文</p></body></html>"
         injected = publishing._inject_tool_tutorial_screenshots(
@@ -45,6 +65,28 @@ class PublishingTests(unittest.TestCase):
         self.assertIn("配图实操版：操作示意图", injected)
         self.assertIn("不是真实网页截图", injected)
         self.assertNotIn("下面这 4 张图不是装饰图", injected)
+
+    def test_tool_tutorial_images_injected_after_existing_heading(self):
+        article_html = (
+            '<!doctype html><html><body><section>'
+            '<h2 style="color:#0b6670;">配图实操版：照着这几张图做</h2>'
+            "<p>下面补图。</p></section></body></html>"
+        )
+        injected = publishing._inject_tool_tutorial_screenshots(
+            article_html,
+            [
+                {
+                    "src": "tutorial_screenshots/01.png",
+                    "alt": "Claude Code 官方入口真实截图",
+                    "caption": "真实截图：确认官方入口。",
+                    "kind": "real",
+                }
+            ],
+        )
+
+        self.assertIn('src="tutorial_screenshots/01.png"', injected)
+        self.assertIn("真实截图：确认官方入口", injected)
+        self.assertEqual(injected.count("配图实操版"), 1)
 
     def test_public_screenshot_url_safety(self):
         self.assertTrue(publishing._is_public_https_url("https://www.trae.ai/"))

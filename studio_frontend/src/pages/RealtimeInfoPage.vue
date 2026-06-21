@@ -30,6 +30,26 @@ export default {
         </div>
         <div class="meta">这里展示的是 Tavily/RSS 等接口抓取到的资讯，不是系统自己的主观看法；生成文案时会提醒 AI 输出仍需要人来判断。</div>
         <div class="trend-flow-hint">{{ trendNextAction }}</div>
+        <section class="content-workflow-panel" aria-label="内容生成工作流">
+          <div class="content-workflow-header">
+            <div>
+              <strong>今天只看下一步</strong>
+              <span>{{ contentWorkflow.nextAction }}</span>
+            </div>
+            <b>{{ contentWorkflow.nextButtonLabel }}</b>
+          </div>
+          <div class="content-workflow-steps">
+            <div
+              v-for="step in contentWorkflow.steps"
+              :key="step.id"
+              class="workflow-step"
+              :class="step.status"
+            >
+              <span>{{ step.label }}</span>
+              <small>{{ step.helper }}</small>
+            </div>
+          </div>
+        </section>
 
         <!-- 预设主题 Chips -->
         <div class="preset-topics-row" v-if="presetTopics.length">
@@ -59,6 +79,17 @@ export default {
             </button>
           </div>
           <span>不填写时，默认获取最新 AI 实时信息；填写后，会优先根据这个主题检索。</span>
+        </div>
+
+        <div class="trend-direction-box">
+          <label for="trend-content-direction">我的内容方向/思想</label>
+          <textarea
+            id="trend-content-direction"
+            v-model="trendContentDirection"
+            rows="4"
+            placeholder="例如：写给像我一样想学 AI 但时间很碎的职场宝妈；希望读者看完知道这个工具能解决什么问题、适合谁、第一步怎么试、哪里需要谨慎。"
+          ></textarea>
+          <span>这段会进入公众号和小红书生成上下文。写得越具体，文案越不容易空泛。</span>
         </div>
 
         <div v-if="!aiTrends.length" class="meta">暂无 AI 日报。系统会每天自动抓取，也可以点击"立即抓取"。</div>
@@ -251,6 +282,38 @@ export default {
                 :class="{ active: trendDistributionView === 'wechat' }"
                 @click="trendDistributionView = 'wechat'"
               >公众号文章</button>
+            </div>
+
+            <div class="workflow-review-panel">
+              <div class="workflow-review-head">
+                <div>
+                  <strong>可选审稿</strong>
+                  <span>先检查这版是不是有真实场景、操作步骤和风险边界。</span>
+                </div>
+                <div class="workflow-review-actions">
+                  <select v-model="trendSelectedReviewSkill" aria-label="选择审稿 Skill">
+                    <option
+                      v-for="option in WORKFLOW_REVIEW_OPTIONS"
+                      :key="option.id"
+                      :value="option.id"
+                    >{{ option.label }}</option>
+                  </select>
+                  <button class="btn primary small" type="button" @click="runTrendWorkflowReview">运行审稿</button>
+                </div>
+              </div>
+              <div v-if="trendWorkflowReview" class="workflow-review-result" :class="{ pass: trendWorkflowReview.passed }">
+                <strong>{{ trendWorkflowReview.label }}：{{ trendWorkflowReview.verdict }}</strong>
+                <div class="workflow-review-checks">
+                  <span
+                    v-for="check in trendWorkflowReview.checks"
+                    :key="check.label"
+                    :class="{ pass: check.passed }"
+                  >{{ check.passed ? "✓" : "!" }} {{ check.label }}</span>
+                </div>
+                <ul v-if="trendWorkflowReview.suggestions.length">
+                  <li v-for="tip in trendWorkflowReview.suggestions" :key="tip">{{ tip }}</li>
+                </ul>
+              </div>
             </div>
 
             <div v-if="trendDistributionView === 'xiaohongshu'" class="channel-preview-pane">

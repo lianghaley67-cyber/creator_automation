@@ -10,8 +10,11 @@ import {
 import MaterialStudioPage from "./pages/MaterialStudioPage.vue";
 import OverviewPage from "./pages/OverviewPage.vue";
 import {
+  WORKFLOW_REVIEW_OPTIONS,
+  buildContentWorkflowState,
   buildTrendNextAction,
   buildTrendQuestions,
+  reviewDistributionDraft,
 } from "./pages/RealtimeInfoPage.logic.js";
 import RealtimeInfoPage from "./pages/RealtimeInfoPage.vue";
 import {
@@ -108,6 +111,9 @@ const presetTopics = ref([]);
 const trendAiSummary = ref(null); // AI摘要结果
 const trendChatMessages = ref([]); // [{role, content}]
 const trendChatInput = ref("");
+const trendContentDirection = ref("");
+const trendSelectedReviewSkill = ref("jianghushuo");
+const trendWorkflowReview = ref(null);
 const channelSkillsList = ref([]); // 全量 skill 列表
 const selectedWechatSkill = ref(""); // 用户选择的公众号 skill
 const selectedXhsSkill = ref(""); // 用户选择的小红书 skill
@@ -870,6 +876,7 @@ async function refreshAiTrends(force = false) {
       trendAiSummary.value = null;
       trendChatMessages.value = [];
       trendDistributionDraft.value = null;
+      trendWorkflowReview.value = null;
     }
     // 自动生成6个问题
     if (aiTrends.value.length > 0) {
@@ -917,8 +924,15 @@ async function prepareTrendDistribution(preferGeneratedScript = false, destinati
   const itemScript = sourceItem
     ? [itemTitle, itemSummary, itemUrl ? `官方/原文链接：${itemUrl}` : ""].filter(Boolean).join("\n\n")
     : "";
-  const script = sourceItem ? itemScript : (preferGeneratedScript ? String(generated?.script || "").trim() : "");
-  if (preferGeneratedScript && !script) {
+  const baseScript = sourceItem ? itemScript : (preferGeneratedScript ? String(generated?.script || "").trim() : "");
+  const direction = trendContentDirection.value.trim();
+  const script = [
+    direction
+      ? `【我的内容方向】\n${direction}\n\n请生成内容时优先服务这个方向：用大白话讲清楚，适合对 AI 感兴趣的普通人和知识成长女性阅读；少空话，多给真实判断、操作步骤、官方链接、风险边界和可复用方法。`
+      : "",
+    baseScript,
+  ].filter(Boolean).join("\n\n");
+  if (preferGeneratedScript && !baseScript) {
     setError("请先基于追问生成文案，再推荐到小红书。");
     return;
   }
@@ -944,6 +958,7 @@ async function prepareTrendDistribution(preferGeneratedScript = false, destinati
       30000
     );
     trendDistributionDraft.value = result;
+    trendWorkflowReview.value = null;
     setNotice(
       sourceItem
         ? `已用「${itemTitle || "这条资讯"}」生成公众号和小红书发布包。`
@@ -1903,8 +1918,20 @@ const selectedWechatSkillName = computed(() => (
 const selectedXhsSkillName = computed(() => (
   channelSkillsList.value.find((skill) => skill.id === selectedXhsSkill.value)?.name || "默认小红书 Skill"
 ));
+const contentWorkflow = computed(() => buildContentWorkflowState({
+  isRefreshing: busy.refreshTrends,
+  hasTrends: aiTrends.value.length > 0,
+  hasSummary: Boolean(trendAiSummary.value && !trendAiSummary.value.error),
+  hasDirection: Boolean(trendContentDirection.value.trim()),
+  hasWechatSkill: Boolean(selectedWechatSkill.value),
+  hasXhsSkill: Boolean(selectedXhsSkill.value),
+  hasDistributionDraft: Boolean(trendDistributionDraft.value),
+  hasWechatPreview: Boolean(trendDistributionDraft.value?.wechat?.article_html_url),
+  wechatDraftVerified: Boolean(trendDistributionDraft.value?.wechat?.verified),
+  hasReviewResult: Boolean(trendWorkflowReview.value),
+}));
 const trendNextAction = computed(() => {
-  return buildTrendNextAction({
+  return contentWorkflow.value?.nextAction || buildTrendNextAction({
     isRefreshing: busy.refreshTrends,
     hasTrends: aiTrends.value.length > 0,
     hasSummary: Boolean(trendAiSummary.value),
@@ -1912,6 +1939,18 @@ const trendNextAction = computed(() => {
     hasDistributionDraft: Boolean(trendDistributionDraft.value)
   });
 });
+
+function runTrendWorkflowReview() {
+  if (!trendDistributionDraft.value) {
+    setError("请先生成公众号和小红书文案，再运行审稿。");
+    return;
+  }
+  trendWorkflowReview.value = reviewDistributionDraft(
+    trendDistributionDraft.value,
+    trendSelectedReviewSkill.value
+  );
+  setNotice(trendWorkflowReview.value.passed ? "审稿通过，可以进入发布前预览。" : "审稿完成，建议先补齐提示中的缺口。");
+}
 
 function openStudioModule(tab, targetId = "") {
   activeTab.value = tab;
@@ -2047,6 +2086,7 @@ const studioContext = {
   clearWechatMaterials,
   completedKidsJobs,
   configuredApiBase,
+  contentWorkflow,
   continueTrendInterview,
   copyNotebookLmSourceLinks,
   copyText,
@@ -2134,6 +2174,7 @@ const studioContext = {
   resolveApiBase,
   reviewLines,
   reviseWithReview,
+  runTrendWorkflowReview,
   runStockSkill,
   runningKidsJobs,
   saveStockToWatchlist,
@@ -2182,6 +2223,7 @@ const studioContext = {
   trendAiSummary,
   trendChatInput,
   trendChatMessages,
+  trendContentDirection,
   trendDiscussionOpen,
   trendDistributionDraft,
   trendDistributionView,
@@ -2198,8 +2240,10 @@ const studioContext = {
   trendInterviewVoiceNote,
   trendNextAction,
   trendQuestions,
+  trendSelectedReviewSkill,
   trendScripts,
   trendSearchQuery,
+  trendWorkflowReview,
   updateXiaohongshuStatus,
   uploadCharacterVoice,
   uploadMaterialAudio,
@@ -2218,6 +2262,7 @@ const studioContext = {
   wechatMaterialsLoaded,
   wechatQrImageUrl,
   wechatSkillManuallySelected,
+  WORKFLOW_REVIEW_OPTIONS,
   workflowCards,
   xhsSkillManuallySelected,
   xiaohongshuDragLine,

@@ -175,7 +175,17 @@ def _wechat_channel_html(markdown: str) -> str:
             if separator_index < len(lines) and _is_markdown_table_separator(lines[separator_index]):
                 table_rows = [line]
                 row_index = separator_index + 1
-                while row_index < len(lines) and _is_markdown_table_row(lines[row_index]):
+                while row_index < len(lines):
+                    if not lines[row_index]:
+                        lookahead = row_index + 1
+                        while lookahead < len(lines) and not lines[lookahead]:
+                            lookahead += 1
+                        if lookahead < len(lines) and _is_markdown_table_row(lines[lookahead]):
+                            row_index = lookahead
+                            continue
+                        break
+                    if not _is_markdown_table_row(lines[row_index]):
+                        break
                     table_rows.append(lines[row_index])
                     row_index += 1
                 blocks.append(_wechat_table_html(table_rows))
@@ -260,12 +270,25 @@ def _tutorial_font(size: int, *, bold: bool = False) -> Any:
     try:
         from PIL import ImageFont
 
-        path = "C:/Windows/Fonts/msyhbd.ttc" if bold else "C:/Windows/Fonts/msyh.ttc"
-        return ImageFont.truetype(path, size)
+        candidates = [
+            "C:/Windows/Fonts/msyhbd.ttc" if bold else "C:/Windows/Fonts/msyh.ttc",
+            "C:/Windows/Fonts/simhei.ttf" if bold else "C:/Windows/Fonts/simsun.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.otf" if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.otf",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc" if bold else "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ]
+        for path in candidates:
+            if path and Path(path).exists():
+                return ImageFont.truetype(path, size)
     except Exception:  # noqa: BLE001
         from PIL import ImageFont
 
         return ImageFont.load_default()
+    from PIL import ImageFont
+
+    return ImageFont.load_default()
 
 
 def _draw_wrapped(draw: Any, text: str, xy: tuple[int, int], font: Any, fill: str, max_width: int, line_height: int) -> int:
@@ -468,7 +491,7 @@ def _generate_tool_tutorial_screenshots(
 
 
 def _inject_tool_tutorial_screenshots(article_html: str, images: list[dict[str, str]]) -> str:
-    if not images or "配图实操版" in article_html:
+    if not images or "tutorial_screenshots/" in article_html:
         return article_html
     has_real = any(item.get("kind") == "real" for item in images)
     intro = (
@@ -490,6 +513,17 @@ def _inject_tool_tutorial_screenshots(article_html: str, images: list[dict[str, 
             "</figure>"
         )
     insert = "".join(figures)
+    existing_heading = re.search(
+        r'(<h2[^>]*>\s*配图实操版[^<]*</h2>)',
+        article_html,
+        flags=re.IGNORECASE,
+    )
+    if existing_heading:
+        return (
+            article_html[: existing_heading.end()]
+            + "".join(figures[1:])
+            + article_html[existing_heading.end() :]
+        )
     marker = '<h2 style="font-size:19px;line-height:1.6;color:#0b6670;margin-top:28px;">安装：小白照着这几步走</h2>'
     if marker in article_html:
         return article_html.replace(marker, insert + marker, 1)
