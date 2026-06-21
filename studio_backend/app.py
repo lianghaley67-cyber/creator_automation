@@ -2002,6 +2002,7 @@ async def upload_channel_skill(
     channel: str = Form(...),
     description: str = Form(""),
     persona_tags: str = Form("[]"),
+    content_kind: str = Form(""),
 ) -> dict[str, Any]:
     if not file.filename or not file.filename.endswith(".md"):
         raise HTTPException(status_code=400, detail="只支持上传 .md 文件")
@@ -2018,7 +2019,7 @@ async def upload_channel_skill(
         tags = json.loads(persona_tags) if persona_tags.strip() else []
     except Exception:
         tags = [t.strip() for t in persona_tags.split(",") if t.strip()]
-    add_user_skill(skill_id, name, channel, file_rel, description, tags)
+    add_user_skill(skill_id, name, channel, file_rel, description, tags, content_kind)
     return {"ok": True, "skill_id": skill_id, "file": file_rel}
 
 

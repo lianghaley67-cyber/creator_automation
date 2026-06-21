@@ -16,6 +16,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "wechat_article_v1": {
         "name": "公众号深度文章",
         "channel": "wechat",
+        "content_kind": "wechat_article",
         "file": "wechat/06_wechat_article.md",
         "description": "长文结构、背景解释、个人判断和行动建议。适合深度科普和经验分享。",
         "persona_tags": ["通用"],
@@ -28,6 +29,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "xiaohongshu_note_v1": {
         "name": "小红书知识笔记",
         "channel": "xiaohongshu",
+        "content_kind": "xiaohongshu_note",
         "file": "xiaohongshu/07_xiaohongshu_note.md",
         "description": "短标题、钩子、要点、互动问题和话题。适合知识传播类内容。",
         "persona_tags": ["通用"],
@@ -39,6 +41,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "xiaohongshu_images_v1": {
         "name": "小红书图文卡片",
         "channel": "xiaohongshu",
+        "content_kind": "xiaohongshu_image_cards",
         "file": "xiaohongshu/08_xiaohongshu_images.md",
         "description": "1080×1440 封面与内容卡片自动分页。适合知识卡片和步骤拆解。",
         "persona_tags": ["通用"],
@@ -51,6 +54,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "wechat_ai_growth_diary_v1": {
         "name": "公众号·AI成长实录",
         "channel": "wechat",
+        "content_kind": "growth_diary",
         "file": "shared/13_ai_growth_diary.md",
         "description": "职场宝妈/独立女性/AI学习者视角，记录真实使用AI工具的过程、踩坑和变化，有温度、有共鸣、有可操作性。",
         "persona_tags": ["职场宝妈", "独立女性", "AI学习", "真实成长"],
@@ -63,6 +67,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "xiaohongshu_ai_growth_diary_v1": {
         "name": "小红书·AI成长实录",
         "channel": "xiaohongshu",
+        "content_kind": "growth_diary",
         "file": "shared/13_ai_growth_diary.md",
         "description": "以职场宝妈/独立女性视角分享AI学习真实经历，有具体操作、有踩坑、有可复制提示词，适合有类似处境的女性读者。",
         "persona_tags": ["职场宝妈", "独立女性", "AI学习", "真实经历"],
@@ -74,6 +79,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "wechat_ai_writing_workshop_v1": {
         "name": "公众号·言情玄幻连载",
         "channel": "wechat",
+        "content_kind": "fiction_serial",
         "file": "shared/16_ai_writing_workshop.md",
         "description": "直接生成言情/玄幻连载小说章节：有故事名、章节名、人物欲望、冲突推进、情绪张力和结尾悬念。不输出AI写作教程、提示词拆解或创作手记。",
         "persona_tags": ["连载小说", "言情", "玄幻", "悬念", "故事结构"],
@@ -86,6 +92,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "xiaohongshu_ai_writing_workshop_v1": {
         "name": "小红书·言情玄幻连载",
         "channel": "xiaohongshu",
+        "content_kind": "fiction_serial",
         "file": "shared/16_ai_writing_workshop.md",
         "description": "把公众号连载压缩成小红书短篇钩子：第一行抓人、250-350字故事片段、下期悬念或读者投票。不写AI写作方法。",
         "persona_tags": ["连载小说", "言情", "玄幻", "短篇钩子"],
@@ -105,6 +112,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "wechat_tool_research_v1": {
         "name": "公众号·工具研究说明书",
         "channel": "wechat",
+        "content_kind": "tool_research",
         "file": "shared/14_tool_research_playbook.md",
         "description": "把一个具体工具讲清楚：它是什么、解决什么问题、适合谁、怎么安装、怎么上手、怎么进阶。",
         "persona_tags": ["工具研究", "教程", "实操"],
@@ -117,6 +125,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "xiaohongshu_tool_research_v1": {
         "name": "小红书·工具研究说明书",
         "channel": "xiaohongshu",
+        "content_kind": "tool_research",
         "file": "shared/14_tool_research_playbook.md",
         "description": "适合工具种草和教程：先讲清楚工具本身，再给安装、上手、进阶和避坑清单。",
         "persona_tags": ["工具研究", "教程", "实操"],
@@ -128,6 +137,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "wechat_tool_deep_review_v1": {
         "name": "公众号·AI工具深度实测",
         "channel": "wechat",
+        "content_kind": "tool_deep_review",
         "file": "shared/15_tool_deep_review.md",
         "description": "按工具实测长文写法输出：是什么、安装、基础使用、进阶玩法、避坑、对比和结论。",
         "persona_tags": ["工具实测", "安装教程", "深度教程"],
@@ -140,6 +150,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "xiaohongshu_tool_deep_review_v1": {
         "name": "小红书·AI工具深度实测",
         "channel": "xiaohongshu",
+        "content_kind": "tool_deep_review",
         "file": "shared/15_tool_deep_review.md",
         "description": "把工具实测长文压缩成可收藏笔记：适合谁、安装检查、上手步骤、提示词和避坑。",
         "persona_tags": ["工具实测", "教程", "可收藏"],
@@ -195,6 +206,7 @@ def list_channel_skills() -> list[dict[str, Any]]:
                 "file": metadata["file"],
                 "description": metadata["description"],
                 "persona_tags": metadata.get("persona_tags", []),
+                "content_kind": _skill_content_kind(skill_id),
                 "example": metadata.get("example", {}),
                 "configured": skill_path.exists(),
                 "builtin": True,
@@ -212,6 +224,7 @@ def list_channel_skills() -> list[dict[str, Any]]:
                 "file": metadata["file"],
                 "description": metadata.get("description", ""),
                 "persona_tags": metadata.get("persona_tags", []),
+                "content_kind": _skill_content_kind(skill_id),
                 "example": metadata.get("example", {}),
                 "configured": skill_path.exists(),
                 "builtin": False,
@@ -227,7 +240,11 @@ def add_user_skill(
     file_rel: str,
     description: str = "",
     persona_tags: list[str] | None = None,
+    content_kind: str = "",
 ) -> None:
+    normalized_kind = str(content_kind or "").strip()
+    if not normalized_kind:
+        normalized_kind = "xiaohongshu_note" if channel == "xiaohongshu" else "wechat_article"
     data = _load_user_skills()
     data.setdefault("skills", {})[skill_id] = {
         "name": name,
@@ -235,6 +252,7 @@ def add_user_skill(
         "file": file_rel,
         "description": description,
         "persona_tags": persona_tags or [],
+        "content_kind": normalized_kind,
         "example": {},
     }
     data.setdefault("deleted", [])
@@ -261,6 +279,117 @@ def load_skill_content(skill_id: str) -> str:
     if not skill_path.exists():
         return ""
     return skill_path.read_text(encoding="utf-8", errors="replace").strip()
+
+
+def _skill_content_kind(skill_id: str) -> str:
+    """Return the content family a channel skill is allowed to generate."""
+    normalized = str(skill_id or "").strip()
+    metadata = CHANNEL_SKILLS.get(normalized) or _load_user_skills().get("skills", {}).get(normalized) or {}
+    explicit = str(metadata.get("content_kind") or "").strip()
+    if explicit:
+        return explicit
+    if "ai_writing_workshop" in normalized:
+        return "fiction_serial"
+    if "tool_deep_review" in normalized:
+        return "tool_deep_review"
+    if "tool_research" in normalized:
+        return "tool_research"
+    if "ai_growth_diary" in normalized:
+        return "growth_diary"
+    if "operator_flywheel" in normalized or "flywheel" in normalized:
+        return "operator_flywheel"
+    if "xiaohongshu_images" in normalized:
+        return "xiaohongshu_image_cards"
+    if normalized.startswith("xiaohongshu_"):
+        return "xiaohongshu_note"
+    if normalized.startswith("wechat_"):
+        return "wechat_article"
+    return "custom"
+
+
+def _skill_family(kind: str) -> str:
+    if kind in {"tool_deep_review", "tool_research"}:
+        return "tool_tutorial"
+    if kind == "fiction_serial":
+        return "fiction_serial"
+    if kind == "growth_diary":
+        return "growth_diary"
+    if kind == "operator_flywheel":
+        return "operator_flywheel"
+    return "general"
+
+
+def _skill_type_contract(skill_id: str, channel: str) -> str:
+    kind = _skill_content_kind(skill_id)
+    if kind == "fiction_serial":
+        return (
+            f"【{channel} 当前 Skill 类型：连载小说】\n"
+            "- 只能写小说正文或连载预告，禁止写AI创作教程、提示词拆解、工具测评、表格清单。\n"
+            "- 必须有具体人物、目标、阻碍、关系张力和结尾悬念。\n"
+            "- 如果原始素材是工具/资讯，只把它当灵感，不要照着写成工具文章。"
+        )
+    if kind in {"tool_deep_review", "tool_research"}:
+        return (
+            f"【{channel} 当前 Skill 类型：工具教程/实测】\n"
+            "- 只能写工具说明、安装、实操、避坑、对比和结论，禁止写小说、情绪散文或成长日记。\n"
+            "- 必须解释：它是什么、解决什么问题、适合谁、怎么安装/上手、哪里需要核验。\n"
+            "- 操作步骤要具体到点哪里、输入什么、看到什么算成功。"
+        )
+    if kind == "growth_diary":
+        return (
+            f"【{channel} 当前 Skill 类型：AI成长实录】\n"
+            "- 只能写真实使用经历：具体场景、做了什么、卡在哪里、怎么绕过、带来什么变化。\n"
+            "- 禁止写成工具百科、新闻搬运、小说或纯观点鸡汤。"
+        )
+    if kind == "operator_flywheel":
+        return (
+            f"【{channel} 当前 Skill 类型：运营飞轮/实用价值】\n"
+            "- 只能写普通人如何把一个信息变成可重复动作，强调省时、省力、复盘和长期积累。\n"
+            "- 禁止写成安装教程、小说、纯资讯摘要。"
+        )
+    if kind == "xiaohongshu_note":
+        return (
+            f"【{channel} 当前 Skill 类型：小红书知识笔记】\n"
+            "- 只能写短标题、强钩子、要点、互动和话题标签，禁止长篇公众号结构。"
+        )
+    return (
+        f"【{channel} 当前 Skill 类型：通用内容】\n"
+        "- 严格按当前 Skill 文件里的结构写，不借用其他 Skill 的栏目、语气和禁词。"
+    )
+
+
+def _validate_skill_output(skill_id: str, channel: str, content: str) -> None:
+    kind = _skill_content_kind(skill_id)
+    text = str(content or "")
+    if not text.strip():
+        raise ValueError(f"{channel} 输出为空。")
+    if kind == "fiction_serial":
+        forbidden_patterns = [
+            r"我让\s*AI\s*写",
+            r"AI原版",
+            r"我的修改",
+            r"提示词",
+            r"这段是怎么写出来",
+            r"小说片段",
+            r"创作手记",
+            r"方法论",
+            r"安装前",
+            r"官网入口",
+            r"适合谁",
+            r"\|.+\|.+\|",
+        ]
+        if any(re.search(pattern, text, flags=re.I) for pattern in forbidden_patterns):
+            raise ValueError(f"{channel} 选择的是连载小说 Skill，但输出跑偏为教程/拆解结构。")
+        if channel == "wechat":
+            plain_story = re.sub(r"#+\s*", "", text)
+            plain_story = re.sub(r"\s+", "", plain_story)
+            if len(plain_story) < 800:
+                raise ValueError("公众号连载小说正文过短。")
+    if kind in {"tool_deep_review", "tool_research"}:
+        if re.search(r"第[一二三四五六七八九十]+章|师门|神骨|禁地|他低声说|她没有", text):
+            raise ValueError(f"{channel} 选择的是工具 Skill，但输出跑偏为小说。")
+    if kind == "growth_diary" and re.search(r"第[一二三四五六七八九十]+章|神骨|禁地", text):
+        raise ValueError(f"{channel} 选择的是成长实录 Skill，但输出跑偏为小说。")
 
 
 def _load_jianghushuo_lens() -> str:
@@ -650,9 +779,9 @@ def build_channel_drafts_with_ai(
     xiaohongshu_skill_id: str = "xiaohongshu_note_v1",
 ) -> dict[str, Any]:
     """生成渠道内容草稿，优先用 OpenAI 按 Skill 规则生成，无 API Key 时降级到规则模板。"""
-    uses_tool_deep_review = (
-        wechat_skill_id == "wechat_tool_deep_review_v1"
-        or xiaohongshu_skill_id == "xiaohongshu_tool_deep_review_v1"
+    uses_tool_deep_review = any(
+        _skill_content_kind(skill_id) == "tool_deep_review"
+        for skill_id in (wechat_skill_id, xiaohongshu_skill_id)
     )
     if uses_tool_deep_review and _is_tool_research_request(title, source_text, source_type):
         fallback = _build_tool_research_fallback(
@@ -661,16 +790,8 @@ def build_channel_drafts_with_ai(
             summary=summary,
             hashtags=hashtags,
         )
-        fallback["wechat"]["skill_id"] = (
-            "wechat_tool_deep_review_v1"
-            if wechat_skill_id == "wechat_tool_deep_review_v1"
-            else (wechat_skill_id or fallback["wechat"]["skill_id"])
-        )
-        fallback["xiaohongshu"]["skill_id"] = (
-            "xiaohongshu_tool_deep_review_v1"
-            if xiaohongshu_skill_id == "xiaohongshu_tool_deep_review_v1"
-            else (xiaohongshu_skill_id or fallback["xiaohongshu"]["skill_id"])
-        )
+        fallback["wechat"]["skill_id"] = wechat_skill_id or fallback["wechat"]["skill_id"]
+        fallback["xiaohongshu"]["skill_id"] = xiaohongshu_skill_id or fallback["xiaohongshu"]["skill_id"]
         return fallback
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -754,12 +875,15 @@ def _ai_generate_channel_drafts(
 
     tags_str = " ".join(f"#{t}" for t in (hashtags or ["AI工具", "普通人学AI"])[:6])
 
-    # 根据 skill 类型决定哪些额外规则生效
-    is_tool_tutorial = any(k in wechat_skill_id for k in ("tool_deep_review", "tool_research"))
-    is_growth_diary = "ai_growth_diary" in wechat_skill_id or "ai_growth_diary" in xiaohongshu_skill_id
-    is_writing_workshop = "ai_writing_workshop" in wechat_skill_id or "ai_writing_workshop" in xiaohongshu_skill_id
-    # 兼容旧 flywheel skill id
-    is_flywheel = "flywheel" in wechat_skill_id or "flywheel" in xiaohongshu_skill_id
+    wechat_kind = _skill_content_kind(wechat_skill_id)
+    xhs_kind = _skill_content_kind(xiaohongshu_skill_id)
+    wechat_family = _skill_family(wechat_kind)
+    xhs_family = _skill_family(xhs_kind)
+    families = {wechat_family, xhs_family}
+    is_tool_tutorial = "tool_tutorial" in families
+    is_growth_diary = "growth_diary" in families
+    is_writing_workshop = "fiction_serial" in families
+    is_flywheel = "operator_flywheel" in families
     jianghushuo_lens = _load_jianghushuo_lens() if (is_flywheel or is_growth_diary) else ""
 
     # ── 通用基础规则（所有 skill 都适用）──────────────────────
@@ -784,7 +908,7 @@ def _ai_generate_channel_drafts(
 
     # ── AI成长实录专属规则 ────────────────────────────────────
     growth_diary_rules = (
-        """AI成长实录专项规则：
+        """AI成长实录规则类型：
 
 【写作身份】：我是Haley，职场宝妈/软件开发者/AI学习者，把我真实用过的东西分享给有类似处境的女性。
 
@@ -814,7 +938,7 @@ def _ai_generate_channel_drafts(
 
     # ── AI连载创作专属规则 ──────────────────────────────────
     writing_workshop_rules = (
-        """AI连载创作专项规则：
+        """连载小说规则类型：
 
 【核心定位】：只输出故事。不说怎么写的，不讲提示词，不做教程，不写创作手记。
 
@@ -852,7 +976,7 @@ def _ai_generate_channel_drafts(
 
     # ── 飞轮/运营观点专属规则（兼容旧 skill id）────────────
     flywheel_rules = (
-        f"""飞轮·普通人实用价值专项规则：
+        f"""运营飞轮规则类型：
 
 【核心视角】：从普通职场人/自媒体人的真实使用视角出发，挖掘工具或资讯对普通人的深层实用价值。
 不是发布通报，不是功能清单。核心问题只有一个：这件事能帮普通人在哪几件具体的事上省力、省时、做得更好？
@@ -891,32 +1015,40 @@ def _ai_generate_channel_drafts(
         else ""
     )
 
-    # 通用文章 skill 也有自己的禁令
-    general_article_rules = (
-        """深度文章专项规则：
+    general_article_rules = """通用深度文章规则类型：
 - 公众号结构：开头钩子（我的具体困境/反直觉发现/和读者共同疑问） → 主体（工具类：是什么→我怎么用→对你的价值→我踩过的坑；资讯类：发生了什么→对普通人意味着什么→我的判断→你可以做的一件事） → 结尾CTA（互动/关注/行动引导之一）。
 - 每完成2-3步后插入一句个人感受或踩坑。
 - 总字数800-1500字。
 - 不使用"### 第X步："格式，步骤用"1. 2. 3."或"**第一件事：**"等自然格式。"""
-        if not is_flywheel and not is_tool_tutorial
-        else ""
-    )
+
+    def _family_rules(family: str) -> str:
+        if family == "tool_tutorial":
+            return tool_tutorial_rules
+        if family == "growth_diary":
+            return growth_diary_rules
+        if family == "fiction_serial":
+            return writing_workshop_rules
+        if family == "operator_flywheel":
+            return flywheel_rules
+        return general_article_rules
 
     # ── 拼装 system prompt ────────────────────────────────────
-    skill_type_block = (
-        tool_tutorial_rules if is_tool_tutorial
-        else growth_diary_rules if is_growth_diary
-        else writing_workshop_rules if is_writing_workshop
-        else flywheel_rules if is_flywheel
-        else general_article_rules
-    )
+    skill_type_block = f"""【公众号 Skill 绑定规则类型】
+{_skill_type_contract(wechat_skill_id, "公众号")}
+{_family_rules(wechat_family)}
+
+【小红书 Skill 绑定规则类型】
+{_skill_type_contract(xiaohongshu_skill_id, "小红书")}
+{_family_rules(xhs_family)}
+
+关键要求：公众号输出只能服从公众号 Skill 的规则类型；小红书输出只能服从小红书 Skill 的规则类型。两边不要互相借用结构。"""
 
     account_context = (
         """【创作身份】
 你是一位中文言情/玄幻连载小说作者和故事编辑。
 目标读者：喜欢强情绪、强设定、强悬念的女性读者，读完这一章会想看下一章。
 写作声音：小说正文，不是教程，不是自媒体经验分享，不解释AI怎么写。"""
-        if is_writing_workshop
+        if wechat_family == "fiction_serial" and xhs_family == "fiction_serial"
         else """【账号人设】
 我叫Haley，职场宝妈·软件开发者·AI学习者·自媒体博主。
 目标读者：和我有类似处境的女性——上班、带娃、想学AI、想做自媒体，时间碎片化，不确定自己能不能做到。
@@ -931,7 +1063,7 @@ def _ai_generate_channel_drafts(
 4. 本章阻碍：谁挡住她/他，阻碍带来什么代价。
 5. 关系张力：两个人为什么互相吸引，又为什么不能轻易靠近。
 6. 结尾悬念：最后一句停在答案揭开前一秒。"""
-        if is_writing_workshop
+        if wechat_family == "fiction_serial" and xhs_family == "fiction_serial"
         else """【每次写作前，先完成内部思考（不输出）】
 1. 读者今天在哪里？她是在孩子午睡时刷手机，还是下班后一个人刷到这篇？
 2. 这篇文章触发的核心情绪是什么？（共鸣/解脱/好奇/归属，选一个主导情绪）
@@ -940,7 +1072,11 @@ def _ai_generate_channel_drafts(
 5. 真实感来自哪里？有没有一个具体细节让人觉得"这是真实发生的"？"""
     )
 
-    system_role = "你是一位中文言情/玄幻连载小说作者。" if is_writing_workshop else "你是一位中文自媒体内容创作专家，为以下账号创作内容。"
+    system_role = (
+        "你是一位中文言情/玄幻连载小说作者。"
+        if wechat_family == "fiction_serial" and xhs_family == "fiction_serial"
+        else "你是一位中文内容创作专家，必须按每个渠道所选 Skill 的规则类型创作。"
+    )
 
     system_prompt = f"""{system_role}
 
@@ -989,8 +1125,8 @@ def _ai_generate_channel_drafts(
   }}
 }}"""
 
-    user_prompt = (
-        f"""请把以下内容当作连载小说的灵感种子，按照所选 Skill 分别生成公众号连载章节和小红书连载预告。
+    if wechat_family == "fiction_serial" and xhs_family == "fiction_serial":
+        user_prompt = f"""请把以下内容当作连载小说的灵感种子，按照所选 Skill 分别生成公众号连载章节和小红书连载预告。
 
 用户输入/标题：{title or "言情玄幻连载"}
 补充摘要：{summary[:200] if summary else ""}
@@ -1003,8 +1139,8 @@ def _ai_generate_channel_drafts(
 2. 先确定故事名、章节名、类型、主角目标、阻碍、关系张力和章末悬念。
 3. 公众号 markdown 只允许出现章节标题、故事正文、下期暗示/投票；禁止表格、教程小标题、"小说片段"、"这段是怎么写出来的"。
 4. 小红书 body 第一行必须是故事里最有张力的一句话。"""
-        if is_writing_workshop
-        else f"""请根据以下内容，按照所选 Skill 的格式和风格分别生成公众号文章和小红书笔记：
+    else:
+        user_prompt = f"""请根据以下内容，按照所选 Skill 的格式和风格分别生成公众号文章和小红书笔记：
 
 标题：{title or "AI最新资讯"}
 摘要：{summary[:200] if summary else ""}
@@ -1013,10 +1149,9 @@ def _ai_generate_channel_drafts(
 {source_text[:3000]}
 
 生成前内部自检（不要输出这些判断）：
-1. 当前选用的是什么类型 Skill？严格按 Skill 规则定义的结构和风格生成，不要用其他 Skill 的格式替代。
+1. 公众号当前规则类型：{wechat_kind}；小红书当前规则类型：{xhs_kind}。分别按自己的规则写，不要互相串格式。
 2. 从原始内容提取确实信息；没有证据的地方写"建议核验"，不编造。
 3. 确保公众号文章和小红书笔记有各自不同的结构和侧重点，不要互相复制。"""
-    )
 
     raw = _openai_chat(
         api_key=api_key,
@@ -1041,28 +1176,12 @@ def _ai_generate_channel_drafts(
 
     final_title = _compact(str(wechat_data.get("title") or title or "今天的AI资讯"), 64)
     wechat_markdown = str(wechat_data.get("markdown") or "")
-    if is_writing_workshop:
-        forbidden_patterns = [
-            r"我让\s*AI\s*写",
-            r"AI原版",
-            r"我的修改",
-            r"提示词",
-            r"这段是怎么写出来",
-            r"小说片段",
-            r"创作手记",
-            r"方法论",
-            r"\|.+\|.+\|",
-        ]
-        if any(re.search(pattern, wechat_markdown, flags=re.I) for pattern in forbidden_patterns):
-            raise ValueError("AI连载创作结果跑偏为教程/拆解结构，已切换规则兜底。")
-        plain_story = re.sub(r"#+\s*", "", wechat_markdown)
-        plain_story = re.sub(r"\s+", "", plain_story)
-        if len(plain_story) < 800:
-            raise ValueError("AI连载创作结果正文过短，已切换规则兜底。")
+    _validate_skill_output(wechat_skill_id, "wechat", wechat_markdown)
     xhs_title = _compact(str(xhs_data.get("title") or final_title), 20)
     xhs_body = str(xhs_data.get("body") or "")
     if not xhs_body:
         xhs_body = str(xhs_data.get("cover_text") or xhs_title)
+    _validate_skill_output(xiaohongshu_skill_id, "xiaohongshu", xhs_body)
 
     card_pages = xhs_data.get("card_pages") or []
     if not card_pages:
@@ -1101,10 +1220,10 @@ def build_channel_drafts(
         paragraphs = [_compact(source_text, 500)]
     is_trend = source_type == "ai_trends"
     final_title = _compact(title, 64) or ("今天值得关注的 3 个变化" if is_trend else "这件事，我终于想明白了")
-    # 只有明确选用工具类 Skill 才使用工具模板，避免覆盖其他 Skill 的格式
-    is_tool_skill = any(k in wechat_skill_id for k in ("tool_deep_review", "tool_research"))
-    is_growth_diary_skill = "ai_growth_diary" in wechat_skill_id
-    is_writing_workshop_skill = "ai_writing_workshop" in wechat_skill_id
+    wechat_kind = _skill_content_kind(wechat_skill_id)
+    is_tool_skill = _skill_family(wechat_kind) == "tool_tutorial"
+    is_growth_diary_skill = wechat_kind == "growth_diary"
+    is_writing_workshop_skill = wechat_kind == "fiction_serial"
 
     if is_trend and is_tool_skill and _is_tool_research_request(final_title, source_text, source_type):
         return _build_tool_research_fallback(
