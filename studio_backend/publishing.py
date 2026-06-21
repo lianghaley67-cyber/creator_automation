@@ -854,12 +854,14 @@ def _generate_tool_tutorial_screenshots(
     official_url = official_url or ""
     output: list[dict[str, str]] = []
 
-    # 从文章提取步骤；提取失败则使用默认4步
+    # 从文章提取步骤，过滤掉无法生成操作型截图的章节
+    _OPERATIONAL = {"website", "install", "folder", "terminal", "review"}
     extracted = _extract_article_steps(article_markdown) if article_markdown else []
+    extracted = [s for s in extracted if _classify_step(s["title"]) in _OPERATIONAL]
     if not extracted:
         extracted = [
             {"title": f"确认 {tool_name} 官方入口"},
-            {"title": f"新建安全测试文件夹"},
+            {"title": "新建安全测试文件夹"},
             {"title": "输入第一条提示词"},
             {"title": "检查结果和复盘"},
         ]
@@ -922,9 +924,7 @@ def _generate_tool_tutorial_screenshots(
             output.append({"src": src, "alt": "检查 AI 输出结果并复盘", "caption": caption, "kind": "illustration"})
 
         else:
-            _tutorial_generic_card(fpath, step_label=step_label, title=title, step_num=idx, total=total)
-            caption = f"{prefix} {title} — 按文章步骤照做，每步完成后再进行下一步。"
-            output.append({"src": src, "alt": title, "caption": caption, "kind": "illustration"})
+            continue  # 非操作型步骤不生成截图
 
     return output
 
