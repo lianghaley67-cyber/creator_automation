@@ -352,8 +352,16 @@ def _official_url_from_markdown(markdown: str) -> str:
 
 
 def _tool_name_from_title(title: str) -> str:
-    text = re.split(r"[\s：:，,、-]", str(title or "").strip(), maxsplit=1)[0]
-    return _compact(text or "这个工具", 24)
+    # 保留最多两段，以便 "Claude Code"、"Cursor AI" 这类双词工具名不被截断
+    parts = re.split(r"[：:，,、\-—]", str(title or "").strip(), maxsplit=1)
+    raw = parts[0].strip()
+    # 如果首段只有一个英文单词且后面紧跟另一个英文词，合并保留两词
+    words = raw.split()
+    if len(words) >= 2 and all(re.match(r"[A-Za-z0-9]+", w) for w in words[:2]):
+        raw = " ".join(words[:2])
+    else:
+        raw = words[0] if words else raw
+    return _compact(raw or "这个工具", 24)
 
 
 def _is_public_https_url(url: str) -> bool:
@@ -398,6 +406,22 @@ def _capture_public_webpage_screenshot(url: str, output_path: Path) -> bool:
             )
             page.goto(url, wait_until="domcontentloaded", timeout=12000)
             page.wait_for_timeout(1800)
+            # 关闭常见 Cookie / 隐私弹窗
+            for selector in [
+                "button[id*='reject']", "button[id*='decline']",
+                "button[class*='reject']", "button[class*='decline']",
+                "[aria-label*='Reject']", "[aria-label*='Decline']",
+                "button:has-text('Reject all')", "button:has-text('Decline')",
+                "button:has-text('拒绝')", "button:has-text('关闭')",
+            ]:
+                try:
+                    btn = page.locator(selector).first
+                    if btn.is_visible(timeout=800):
+                        btn.click(timeout=800)
+                        page.wait_for_timeout(400)
+                        break
+                except Exception:  # noqa: BLE001
+                    pass
             page.screenshot(path=str(output_path), full_page=False)
             browser.close()
         return output_path.exists() and output_path.stat().st_size > 0
