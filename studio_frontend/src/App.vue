@@ -123,7 +123,7 @@ const skillSelectorVisible = ref(false); // 是否展开 skill 选择面板
 // 连载故事档案
 const stories = ref([]);
 const selectedStoryId = ref("");
-const storyManageModal = reactive({ visible: false, chapters: [], bible: null, loading: false, storyId: "" });
+const storyManageModal = reactive({ visible: false, chapters: [], bible: null, loading: false, storyId: "", expandedChapterId: null });
 const newStoryForm = reactive({ name: "", genre: "fantasy", visible: false, creating: false, error: "" });
 const trendDiscussionOpen = ref(false); // 多轮讨论是否展开
 const trendFreshHighlight = ref(false); // 资讯刷新后的短暂高亮
@@ -5993,6 +5993,32 @@ textarea {
   flex-direction: column;
   gap: 4px;
   position: relative;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.chapter-item:hover { border-color: rgba(142, 171, 205, 0.3); }
+.chapter-item.expanded { border-color: rgba(100, 200, 180, 0.4); }
+
+.chapter-toggle {
+  margin-left: auto;
+  font-size: 10px;
+  color: #6a8aaa;
+}
+
+.chapter-content {
+  margin-top: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  cursor: text;
+}
+.chapter-content pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #c8dff0;
+  margin: 0;
 }
 
 .chapter-info {
