@@ -48,27 +48,60 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
             "pages": ["封面：5个让普通人每天少做1小时的AI方法", "01 整理笔记：把乱七八糟的记录扔给AI", "02 写回复：让AI起草，你来润色"],
         },
     },
-    "wechat_operator_flywheel_v1": {
-        "name": "公众号·运营增长飞轮",
+    "wechat_ai_growth_diary_v1": {
+        "name": "公众号·AI成长实录",
         "channel": "wechat",
-        "file": "shared/13_operator_flywheel.md",
-        "description": "参考姜胡说的行动飞轮、极简动作和圈层套利思路，把资讯改造成可复利的操作系统。",
-        "persona_tags": ["运营判断", "复利", "变现前置"],
+        "file": "shared/13_ai_growth_diary.md",
+        "description": "职场宝妈/独立女性/AI学习者视角，记录真实使用AI工具的过程、踩坑和变化，有温度、有共鸣、有可操作性。",
+        "persona_tags": ["职场宝妈", "独立女性", "AI学习", "真实成长"],
         "example": {
-            "title": "别再收藏AI工具了，先把一个动作跑通",
-            "summary": "真正有价值的不是你知道多少工具，而是你能不能把一个重复动作变成流程，并持续复盘。",
-            "excerpt": "## 先说结论\n\nAI内容不是拼新闻速度，而是拼你能不能把信息翻译成普通人今天能做的动作……",
+            "title": "带娃间隙，我用30分钟学会了这件事，现在每周能省两小时",
+            "summary": "我不是技术专家，只是一个职场宝妈，找到了一个用碎片时间也能学AI的方法，分享给有类似处境的你。",
+            "excerpt": "## 我实际操作了什么\n\n孩子午睡那段时间，我打开了Claude，把上周的会议记录粘贴进去……\n\n## 卡在哪里了\n\n第一次它给我的格式完全不是我想要的，我重新描述了一遍需求……",
         },
     },
-    "xiaohongshu_operator_flywheel_v1": {
-        "name": "小红书·运营增长飞轮",
+    "xiaohongshu_ai_growth_diary_v1": {
+        "name": "小红书·AI成长实录",
         "channel": "xiaohongshu",
-        "file": "shared/13_operator_flywheel.md",
-        "description": "把资讯变成可收藏、可执行、可复盘的小红书实操笔记，适合建立长期信任。",
-        "persona_tags": ["运营判断", "复利", "实操"],
+        "file": "shared/13_ai_growth_diary.md",
+        "description": "以职场宝妈/独立女性视角分享AI学习真实经历，有具体操作、有踩坑、有可复制提示词，适合有类似处境的女性读者。",
+        "persona_tags": ["职场宝妈", "独立女性", "AI学习", "真实经历"],
         "example": {
-            "title": "别再只收藏AI资讯",
-            "body": "真正有用的不是知道一个新工具，而是把它变成你今天能省下10分钟的动作。\n\n1. 先问它解决谁的问题\n2. 再选一个小场景测试\n3. 记录哪里省时间\n4. 写出你的真实判断\n\n#AI工具 #普通人学AI",
+            "title": "带娃的碎片时间，我找到了一个还不错的用法",
+            "body": "孩子睡着了，我只有30分钟。\n\n我试了一件事：让AI帮我整理本周的工作记录。\n\n1. 打开Claude，粘贴会议笔记\n2. 输入提示词：帮我整理成周报格式，包含完成事项、遇到的问题、下周计划\n3. 修改了两处它不了解背景的地方\n\n卡在哪里：格式第一次不对，重新说了一遍需求才对。\n\n对我最值的：以前写周报要一小时，现在20分钟搞定。\n\n你现在最想让AI帮你省哪一步？A 写周报，B 做选题，C 整理资料，D 学新东西\n\n#AI工具 #职场宝妈 #AI学习",
+        },
+    },
+    "wechat_ai_writing_workshop_v1": {
+        "name": "公众号·AI创作工坊",
+        "channel": "wechat",
+        "file": "shared/16_ai_writing_workshop.md",
+        "description": "用AI创作情感/玄幻小说片段，同步拆解创作过程和提示词设计思路，读者既能欣赏内容也能学到方法。",
+        "persona_tags": ["AI创作", "小说写作", "提示词设计", "情感玄幻"],
+        "example": {
+            "title": "我让AI写了一段玄幻开头，它写出了我脑子里模糊想了很久的那种感觉",
+            "summary": "用AI写小说不是偷懒，是一种新的创作协作方式。这篇分享我的提示词设计思路、AI给的原版、以及我改了什么。",
+            "excerpt": "## 小说片段\n\n山上的风停了三百年。\n他睁开眼的那一刻，指尖的灯火应声而灭……\n\n## 这段是怎么写出来的\n\n我给AI的提示词核心是：不要直接说他感应到了什么，留下悬念……",
+        },
+    },
+    "xiaohongshu_ai_writing_workshop_v1": {
+        "name": "小红书·AI创作工坊",
+        "channel": "xiaohongshu",
+        "file": "shared/16_ai_writing_workshop.md",
+        "description": "展示AI创作的情感/玄幻小说片段，附提示词和修改思路，适合对AI写作感兴趣的创作者。",
+        "persona_tags": ["AI创作", "小说写作", "提示词"],
+        "example": {
+            "title": "这句话是AI写的，我只改了8个字",
+            "body": (
+                "“她没有回头，风把她的话吹散在月光里。”\n\n"
+                "这是我让AI帮我写的情感小说开头。\n\n"
+                "我用的提示词核心：克制的文字、情绪不直说、用细节渗出来。\n\n"
+                "AI原版 vs 我的修改：\n"
+                "原版【她感到心痛】→ 改成【她手机屏幕亮了又暗】\n\n"
+                "你可以直接用的提示词：\n"
+                "【写一个情感场景，第三人称，不要用情绪词，用细节和动作表达感受，300字】\n\n"
+                "你最想用AI写哪类故事？A 现代情感，B 古风玄幻，C 都市悬疑，D 科幻未来\n\n"
+                "#AI创作 #AI写作 #小说写作"
+            ),
         },
     },
     "wechat_tool_research_v1": {
@@ -696,8 +729,11 @@ def _ai_generate_channel_drafts(
 
     # 根据 skill 类型决定哪些额外规则生效
     is_tool_tutorial = any(k in wechat_skill_id for k in ("tool_deep_review", "tool_research"))
+    is_growth_diary = "ai_growth_diary" in wechat_skill_id or "ai_growth_diary" in xiaohongshu_skill_id
+    is_writing_workshop = "ai_writing_workshop" in wechat_skill_id or "ai_writing_workshop" in xiaohongshu_skill_id
+    # 兼容旧 flywheel skill id
     is_flywheel = "flywheel" in wechat_skill_id or "flywheel" in xiaohongshu_skill_id
-    jianghushuo_lens = _load_jianghushuo_lens() if is_flywheel else ""
+    jianghushuo_lens = _load_jianghushuo_lens() if (is_flywheel or is_growth_diary) else ""
 
     # ── 通用基础规则（所有 skill 都适用）──────────────────────
     base_rules = """语言规则：
@@ -719,7 +755,69 @@ def _ai_generate_channel_drafts(
 - 最后结论控制在2段以内，第一段说是否值得试和今天最小动作，第二段只留1个具体互动问题。
 - 公众号字数控制在1200-1800字。"""
 
-    # ── 飞轮/运营观点专属规则 ────────────────────────────────
+    # ── AI成长实录专属规则 ────────────────────────────────────
+    growth_diary_rules = (
+        """AI成长实录专项规则：
+
+【核心视角】：以职场宝妈/独立女性/软件开发者/AI学习者的第一人称视角，记录真实使用AI工具的过程。
+不是测评通报，不是功能清单。核心问题：我当时遇到了什么麻烦，我试了这个，我卡在哪里，然后发生了什么变化。
+
+【写作声音（最高优先级）】：
+- 第一人称"我"全程贯穿，严禁用"我们"替代
+- 口吻像对有类似处境的女性朋友说话，不摆专家架子
+- 必须有真实情绪：带娃间隙/碎片时间/做完了有满足感/第一次搞不定的挫败
+- 禁止：励志鸡汤、大词、没有情绪的信息堆砌
+
+【公众号必须按此8段结构输出】：
+① 标题：写"我做了什么之后，发生了什么变化"（不写工具名+功能）
+② 开头：[我那时的具体麻烦/处境] + [我决定试这个的原因]（不从工具介绍开始）
+③ ## 我是怎么开始接触这个的：入口/第一感受/为什么试
+④ ## 我实际操作了什么：具体步骤 + 一个真实用过的完整提示词
+⑤ ## 卡在哪里了，怎么解决的：必须有一处真实卡点（让读者感觉是真实经历）
+⑥ ## 现在它帮我省了什么 / 带来了什么变化：具体说，带时间感或数字
+⑦ ## 你今天可以试的一步：最小行动 + 可直接复制的提示词
+⑧ ## 写给同样在路上的你：一句话真实感受 + 选项式互动问题
+
+【格式禁令】：
+- 严禁"### 第X步："格式
+- 不把文章写成安装教程
+- 不写"赋能""范式""颠覆"等大词"""
+        if is_growth_diary
+        else ""
+    )
+
+    # ── AI创作工坊专属规则 ──────────────────────────────────
+    writing_workshop_rules = (
+        """AI创作工坊专项规则：
+
+【核心要求】：必须同时输出两层内容：
+1. 一段真实的AI辅助创作小说片段（情感类或玄幻类，500-800字，有文学质感）
+2. 完整的创作过程拆解（原始提示词 + 修改思路 + before/after对比）
+
+【小说片段质量要求（最高优先级）】：
+- 情感类：用细节和动作传递情绪，不直说"心痛""难过"等情绪词；有场景感，有人物温度
+- 玄幻类：有画面感，有悬念或伏笔，不是动作流水账，文风有质感
+- 禁止出现：机器式流水账、功能性陈述、平铺直叙没有层次的描写
+
+【公众号必须按此8段结构输出】：
+① 标题：写"我用AI写了一段XX"或"关于AI写作，我发现了这件事"
+② 开头：这次创作的场景和动机（不从工具功能开始）
+③ ## 小说片段：呈现完整的创作片段（情感/玄幻，有文学质感）
+④ ## 这段是怎么写出来的：原始提示词（完整可复制）+ 提示词设计逻辑 + AI第一稿的问题
+⑤ ## 我改了哪些地方，为什么：2-3处具体before/after对比，说明修改原因
+⑥ ## 你可以直接用的提示词模板：情感类1个 + 玄幻类1个，均可直接复制
+⑦ ## AI写作的真实边界：AI擅长什么/做不到什么，具体不泛泛
+⑧ ## 写在最后：一句真实感受 + 选项式互动问题（A 现代情感 B 古风玄幻 C 都市悬疑 D 科幻未来）
+
+【禁止】：
+- 禁止只写方法论，没有真实片段
+- 禁止"AI完全替代作者"或"AI没有灵魂"等极端论断
+- 小红书片段必须展示一句最有张力的句子作为第一行钩子"""
+        if is_writing_workshop
+        else ""
+    )
+
+    # ── 飞轮/运营观点专属规则（兼容旧 skill id）────────────
     flywheel_rules = (
         f"""飞轮·普通人实用价值专项规则：
 
@@ -774,12 +872,16 @@ def _ai_generate_channel_drafts(
     # ── 拼装 system prompt ────────────────────────────────────
     skill_type_block = (
         tool_tutorial_rules if is_tool_tutorial
+        else growth_diary_rules if is_growth_diary
+        else writing_workshop_rules if is_writing_workshop
         else flywheel_rules if is_flywheel
         else general_article_rules
     )
 
     system_prompt = f"""你是一位中文自媒体内容创作专家。
-账号定位：吸引对AI感兴趣的普通人，人设是知识成长女性，用大白话科普AI知识，目标是让人人都能听懂AI。
+账号定位：独立女性·职场宝妈·软件开发者·AI学习开发者·自媒体博主。
+受众：和我有类似处境的女性——职场、家庭、自我成长三线并行，想学AI但时间碎片化，想做自媒体但不确定自己能做到。
+写作立场：真实使用者，不是测评机构。说"我"，不说"我们"；有具体场景，不写空泛鸡汤；内容覆盖：工具使用教程、AI学习心得、职场提效方法、AI辅助创作。
 
 {base_rules}
 
