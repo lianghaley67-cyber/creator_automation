@@ -1122,6 +1122,56 @@ function applyMaterialDistributionResult(materialId, result) {
   materialDistributionDrafts[materialId] = result;
 }
 
+function openCoverModal() {
+  coverModal.value = { visible: true, generating: false, images: [], error: "", usingUrl: "" };
+}
+
+async function generateCoverImages() {
+  coverModal.value.generating = true;
+  coverModal.value.error = "";
+  coverModal.value.images = [];
+  try {
+    const title = trendDistributionDraft.value?.wechat?.title
+      || trendDistributionDraft.value?.xiaohongshu?.title
+      || "";
+    const summary = trendAiSummary.value?.summary || "";
+    const result = await requestApi("/api/wechat/cover/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ title, summary }),
+    });
+    coverModal.value.images = result.urls || [];
+    if (!coverModal.value.images.length) {
+      coverModal.value.error = "未能生成封面图，请检查 OPENAI_API_KEY 配置。";
+    }
+  } catch (err) {
+    coverModal.value.error = err.message || "封面生成失败。";
+  } finally {
+    coverModal.value.generating = false;
+  }
+}
+
+async function useGeneratedCover(url) {
+  coverModal.value.usingUrl = url;
+  try {
+    const result = await requestApi("/api/wechat/cover/use-generated", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ url }),
+    });
+    if (result.settings) {
+      const entry = await requestApi("/api/integrations/wechat").catch(() => null);
+      if (entry) wechatEntry.value = entry;
+    }
+    setNotice("公众号封面已上传并保存，以后创建草稿会自动使用它。");
+    coverModal.value.visible = false;
+  } catch (err) {
+    coverModal.value.error = err.message || "封面上传到微信失败。";
+  } finally {
+    coverModal.value.usingUrl = "";
+  }
+}
+
 async function uploadWechatCover(event) {
   const file = event?.target?.files?.[0];
   if (!file) return;
@@ -1991,6 +2041,14 @@ async function loadPresetTopicsAndSkills() {
     }
     if (skillsData.status === "fulfilled" && Array.isArray(skillsData.value?.items)) {
       channelSkillsList.value = skillsData.value.items;
+      if (!wechatSkillManuallySelected.value && !selectedWechatSkill.value) {
+        const def = channelSkillsList.value.find(s => s.channel === "wechat");
+        if (def) selectedWechatSkill.value = def.id;
+      }
+      if (!xhsSkillManuallySelected.value && !selectedXhsSkill.value) {
+        const def = channelSkillsList.value.find(s => s.channel === "xiaohongshu");
+        if (def) selectedXhsSkill.value = def.id;
+      }
     }
   } catch (_) { /* ignore */ }
 }
@@ -2004,6 +2062,14 @@ const uploadSkillModal = ref({
   file: null,
   uploading: false,
   error: "",
+});
+
+const coverModal = ref({
+  visible: false,
+  generating: false,
+  images: [],
+  error: "",
+  usingUrl: "",
 });
 
 function openUploadSkill(channel) {
@@ -2308,6 +2374,10 @@ const studioContext = {
   uploadReferenceImage,
   uploadTrendInterviewVoice,
   uploadWechatCover,
+  coverModal,
+  openCoverModal,
+  generateCoverImages,
+  useGeneratedCover,
   verifiedApiBase,
   verifyXiaohongshuSms,
   visualPipeline,
@@ -4132,6 +4202,99 @@ textarea {
   padding: 14px 20px;
   border-top: 1px solid rgba(142, 171, 205, 0.15);
 }
+
+/* Cover modal */
+.cover-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+.cover-modal {
+  background: #0d1821;
+  border: 1px solid rgba(0, 213, 232, 0.18);
+  border-radius: 14px;
+  width: min(780px, 96vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.cover-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(142, 171, 205, 0.15);
+}
+.cover-modal-head strong { font-size: 15px; color: #f7fbff; }
+.cover-modal-body { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.cover-images-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.cover-image-item {
+  position: relative;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.cover-image-item:hover { border-color: rgba(0, 213, 232, 0.5); }
+.cover-image-item img { width: 100%; display: block; border-radius: 6px; }
+.cover-image-use {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: #00D5E8;
+  color: #06111C;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cover-image-use:disabled { opacity: 0.6; cursor: not-allowed; }
+.cover-modal-hint { font-size: 12px; color: #a9bfda; }
+.cover-modal-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #a9bfda;
+  font-size: 12px;
+}
+.cover-modal-divider::before, .cover-modal-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(142, 171, 205, 0.18);
+}
+.cover-modal-upload {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cover-gen-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 7px;
+  border: 1px solid rgba(0, 213, 232, 0.35);
+  background: rgba(0, 213, 232, 0.08);
+  color: #00D5E8;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cover-gen-btn:hover { background: rgba(0, 213, 232, 0.15); }
 
 .channel-tabs {
   display: inline-flex;

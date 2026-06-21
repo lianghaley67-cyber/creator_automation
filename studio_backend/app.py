@@ -2211,6 +2211,156 @@ async def upload_official_account_cover(file: UploadFile = File(...)) -> dict[st
     return {"status": "ok", **result, "settings": settings}
 
 
+@app.post("/api/wechat/cover/generate")
+async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
+    """用 DALL-E 2 或 PIL 生成 4 张公众号封面供选择。"""
+    body = await request.json()
+    title = str(body.get("title") or "").strip()
+    summary = str(body.get("summary") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="请提供文章标题。")
+
+    covers_dir = OUTPUTS_DIR / "covers"
+    covers_dir.mkdir(parents=True, exist_ok=True)
+
+    from .storage import to_media_url, now_iso
+    import uuid
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com").strip()
+
+    urls: list[str] = []
+
+    if api_key:
+        styles = [
+            "minimalist dark tech aesthetic, Chinese social media cover",
+            "warm gradient lifestyle aesthetic, Chinese social media cover",
+            "bold typography modern design, Chinese social media cover",
+            "clean professional blue tone, Chinese social media cover",
+        ]
+        prompt_base = f"Professional WeChat article cover image, 16:9 ratio, no text. Topic: {title[:80]}."
+        if summary:
+            prompt_base += f" Context: {summary[:120]}."
+
+        for style in styles:
+            try:
+                prompt = f"{prompt_base} Style: {style}."
+                payload = json.dumps({
+                    "model": "dall-e-3",
+                    "prompt": prompt,
+                    "n": 1,
+                    "size": "1792x1024",
+                    "quality": "standard",
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    base_url.rstrip("/") + "/v1/images/generations",
+                    data=payload,
+                    method="POST",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                img_url = data["data"][0].get("url") or data["data"][0].get("b64_json", "")
+                if img_url.startswith("http"):
+                    with urllib.request.urlopen(img_url, timeout=30) as img_resp:
+                        img_bytes = img_resp.read()
+                else:
+                    import base64
+                    img_bytes = base64.b64decode(img_url)
+                fname = covers_dir / f"{uuid.uuid4().hex}.jpg"
+                fname.write_bytes(img_bytes)
+                urls.append(to_media_url(fname))
+            except Exception:
+                pass
+
+    if len(urls) < 4:
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            import textwrap
+
+            color_themes = [
+                ("#06111C", "#00D5E8", "#0a1f33"),
+                ("#1a0a2e", "#c084fc", "#2d1052"),
+                ("#0f2027", "#f97316", "#1a3a1a"),
+                ("#0d1117", "#3b82f6", "#0a1628"),
+            ]
+            for idx, (bg, accent, mid) in enumerate(color_themes[len(urls):]):
+                img = Image.new("RGB", (1792, 1024), bg)
+                draw = ImageDraw.Draw(img)
+                for y in range(1024):
+                    ratio = y / 1024
+                    r1, g1, b1 = int(bg[1:3], 16), int(bg[3:5], 16), int(bg[5:7], 16)
+                    r2, g2, b2 = int(mid[1:3], 16), int(mid[3:5], 16), int(mid[5:7], 16)
+                    r = int(r1 + (r2 - r1) * ratio)
+                    g = int(g1 + (g2 - g1) * ratio)
+                    b = int(b1 + (b2 - b1) * ratio)
+                    draw.line([(0, y), (1792, y)], fill=(r, g, b))
+                ar, ag, ab = int(accent[1:3], 16), int(accent[3:5], 16), int(accent[5:7], 16)
+                for i in range(4):
+                    draw.rounded_rectangle([60 - i, 80 - i, 300 + i, 96 + i], radius=8, outline=(ar, ag, ab))
+                try:
+                    font_title = ImageFont.truetype("arial.ttf", 72)
+                    font_small = ImageFont.truetype("arial.ttf", 36)
+                except Exception:
+                    font_title = ImageFont.load_default()
+                    font_small = font_title
+                lines = textwrap.wrap(title, width=20)[:3]
+                y_pos = 420 - len(lines) * 44
+                for line in lines:
+                    draw.text((896, y_pos), line, font=font_title, fill=(255, 255, 255), anchor="mm")
+                    y_pos += 90
+                draw.text((896, y_pos + 30), "AI 内容创作", font=font_small, fill=(ar, ag, ab), anchor="mm")
+                fname = covers_dir / f"{uuid.uuid4().hex}.jpg"
+                img.save(str(fname), "JPEG", quality=92)
+                urls.append(to_media_url(fname))
+        except Exception as exc:
+            if not urls:
+                raise HTTPException(status_code=503, detail=f"封面生成失败：{str(exc)[:200]}") from exc
+
+    return {"urls": urls[:4], "generated_at": now_iso()}
+
+
+@app.post("/api/wechat/cover/use-generated")
+async def use_generated_wechat_cover(request: Request) -> dict[str, Any]:
+    """将本地已生成的封面图上传到微信作为公众号封面。"""
+    body = await request.json()
+    local_url = str(body.get("url") or "").strip()
+    if not local_url.startswith("/studio-files/"):
+        raise HTTPException(status_code=400, detail="无效的本地图片路径。")
+    from .storage import STUDIO_DIR, now_iso
+    rel = local_url.removeprefix("/studio-files/")
+    file_path = STUDIO_DIR / rel
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="图片文件不存在。")
+    img_bytes = file_path.read_bytes()
+    suffix = file_path.suffix.lower()
+    ct_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+    content_type = ct_map.get(suffix, "image/jpeg")
+    try:
+        result = upload_wechat_cover(
+            filename=file_path.name,
+            content_type=content_type,
+            body=img_bytes,
+            get_access_token=_get_wechat_access_token,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)[:500]) from exc
+
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        settings = dict(state.get("integration_settings") or {})
+        settings["wechat_thumb_media_id"] = result["media_id"]
+        settings["wechat_cover_url"] = result.get("url", "")
+        settings["updated_at"] = now_iso()
+        state["integration_settings"] = settings
+        return settings
+
+    settings = store.mutate(updater)
+    return {"status": "ok", **result, "settings": settings}
+
+
 @app.get("/api/integrations/wechat/qr")
 def get_wechat_qr() -> Response:
     if not WECHAT_QR_IMAGE_URL:

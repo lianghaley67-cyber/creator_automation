@@ -301,6 +301,44 @@ export default {
             </div>
           </div>
 
+          <!-- 封面生成弹窗 -->
+          <div v-if="coverModal.visible" class="cover-modal-overlay" @click.self="coverModal.visible = false">
+            <div class="cover-modal">
+              <div class="cover-modal-head">
+                <strong>生成公众号封面</strong>
+                <button class="modal-close" @click="coverModal.visible = false">✕</button>
+              </div>
+              <div class="cover-modal-body">
+                <div style="display:flex;gap:10px;align-items:center">
+                  <button class="btn accent small" :disabled="coverModal.generating" @click="generateCoverImages">
+                    {{ coverModal.generating ? "AI 生成中..." : (coverModal.images.length ? "重新生成" : "AI 生成 4 张封面") }}
+                  </button>
+                  <span class="cover-modal-hint">根据文章标题和摘要自动生成，选用后自动上传到微信</span>
+                </div>
+                <div v-if="coverModal.error" class="error-text">{{ coverModal.error }}</div>
+                <div v-if="coverModal.generating" class="meta">正在生成中，约需 20–60 秒...</div>
+                <div v-if="coverModal.images.length" class="cover-images-grid">
+                  <div v-for="imgUrl in coverModal.images" :key="imgUrl" class="cover-image-item">
+                    <img :src="mediaUrl(imgUrl)" alt="封面预览" />
+                    <button
+                      class="cover-image-use"
+                      :disabled="coverModal.usingUrl === imgUrl"
+                      @click="useGeneratedCover(imgUrl)"
+                    >{{ coverModal.usingUrl === imgUrl ? "上传中..." : "选用" }}</button>
+                  </div>
+                </div>
+                <div class="cover-modal-divider">或上传自己的图片</div>
+                <div class="cover-modal-upload">
+                  <label class="upload-audio-label">
+                    {{ busy.wechatCover ? "上传中..." : "选择本地图片" }}
+                    <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
+                  </label>
+                  <span class="cover-modal-hint">JPG / PNG，建议 900×383px</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- 生成和发布按钮 -->
           <div class="publish-buttons trend-publish-actions">
             <button class="btn accent small" :disabled="busy.trendDistribution" @click="prepareTrendDistribution(false, 'wechat')">
@@ -445,10 +483,9 @@ export default {
                 <p>公众号文章会使用独立的公众号 Skill，不会直接照搬小红书正文。检查标题、开头、段落和结尾后，再发送到公众号草稿箱。</p>
               </div>
               <div class="publish-buttons primary-flow-actions">
-                <label class="upload-audio-label">
-                  {{ busy.wechatCover ? "上传中..." : (wechatEntry?.cover_configured ? "更换公众号封面" : "上传公众号封面") }}
-                  <input type="file" accept="image/*" :disabled="busy.wechatCover" @change="uploadWechatCover" />
-                </label>
+                <button class="cover-gen-btn" @click="openCoverModal">
+                  ✦ {{ wechatEntry?.cover_configured ? "更换封面" : "生成封面" }}
+                </button>
                 <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览公众号文章</a>
                 <button
                   class="btn accent small"
