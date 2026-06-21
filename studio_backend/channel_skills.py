@@ -358,6 +358,52 @@ def _skill_type_contract(skill_id: str, channel: str) -> str:
     )
 
 
+def _build_output_format(tags_str: str, only_wechat: bool, only_xhs: bool) -> str:
+    wechat_part = """{
+  "wechat": {
+    "title": "公众号文章标题",
+    "summary": "文章摘要（1句话，40-80字）",
+    "markdown": "完整公众号文章（Markdown格式，严格按照公众号 Skill 规则定义的结构和风格写作，用##分节）"
+  }
+}"""
+    xhs_part = """{
+  "xiaohongshu": {
+    "title": "小红书标题（不超过20字）",
+    "cover_text": "封面短句（不超过12字）",
+    "body": "小红书正文（严格按照小红书 Skill 规则写作，结尾附话题标签）\\n\\n""" + tags_str + """",
+    "card_pages": [
+      {"title": "封面标题", "body": "封面一句话说明", "kind": "cover"},
+      {"title": "01 要点标题（10字内）", "body": "要点说明（50-80字）", "kind": "content"},
+      {"title": "02 要点标题（10字内）", "body": "要点说明（50-80字）", "kind": "content"},
+      {"title": "03 要点标题（10字内）", "body": "要点说明（50-80字）", "kind": "content"}
+    ]
+  }
+}"""
+    both_part = """{
+  "wechat": {
+    "title": "公众号文章标题",
+    "summary": "文章摘要（1句话，40-80字）",
+    "markdown": "完整公众号文章（Markdown格式，严格按照公众号 Skill 规则定义的结构和风格写作，用##分节）"
+  },
+  "xiaohongshu": {
+    "title": "小红书标题（不超过20字）",
+    "cover_text": "封面短句（不超过12字）",
+    "body": "小红书正文（严格按照小红书 Skill 规则写作，结尾附话题标签）\\n\\n""" + tags_str + """",
+    "card_pages": [
+      {"title": "封面标题", "body": "封面一句话说明", "kind": "cover"},
+      {"title": "01 要点标题（10字内）", "body": "要点说明（50-80字）", "kind": "content"},
+      {"title": "02 要点标题（10字内）", "body": "要点说明（50-80字）", "kind": "content"},
+      {"title": "03 要点标题（10字内）", "body": "要点说明（50-80字）", "kind": "content"}
+    ]
+  }
+}"""
+    if only_wechat:
+        return wechat_part
+    if only_xhs:
+        return xhs_part
+    return both_part
+
+
 def _validate_skill_output(skill_id: str, channel: str, content: str) -> None:
     kind = _skill_content_kind(skill_id)
     text = str(content or "")
@@ -778,6 +824,7 @@ def build_channel_drafts_with_ai(
     wechat_skill_id: str = "wechat_article_v1",
     xiaohongshu_skill_id: str = "xiaohongshu_note_v1",
     story_id: str = "",
+    target_channel: str = "",
 ) -> dict[str, Any]:
     """生成渠道内容草稿，优先用 OpenAI 按 Skill 规则生成，无 API Key 时降级到规则模板。"""
     uses_tool_deep_review = any(
@@ -831,6 +878,7 @@ def build_channel_drafts_with_ai(
                 base_url=base_url,
                 model=model,
                 story_id=story_id,
+                target_channel=target_channel,
             )
         except Exception as _exc:  # noqa: BLE001
             import logging
@@ -866,6 +914,7 @@ def _ai_generate_channel_drafts(
     base_url: str,
     model: str,
     story_id: str = "",
+    target_channel: str = "",
 ) -> dict[str, Any]:
     def _sanitize_skill(raw: str, max_chars: int = 2500) -> str:
         # 去掉 ``` 代码块（避免嵌入 prompt 后 AI 在 JSON 里生成反引号导致解析失败）
@@ -1041,7 +1090,19 @@ def _ai_generate_channel_drafts(
         return general_article_rules
 
     # ── 拼装 system prompt ────────────────────────────────────
-    skill_type_block = f"""【公众号 Skill 绑定规则类型】
+    _only_wechat = target_channel == "wechat"
+    _only_xhs = target_channel == "xiaohongshu"
+
+    if _only_wechat:
+        skill_type_block = f"""【公众号 Skill 绑定规则类型】
+{_skill_type_contract(wechat_skill_id, "公众号")}
+{_family_rules(wechat_family)}"""
+    elif _only_xhs:
+        skill_type_block = f"""【小红书 Skill 绑定规则类型】
+{_skill_type_contract(xiaohongshu_skill_id, "小红书")}
+{_family_rules(xhs_family)}"""
+    else:
+        skill_type_block = f"""【公众号 Skill 绑定规则类型】
 {_skill_type_contract(wechat_skill_id, "公众号")}
 {_family_rules(wechat_family)}
 
@@ -1105,33 +1166,13 @@ def _ai_generate_channel_drafts(
 
 {skill_type_block}
 
-请严格按照以下两个 Skill 规则的格式、结构和风格生成内容，Skill 规则优先于以上通用规则：
+请严格按照以下 Skill 规则的格式、结构和风格生成内容，Skill 规则优先于以上通用规则：
 
-【公众号文章 Skill 规则】
-{wechat_skill_content}
-
-【小红书笔记 Skill 规则】
-{xhs_skill_content}
+{"【公众号文章 Skill 规则】" + chr(10) + wechat_skill_content if not _only_xhs else ""}
+{"【小红书笔记 Skill 规则】" + chr(10) + xhs_skill_content if not _only_wechat else ""}
 
 输出格式：只输出合法 JSON，不加任何说明文字：
-{{
-  "wechat": {{
-    "title": "公众号文章标题",
-    "summary": "文章摘要（1句话，40-80字）",
-    "markdown": "完整公众号文章（Markdown格式，严格按照公众号 Skill 规则定义的结构和风格写作，用##分节）"
-  }},
-  "xiaohongshu": {{
-    "title": "小红书标题（不超过20字）",
-    "cover_text": "封面短句（不超过12字）",
-    "body": "小红书正文（严格按照小红书 Skill 规则写作，结尾附话题标签）\\n\\n{tags_str}",
-    "card_pages": [
-      {{"title": "封面标题", "body": "封面一句话说明", "kind": "cover"}},
-      {{"title": "01 要点标题（10字内）", "body": "要点说明（50-80字）", "kind": "content"}},
-      {{"title": "02 要点标题（10字内）", "body": "要点说明（50-80字）", "kind": "content"}},
-      {{"title": "03 要点标题（10字内）", "body": "要点说明（50-80字）", "kind": "content"}}
-    ]
-  }}
-}}"""
+{_build_output_format(tags_str, _only_wechat, _only_xhs)}"""
 
     if wechat_family == "fiction_serial":
         # 注入故事档案上下文（连载续写）
@@ -1200,12 +1241,14 @@ def _ai_generate_channel_drafts(
 
     final_title = _compact(str(wechat_data.get("title") or title or "今天的AI资讯"), 64)
     wechat_markdown = str(wechat_data.get("markdown") or "")
-    _validate_skill_output(wechat_skill_id, "wechat", wechat_markdown)
+    if not _only_xhs:
+        _validate_skill_output(wechat_skill_id, "wechat", wechat_markdown)
     xhs_title = _compact(str(xhs_data.get("title") or final_title), 20)
     xhs_body = str(xhs_data.get("body") or "")
     if not xhs_body:
         xhs_body = str(xhs_data.get("cover_text") or xhs_title)
-    _validate_skill_output(xiaohongshu_skill_id, "xiaohongshu", xhs_body)
+    if not _only_wechat:
+        _validate_skill_output(xiaohongshu_skill_id, "xiaohongshu", xhs_body)
 
     card_pages = xhs_data.get("card_pages") or []
     if not card_pages:
@@ -1232,7 +1275,7 @@ def _ai_generate_channel_drafts(
     import logging as _logging
     _log = _logging.getLogger(__name__)
     _log.info("story_id=%r wechat_family=%r", story_id, wechat_family)
-    if story_id and wechat_family == "fiction_serial":
+    if story_id and wechat_family == "fiction_serial" and not _only_xhs:
         try:
             from .story_db import save_chapter, extract_and_update_bible, next_chapter_number
             _ch_hint = locals().get("chapter_num_hint")

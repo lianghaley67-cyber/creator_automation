@@ -207,6 +207,7 @@ class TrendDistributionRequest(BaseModel):
     wechat_skill_id: str = ""
     xiaohongshu_skill_id: str = ""
     story_id: str = ""       # 连载故事 ID，为空则不关联故事档案
+    target_channel: str = ""  # "wechat" | "xiaohongshu" | "" (两者都生成)
 
 
 class TrendSummarizeRequest(BaseModel):

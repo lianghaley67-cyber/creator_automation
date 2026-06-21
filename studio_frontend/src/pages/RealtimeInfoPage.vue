@@ -107,9 +107,14 @@ export default {
                 <strong v-else>{{ item.title }}</strong>
                 <span>{{ item.summary }}</span>
               </div>
-              <button class="btn secondary small" :disabled="busy.trendDistribution" @click="prepareTrendDistribution(false, 'all', item)">
-                {{ busy.trendDistribution ? "生成中..." : "用这条生成" }}
-              </button>
+              <div class="trend-item-actions">
+                <button class="btn secondary small" :disabled="busy.trendDistWechat" @click="prepareTrendDistribution(false, 'wechat', item)">
+                  {{ busy.trendDistWechat ? "..." : "→ 公众号" }}
+                </button>
+                <button class="btn secondary small" :disabled="busy.trendDistXhs" @click="prepareTrendDistribution(false, 'xiaohongshu', item)">
+                  {{ busy.trendDistXhs ? "..." : "→ 小红书" }}
+                </button>
+              </div>
             </li>
           </ul>
           <div class="trend-angles">
@@ -454,174 +459,105 @@ export default {
             </div>
           </div>
 
-          <!-- 生成和发布按钮 -->
-          <div class="publish-buttons trend-publish-actions">
-            <button class="btn accent small" :disabled="busy.trendDistribution" @click="prepareTrendDistribution(false, 'wechat')">
-              {{ busy.trendDistribution ? "生成中..." : "生成文案 → 推公众号草稿" }}
-            </button>
-            <button class="btn primary small" :disabled="busy.trendDistribution" @click="prepareTrendDistribution(false, 'xiaohongshu')">
-              {{ busy.trendDistribution ? "生成中..." : "生成文案 → 小红书素材包" }}
-            </button>
-          </div>
-          <div v-if="trendDistributionDraft" class="publish-card trend-distribution-card">
-            <div class="publish-card-head">
-              <strong>实时资讯分发</strong>
-              <span>{{ trendDistributionDraft.xiaohongshu?.recommendation_reason }}</span>
-            </div>
-            <p class="meta">
-              公众号 Skill：{{ trendDistributionDraft.wechat?.skill_id }}
-              · 小红书 Skill：{{ trendDistributionDraft.xiaohongshu?.skill_id }}
-              · 图文 Skill：{{ trendDistributionDraft.xiaohongshu?.image_skill_id }}
-            </p>
-            <div class="channel-tabs">
-              <button
-                type="button"
-                class="channel-tab"
-                :class="{ active: trendDistributionView === 'wechat' }"
-                @click="trendDistributionView = 'wechat'"
-              >公众号文章</button>
-              <button
-                type="button"
-                class="channel-tab"
-                :class="{ active: trendDistributionView === 'xiaohongshu' }"
-                @click="trendDistributionView = 'xiaohongshu'"
-              >小红书图文</button>
-            </div>
+          <!-- 双渠道文案生成（左公众号，右小红书） -->
+          <div class="dist-two-col">
 
-            <div class="workflow-review-panel">
-              <div class="workflow-review-head">
-                <div>
-                  <strong>可选审稿</strong>
-                  <span>先检查这版是不是有真实场景、操作步骤和风险边界。</span>
+            <!-- 公众号列 -->
+            <div class="dist-col">
+              <div class="dist-col-head">
+                <span class="dist-col-label">公众号</span>
+                <button class="btn accent small" :disabled="busy.trendDistWechat" @click="prepareTrendDistribution(false, 'wechat')">
+                  {{ busy.trendDistWechat ? "生成中..." : "生成公众号文案" }}
+                </button>
+              </div>
+              <div v-if="trendDistributionDraft?.wechat" class="channel-preview-pane">
+                <label class="field">
+                  <span>公众号文章标题</span>
+                  <input readonly :value="trendDistributionDraft.wechat?.title" />
+                </label>
+                <div class="wechat-preview-box">
+                  <strong>先预览，再进草稿箱</strong>
+                  <p>检查标题、开头、段落和结尾后，再发送到公众号草稿箱。</p>
                 </div>
-                <div class="workflow-review-actions">
-                  <select v-model="trendSelectedReviewSkill" aria-label="选择审稿 Skill">
-                    <option
-                      v-for="option in WORKFLOW_REVIEW_OPTIONS"
-                      :key="option.id"
-                      :value="option.id"
-                    >{{ option.label }}</option>
-                  </select>
-                  <button class="btn primary small" type="button" @click="runTrendWorkflowReview">运行审稿</button>
-                </div>
-              </div>
-              <div v-if="trendWorkflowReview" class="workflow-review-result" :class="{ pass: trendWorkflowReview.passed }">
-                <strong>{{ trendWorkflowReview.label }}：{{ trendWorkflowReview.verdict }}</strong>
-                <div class="workflow-review-checks">
-                  <span
-                    v-for="check in trendWorkflowReview.checks"
-                    :key="check.label"
-                    :class="{ pass: check.passed }"
-                  >{{ check.passed ? "✓" : "!" }} {{ check.label }}</span>
-                </div>
-                <ul v-if="trendWorkflowReview.suggestions.length">
-                  <li v-for="tip in trendWorkflowReview.suggestions" :key="tip">{{ tip }}</li>
-                </ul>
-              </div>
-            </div>
-
-            <div v-if="trendDistributionView === 'xiaohongshu'" class="channel-preview-pane">
-              <label class="field">
-                <span>小红书推荐标题</span>
-                <input readonly :value="trendDistributionDraft.xiaohongshu?.title" />
-              </label>
-              <div v-if="trendDistributionDraft.xiaohongshu?.card_urls?.length" class="xiaohongshu-card-preview">
-                <a
-                  v-for="(cardUrl, cardIndex) in trendDistributionDraft.xiaohongshu.card_urls"
-                  :key="cardUrl"
-                  :href="mediaUrl(cardUrl)"
-                  target="_blank"
-                >
-                  <img :src="mediaUrl(cardUrl)" :alt="`实时新闻小红书图文第 ${cardIndex + 1} 页`" />
-                </a>
-              </div>
-              <label class="field">
-                <span>封面短句</span>
-                <input readonly :value="trendDistributionDraft.xiaohongshu?.cover_text" />
-              </label>
-              <label class="field">
-                <span>小红书正文与话题</span>
-                <textarea class="caption-box" readonly :value="trendDistributionDraft.xiaohongshu?.body"></textarea>
-              </label>
-              <div class="next-step-card">
-                <strong>小红书下一步：{{ xiaohongshuNextStep(trendDistributionDraft).title }}</strong>
-                <p>{{ xiaohongshuNextStep(trendDistributionDraft).body }}</p>
-              </div>
-              <div class="publish-buttons primary-flow-actions">
-                <button
-                  class="btn accent small"
-                  :disabled="busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) || trendDistributionDraft.xiaohongshu?.status === 'published'"
-                  @click="directPublishXiaohongshu(trendDistributionDraft, applyTrendDistributionResult)"
-                >{{ busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) ? "发布中..." : "直接发布到小红书" }}</button>
-                <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.title, '小红书标题已复制。')">复制标题</button>
-                <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
-                <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.xiaohongshu?.package_url)" download>下载备用图文包</a>
-              </div>
-              <div class="xiaohongshu-progress">
-                <strong>小红书状态：{{ xiaohongshuStatusLabel(trendDistributionDraft) }}</strong>
-                <template v-if="['publishing', 'failed'].includes(trendDistributionDraft.xiaohongshu?.status)">
-                  <input
-                    v-model="xiaohongshuPublishUrls[trendDistributionDraft.id]"
-                    placeholder="发布后，把小红书笔记链接粘贴到这里"
-                  />
+                <div class="publish-buttons primary-flow-actions">
+                  <button class="cover-gen-btn" @click="openCoverModal">
+                    ✦ {{ wechatEntry?.cover_configured ? "更换封面" : "生成封面" }}
+                  </button>
+                  <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览公众号文章</a>
                   <button
                     class="btn accent small"
-                    :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
-                    @click="finishXiaohongshuPublishing(trendDistributionDraft, applyTrendDistributionResult)"
-                  >标记已发布</button>
-                  <button
-                    v-if="trendDistributionDraft.xiaohongshu?.status !== 'published'"
-                    class="btn secondary small"
-                    :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)"
-                    @click="failXiaohongshuPublishing(trendDistributionDraft, applyTrendDistributionResult)"
-                  >记录失败</button>
-                </template>
-                <a
-                  v-if="trendDistributionDraft.xiaohongshu?.published_note_url"
-                  :href="trendDistributionDraft.xiaohongshu.published_note_url"
-                  target="_blank"
-                  rel="noreferrer"
-                >查看已发布笔记</a>
+                    :disabled="busy.wechatDraft === String(trendDistributionDraft.id)"
+                    @click="createTrendWechatDraft"
+                  >{{ busy.wechatDraft === String(trendDistributionDraft.id) ? "发送中..." : "发送到公众号草稿箱" }}</button>
+                </div>
+                <p v-if="wechatDraftErrors[trendDistributionDraft.id]" class="error-text">{{ wechatDraftErrors[trendDistributionDraft.id] }}</p>
+                <p v-if="trendDistributionDraft.wechat?.verified" class="meta">
+                  公众号草稿已核验 · AppID {{ trendDistributionDraft.wechat?.app_id_masked }} · 草稿ID {{ trendDistributionDraft.wechat?.draft_media_id }}
+                </p>
               </div>
-              <ol>
-                <li v-for="step in trendDistributionDraft.xiaohongshu?.publish_steps || []" :key="step">{{ step }}</li>
-              </ol>
+              <div v-else class="dist-col-empty">
+                <span>点击「生成公众号文案」开始</span>
+              </div>
             </div>
 
-            <div v-else class="channel-preview-pane">
-              <label class="field">
-                <span>公众号文章标题</span>
-                <input readonly :value="trendDistributionDraft.wechat?.title || trendDistributionDraft.xiaohongshu?.title" />
-              </label>
-              <div class="wechat-preview-box">
-                <strong>先预览，再进草稿箱</strong>
-                <p>公众号文章会使用独立的公众号 Skill，不会直接照搬小红书正文。检查标题、开头、段落和结尾后，再发送到公众号草稿箱。</p>
+            <!-- 小红书列 -->
+            <div class="dist-col">
+              <div class="dist-col-head">
+                <span class="dist-col-label">小红书</span>
+                <button class="btn primary small" :disabled="busy.trendDistXhs" @click="prepareTrendDistribution(false, 'xiaohongshu')">
+                  {{ busy.trendDistXhs ? "生成中..." : "生成小红书文案" }}
+                </button>
               </div>
-              <div class="publish-buttons primary-flow-actions">
-                <button class="cover-gen-btn" @click="openCoverModal">
-                  ✦ {{ wechatEntry?.cover_configured ? "更换封面" : "生成封面" }}
-                </button>
-                <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览公众号文章</a>
-                <button
-                  class="btn accent small"
-                  :disabled="busy.wechatDraft === String(trendDistributionDraft.id)"
-                  @click="createTrendWechatDraft"
-                >
-                  {{
-                    busy.wechatDraft === String(trendDistributionDraft.id)
-                      ? "发送中..."
-                      : "发送到公众号草稿箱"
-                  }}
-                </button>
+              <div v-if="trendDistributionDraft?.xiaohongshu" class="channel-preview-pane">
+                <label class="field">
+                  <span>小红书推荐标题</span>
+                  <input readonly :value="trendDistributionDraft.xiaohongshu?.title" />
+                </label>
+                <div v-if="trendDistributionDraft.xiaohongshu?.card_urls?.length" class="xiaohongshu-card-preview">
+                  <a v-for="(cardUrl, cardIndex) in trendDistributionDraft.xiaohongshu.card_urls" :key="cardUrl" :href="mediaUrl(cardUrl)" target="_blank">
+                    <img :src="mediaUrl(cardUrl)" :alt="`实时新闻小红书图文第 ${cardIndex + 1} 页`" />
+                  </a>
+                </div>
+                <label class="field">
+                  <span>封面短句</span>
+                  <input readonly :value="trendDistributionDraft.xiaohongshu?.cover_text" />
+                </label>
+                <label class="field">
+                  <span>小红书正文与话题</span>
+                  <textarea class="caption-box" readonly :value="trendDistributionDraft.xiaohongshu?.body"></textarea>
+                </label>
+                <div class="next-step-card">
+                  <strong>小红书下一步：{{ xiaohongshuNextStep(trendDistributionDraft).title }}</strong>
+                  <p>{{ xiaohongshuNextStep(trendDistributionDraft).body }}</p>
+                </div>
+                <div class="publish-buttons primary-flow-actions">
+                  <button
+                    class="btn accent small"
+                    :disabled="busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) || trendDistributionDraft.xiaohongshu?.status === 'published'"
+                    @click="directPublishXiaohongshu(trendDistributionDraft, applyTrendDistributionResult)"
+                  >{{ busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) ? "发布中..." : "直接发布到小红书" }}</button>
+                  <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.title, '小红书标题已复制。')">复制标题</button>
+                  <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
+                  <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.xiaohongshu?.package_url)" download>下载图文包</a>
+                </div>
+                <div class="xiaohongshu-progress">
+                  <strong>小红书状态：{{ xiaohongshuStatusLabel(trendDistributionDraft) }}</strong>
+                  <template v-if="['publishing', 'failed'].includes(trendDistributionDraft.xiaohongshu?.status)">
+                    <input v-model="xiaohongshuPublishUrls[trendDistributionDraft.id]" placeholder="发布后，把小红书笔记链接粘贴到这里" />
+                    <button class="btn accent small" :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)" @click="finishXiaohongshuPublishing(trendDistributionDraft, applyTrendDistributionResult)">标记已发布</button>
+                    <button v-if="trendDistributionDraft.xiaohongshu?.status !== 'published'" class="btn secondary small" :disabled="busy.xiaohongshu === String(trendDistributionDraft.id)" @click="failXiaohongshuPublishing(trendDistributionDraft, applyTrendDistributionResult)">记录失败</button>
+                  </template>
+                  <a v-if="trendDistributionDraft.xiaohongshu?.published_note_url" :href="trendDistributionDraft.xiaohongshu.published_note_url" target="_blank" rel="noreferrer">查看已发布笔记</a>
+                </div>
+                <ol>
+                  <li v-for="step in trendDistributionDraft.xiaohongshu?.publish_steps || []" :key="step">{{ step }}</li>
+                </ol>
+              </div>
+              <div v-else class="dist-col-empty">
+                <span>点击「生成小红书文案」开始</span>
               </div>
             </div>
-            <p v-if="trendDistributionView === 'wechat' && wechatDraftErrors[trendDistributionDraft.id]" class="error-text">
-              {{ wechatDraftErrors[trendDistributionDraft.id] }}
-            </p>
-            <p v-if="trendDistributionView === 'wechat' && trendDistributionDraft.wechat?.verified" class="meta">
-              公众号草稿已由微信读取核验 · AppID {{ trendDistributionDraft.wechat?.app_id_masked }}
-              · 草稿ID {{ trendDistributionDraft.wechat?.draft_media_id }}
-            </p>
+
           </div>
           <div v-if="notebookLmPackage" class="notebooklm-box">
             <strong>NotebookLM 导入包</strong>

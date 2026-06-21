@@ -1338,6 +1338,7 @@ def prepare_distribution_package(
     wechat_skill_id: str = "",
     xiaohongshu_skill_id: str = "",
     story_id: str = "",
+    target_channel: str = "",
 ) -> dict[str, Any]:
     if str(job.get("status") or "").lower() != "completed":
         raise ValueError("任务完成后才能准备分发。")
@@ -1370,6 +1371,7 @@ def prepare_distribution_package(
             wechat_skill_id=effective_wechat_skill_id or "wechat_article_v1",
             xiaohongshu_skill_id=effective_xhs_skill_id or "xiaohongshu_note_v1",
             story_id=story_id,
+            target_channel=target_channel,
         )
     else:
         channel_drafts = build_channel_drafts(
@@ -1508,6 +1510,7 @@ def prepare_trend_distribution_package(
     wechat_skill_id: str = "",
     xiaohongshu_skill_id: str = "",
     story_id: str = "",
+    target_channel: str = "",
 ) -> dict[str, Any]:
     items = list(trend.get("items") or [])
     angles = [str(item).strip() for item in trend.get("angles") or [] if str(item).strip()]
@@ -1558,6 +1561,7 @@ def prepare_trend_distribution_package(
         wechat_skill_id=wechat_skill_id,
         xiaohongshu_skill_id=xiaohongshu_skill_id,
         story_id=story_id,
+        target_channel=target_channel,
     )
     record["job_id"] = ""
     record["trend_id"] = str(trend.get("id") or "")

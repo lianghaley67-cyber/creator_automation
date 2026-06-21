@@ -202,6 +202,8 @@ const busy = reactive({
   trendInterview: false,
   trendVoice: false,
   trendDistribution: false,
+  trendDistWechat: false,
+  trendDistXhs: false,
   materialIntake: false,
   materialVoice: false,
   notebooklm: false,
@@ -914,38 +916,33 @@ async function refreshDistributionTasks() {
   }
 }
 
-async function prepareTrendDistribution(preferGeneratedScript = false, destination = "all", sourceItem = null) {
-  const trend = aiTrends.value[0];
-  if (!trend?.id) {
-    setError("请先获取实时资讯。");
-    return;
-  }
+function _buildTrendScript(preferGeneratedScript, sourceItem) {
   const itemTitle = String(sourceItem?.title || "").trim();
   const itemSummary = String(sourceItem?.summary || "").trim();
   const itemUrl = String(sourceItem?.url || "").trim();
-  const generated = selectedTrendQuestion.value
-    ? trendScripts.value[selectedTrendQuestion.value]
-    : null;
+  const generated = selectedTrendQuestion.value ? trendScripts.value[selectedTrendQuestion.value] : null;
   const itemScript = sourceItem
     ? [itemTitle, itemSummary, itemUrl ? `官方/原文链接：${itemUrl}` : ""].filter(Boolean).join("\n\n")
     : "";
   const baseScript = sourceItem ? itemScript : (preferGeneratedScript ? String(generated?.script || "").trim() : "");
   const direction = trendContentDirection.value.trim();
-  const script = [
+  return [
     "【信息密度要求】\n默认使用本次抓取到的全部资讯、摘要、链接和角度补充文章颗粒度。若用户只选中其中一条资讯，请把它作为主线，但仍要从其他检索结果里补充背景、对比、限制、安装/使用细节、风险边界和可执行步骤；不要只复述单条资讯。",
-    direction
-      ? `【我的内容方向】\n${direction}\n\n请生成内容时优先服务这个方向：用大白话讲清楚，适合对 AI 感兴趣的普通人和知识成长女性阅读；少空话，多给真实判断、操作步骤、官方链接、风险边界和可复用方法。`
-      : "",
+    direction ? `【我的内容方向】\n${direction}\n\n请生成内容时优先服务这个方向：用大白话讲清楚，适合对 AI 感兴趣的普通人和知识成长女性阅读；少空话，多给真实判断、操作步骤、官方链接、风险边界和可复用方法。` : "",
     baseScript,
   ].filter(Boolean).join("\n\n");
-  if (preferGeneratedScript && !baseScript) {
-    setError("请先基于追问生成文案，再推荐到小红书。");
-    return;
-  }
-  if (sourceItem) {
-    trendDistributionView.value = destination === "xiaohongshu" ? "xiaohongshu" : "wechat";
-  }
-  busy.trendDistribution = true;
+}
+
+async function prepareTrendDistribution(preferGeneratedScript = false, destination = "all", sourceItem = null) {
+  const trend = aiTrends.value[0];
+  if (!trend?.id) { setError("请先获取实时资讯。"); return; }
+  const itemTitle = String(sourceItem?.title || "").trim();
+  const script = _buildTrendScript(preferGeneratedScript, sourceItem);
+  if (preferGeneratedScript && !script) { setError("请先基于追问生成文案，再推荐到小红书。"); return; }
+  // 兼容旧调用（destination="all"/"wechat"/"xiaohongshu"）
+  const channel = destination === "all" ? "" : destination;
+  const busyKey = channel === "xiaohongshu" ? "trendDistXhs" : channel === "wechat" ? "trendDistWechat" : "trendDistribution";
+  busy[busyKey] = true;
   try {
     const result = await requestApi(
       `/api/ai-trends/${trend.id}/distribution`,
@@ -960,24 +957,24 @@ async function prepareTrendDistribution(preferGeneratedScript = false, destinati
           xiaohongshu_skill_id: selectedXhsSkill.value || "",
           hashtags: trendAiSummary.value?.suggested_hashtags || [],
           story_id: isWritingWorkshopMode.value ? (selectedStoryId.value || "") : "",
+          target_channel: channel,
         })
       },
       30000
     );
-    trendDistributionDraft.value = result;
-    trendDistributionView.value = destination === "xiaohongshu" ? "xiaohongshu" : "wechat";
+    // 合并结果：只覆盖生成了的渠道
+    if (!trendDistributionDraft.value) trendDistributionDraft.value = {};
+    if (result.wechat) trendDistributionDraft.value = { ...trendDistributionDraft.value, ...result, wechat: result.wechat };
+    if (result.xiaohongshu) trendDistributionDraft.value = { ...trendDistributionDraft.value, ...result, xiaohongshu: result.xiaohongshu };
+    if (!result.wechat && !result.xiaohongshu) trendDistributionDraft.value = result;
+    trendDistributionView.value = channel === "xiaohongshu" ? "xiaohongshu" : "wechat";
     trendWorkflowReview.value = null;
-    setNotice(
-      sourceItem
-        ? `已用「${itemTitle || "这条资讯"}」生成公众号和小红书发布包。`
-        : destination === "xiaohongshu"
-        ? "已生成小红书推荐方案：标题、封面短句、正文、话题和发布步骤都准备好了。"
-        : "实时资讯已整理成公众号文章和小红书发布包。"
-    );
+    const channelLabel = channel === "wechat" ? "公众号文案" : channel === "xiaohongshu" ? "小红书文案" : "公众号和小红书文案";
+    setNotice(sourceItem ? `已用「${itemTitle || "这条资讯"}」生成${channelLabel}。` : `${channelLabel}已生成。`);
   } catch (error) {
-    setError(normalizeErrorMessage(error, "实时资讯分发准备失败。"));
+    setError(normalizeErrorMessage(error, "文案生成失败。"));
   } finally {
-    busy.trendDistribution = false;
+    busy[busyKey] = false;
   }
 }
 
@@ -4130,6 +4127,12 @@ textarea {
   gap: 4px;
 }
 
+.trend-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .trend-card li:last-child {
   border-bottom: 0;
 }
@@ -4439,6 +4442,50 @@ textarea {
 .channel-tab.active {
   background: #00d5e8;
   color: #06111c;
+}
+
+/* Two-column channel layout */
+.dist-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.dist-col {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(142, 171, 205, 0.18);
+  border-radius: 12px;
+  padding: 14px;
+  background: rgba(142, 171, 205, 0.04);
+}
+
+.dist-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dist-col-label {
+  font-weight: 700;
+  font-size: 13px;
+  color: #a9bfda;
+  letter-spacing: 0.03em;
+}
+
+.dist-col-empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: rgba(142, 171, 205, 0.4);
+  font-size: 13px;
+  border: 1px dashed rgba(142, 171, 205, 0.15);
+  border-radius: 8px;
+}
+
+@media (max-width: 768px) {
+  .dist-two-col { grid-template-columns: 1fr; }
 }
 
 .channel-preview-pane {

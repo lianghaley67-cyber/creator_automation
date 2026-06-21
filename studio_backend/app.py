@@ -1724,6 +1724,7 @@ def prepare_ai_trend_distribution(
             wechat_skill_id=payload.wechat_skill_id,
             xiaohongshu_skill_id=payload.xiaohongshu_skill_id,
             story_id=payload.story_id,
+            target_channel=payload.target_channel,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
