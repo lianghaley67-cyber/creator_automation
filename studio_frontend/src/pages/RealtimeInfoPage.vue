@@ -311,12 +311,12 @@ export default {
               <div class="cover-modal-body">
                 <div style="display:flex;gap:10px;align-items:center">
                   <button class="btn accent small" :disabled="coverModal.generating" @click="generateCoverImages">
-                    {{ coverModal.generating ? "AI 生成中..." : (coverModal.images.length ? "重新生成" : "AI 生成 4 张封面") }}
+                    {{ coverModal.generating ? "生成中..." : (coverModal.images.length ? "重新生成" : "生成 4 张封面") }}
                   </button>
-                  <span class="cover-modal-hint">根据文章标题和摘要自动生成，选用后自动上传到微信</span>
+                  <span class="cover-modal-hint">根据文章标题和正文生成，选用后自动上传到微信</span>
                 </div>
                 <div v-if="coverModal.error" class="error-text">{{ coverModal.error }}</div>
-                <div v-if="coverModal.generating" class="meta">正在生成中，约需 20–60 秒...</div>
+                <div v-if="coverModal.generating" class="meta">正在生成封面。默认会先生成稳定可用的本地封面；如已配置外部图片模型，最长约 2 分钟。</div>
                 <div v-if="coverModal.images.length" class="cover-images-grid">
                   <div v-for="imgUrl in coverModal.images" :key="imgUrl" class="cover-image-item">
                     <img :src="mediaUrl(imgUrl)" alt="封面预览" />

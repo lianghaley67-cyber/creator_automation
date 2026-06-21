@@ -1134,18 +1134,27 @@ async function generateCoverImages() {
     const title = trendDistributionDraft.value?.wechat?.title
       || trendDistributionDraft.value?.xiaohongshu?.title
       || "";
-    const summary = trendAiSummary.value?.summary || "";
+    const summary = [
+      trendAiSummary.value?.one_sentence,
+      trendAiSummary.value?.plain_explanation,
+      ...(trendAiSummary.value?.key_points || []),
+      trendDistributionDraft.value?.wechat?.body?.slice(0, 300),
+    ].filter(Boolean).join("；");
     const result = await requestApi("/api/wechat/cover/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify({ title, summary }),
-    });
+    }, 120000);
     coverModal.value.images = result.urls || [];
     if (!coverModal.value.images.length) {
-      coverModal.value.error = "未能生成封面图，请检查 OPENAI_API_KEY 配置。";
+      coverModal.value.error = "未能生成封面图，请检查服务器图片生成依赖或手动上传封面。";
+    } else if (result.warnings?.length) {
+      coverModal.value.error = result.warnings.join("；");
+    } else if (result.provider === "local") {
+      setNotice("已生成本地公众号封面。需要外部 AI 出图时，可在服务器配置 COVER_IMAGE_PROVIDER。");
     }
   } catch (err) {
-    coverModal.value.error = err.message || "封面生成失败。";
+    coverModal.value.error = normalizeErrorMessage(err, "封面生成失败，请稍后重试或先手动上传封面。");
   } finally {
     coverModal.value.generating = false;
   }

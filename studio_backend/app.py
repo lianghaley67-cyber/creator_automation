@@ -2213,7 +2213,11 @@ async def upload_official_account_cover(file: UploadFile = File(...)) -> dict[st
 
 @app.post("/api/wechat/cover/generate")
 async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
-    """优先用智谱 CogView 生成 4 张公众号封面，降级到 DALL-E 或 PIL。"""
+    """生成 4 张公众号封面。
+
+    默认先走本地封面生成，避免外部图片模型慢或不可用时让页面一直卡住。
+    如需外部 AI 出图，可设置 COVER_IMAGE_PROVIDER=auto/zhipu/openai。
+    """
     body = await request.json()
     title = str(body.get("title") or "").strip()
     summary = str(body.get("summary") or "").strip()
@@ -2227,14 +2231,28 @@ async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
     import uuid, base64
 
     urls: list[str] = []
+    warnings: list[str] = []
+    provider_used = "local"
 
-    # 1. 优先：智谱 CogView（项目已有 ZHIPUAI_API_KEY）
+    provider_mode = (
+        os.getenv("WECHAT_COVER_PROVIDER", "").strip().lower()
+        or os.getenv("COVER_IMAGE_PROVIDER", "local").strip().lower()
+        or "local"
+    )
+    external_enabled = provider_mode in {"auto", "zhipu", "bigmodel", "cogview", "openai", "dalle", "dall-e"}
+    try:
+        external_timeout = int(os.getenv("COVER_IMAGE_TIMEOUT_SECONDS", "15"))
+    except ValueError:
+        external_timeout = 15
+    external_timeout = max(5, min(external_timeout, 45))
+
+    # 1. 可选：智谱 CogView（默认关闭，避免线上页面长时间等待）
     zhipu_key = (
         os.getenv("ZHIPUAI_API_KEY", "").strip()
         or os.getenv("BIGMODEL_API_KEY", "").strip()
         or os.getenv("GLM_API_KEY", "").strip()
     )
-    if zhipu_key:
+    if external_enabled and zhipu_key and provider_mode in {"auto", "zhipu", "bigmodel", "cogview"}:
         prompt = (
             f"公众号文章封面图，横版 16:9，无文字。主题：{title[:60]}。"
             + (f"背景内容：{summary[:80]}。" if summary else "")
@@ -2249,6 +2267,8 @@ async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
         zhipu_endpoint = "https://open.bigmodel.cn/api/paas/v4/images/generations"
         zhipu_model = os.getenv("ZHIPU_IMAGE_MODEL", "cogview-3-flash").strip() or "cogview-3-flash"
         for style in styles:
+            if len(urls) >= 4:
+                break
             try:
                 payload = json.dumps({
                     "model": zhipu_model,
@@ -2264,13 +2284,13 @@ async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
                         "Content-Type": "application/json",
                     },
                 )
-                with urllib.request.urlopen(req, timeout=60) as resp:
+                with urllib.request.urlopen(req, timeout=external_timeout) as resp:
                     data = json.loads(resp.read().decode("utf-8", errors="replace"))
                 img_entry = (data.get("data") or [{}])[0]
                 img_url = str(img_entry.get("url") or "")
                 b64 = str(img_entry.get("b64_json") or "")
                 if img_url.startswith("http"):
-                    with urllib.request.urlopen(img_url, timeout=30) as img_resp:
+                    with urllib.request.urlopen(img_url, timeout=external_timeout) as img_resp:
                         img_bytes = img_resp.read()
                 elif b64:
                     img_bytes = base64.b64decode(b64)
@@ -2279,11 +2299,13 @@ async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
                 fname = covers_dir / f"{uuid.uuid4().hex}.jpg"
                 fname.write_bytes(img_bytes)
                 urls.append(to_media_url(fname))
-            except Exception:
-                pass
+                provider_used = "zhipu"
+            except Exception as exc:
+                if not warnings:
+                    warnings.append(f"智谱封面生成未完成，已降级本地封面：{str(exc)[:120]}")
 
-    # 2. 降级：DALL-E 3（逐张，OpenAI）
-    if len(urls) < 4:
+    # 2. 可选：DALL-E 3（默认关闭，逐张超时后降级）
+    if external_enabled and len(urls) < 4 and provider_mode in {"auto", "openai", "dalle", "dall-e"}:
         openai_key = os.getenv("OPENAI_API_KEY", "").strip()
         openai_base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com").strip()
         if openai_key:
@@ -2295,6 +2317,8 @@ async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
             ]
             prompt_base = f"Professional WeChat article cover, 16:9, no text. Topic: {title[:80]}."
             for style in styles_en[len(urls):]:
+                if len(urls) >= 4:
+                    break
                 try:
                     payload = json.dumps({
                         "model": "dall-e-3",
@@ -2312,13 +2336,13 @@ async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
                             "Content-Type": "application/json",
                         },
                     )
-                    with urllib.request.urlopen(req, timeout=60) as resp:
+                    with urllib.request.urlopen(req, timeout=external_timeout) as resp:
                         data = json.loads(resp.read().decode("utf-8", errors="replace"))
                     img_entry = (data.get("data") or [{}])[0]
                     img_url = str(img_entry.get("url") or "")
                     b64 = str(img_entry.get("b64_json") or "")
                     if img_url.startswith("http"):
-                        with urllib.request.urlopen(img_url, timeout=30) as img_resp:
+                        with urllib.request.urlopen(img_url, timeout=external_timeout) as img_resp:
                             img_bytes = img_resp.read()
                     elif b64:
                         img_bytes = base64.b64decode(b64)
@@ -2327,14 +2351,33 @@ async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
                     fname = covers_dir / f"{uuid.uuid4().hex}.jpg"
                     fname.write_bytes(img_bytes)
                     urls.append(to_media_url(fname))
-                except Exception:
-                    pass
+                    provider_used = "openai"
+                except Exception as exc:
+                    if len(warnings) < 2:
+                        warnings.append(f"OpenAI 封面生成未完成，已降级本地封面：{str(exc)[:120]}")
 
-    # 3. 最终降级：PIL 渐变色占位封面
+    # 3. 稳定兜底：PIL 本地封面
     if len(urls) < 4:
         try:
             from PIL import Image, ImageDraw, ImageFont
             import textwrap
+
+            def load_cover_font(size: int) -> Any:
+                candidates = [
+                    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+                    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                    "C:/Windows/Fonts/msyh.ttc",
+                    "C:/Windows/Fonts/simhei.ttf",
+                    "arial.ttf",
+                ]
+                for font_path in candidates:
+                    try:
+                        return ImageFont.truetype(font_path, size)
+                    except Exception:
+                        continue
+                return ImageFont.load_default()
 
             color_themes = [
                 ("#06111C", "#00D5E8", "#0a1f33"),
@@ -2357,12 +2400,8 @@ async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
                 ar, ag, ab = int(accent[1:3], 16), int(accent[3:5], 16), int(accent[5:7], 16)
                 for i in range(4):
                     draw.rounded_rectangle([60 - i, 60 - i, 260 + i, 76 + i], radius=8, outline=(ar, ag, ab))
-                try:
-                    font_title = ImageFont.truetype("arial.ttf", 64)
-                    font_small = ImageFont.truetype("arial.ttf", 32)
-                except Exception:
-                    font_title = ImageFont.load_default()
-                    font_small = font_title
+                font_title = load_cover_font(64)
+                font_small = load_cover_font(32)
                 lines = textwrap.wrap(title, width=18)[:3]
                 y_pos = 380 - len(lines) * 40
                 for line in lines:
@@ -2376,7 +2415,7 @@ async def generate_wechat_cover_options(request: Request) -> dict[str, Any]:
             if not urls:
                 raise HTTPException(status_code=503, detail=f"封面生成失败：{str(exc)[:200]}") from exc
 
-    return {"urls": urls[:4], "generated_at": now_iso()}
+    return {"urls": urls[:4], "generated_at": now_iso(), "provider": provider_used, "warnings": warnings[:3]}
 
 
 @app.post("/api/wechat/cover/use-generated")
