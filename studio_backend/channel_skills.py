@@ -1224,10 +1224,15 @@ def _ai_generate_channel_drafts(
     }
 
     # 连载故事：保存章节到 Supabase 并更新 story_bible
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    _log.info("story_id=%r wechat_family=%r", story_id, wechat_family)
     if story_id and wechat_family == "fiction_serial":
         try:
             from .story_db import save_chapter, extract_and_update_bible, next_chapter_number
-            ch_num = chapter_num_hint if "chapter_num_hint" in dir() else next_chapter_number(story_id)
+            _ch_hint = locals().get("chapter_num_hint")
+            ch_num = _ch_hint if _ch_hint is not None else next_chapter_number(story_id)
+            _log.info("saving chapter %s for story %s", ch_num, story_id)
             save_chapter(
                 story_id=story_id,
                 chapter_number=ch_num,
@@ -1244,9 +1249,9 @@ def _ai_generate_channel_drafts(
             )
             t.start()
             result["story_chapter_saved"] = ch_num
-        except Exception as _save_exc:  # noqa: BLE001
-            import logging
-            logging.getLogger(__name__).warning("story chapter save failed: %s", _save_exc)
+        except Exception as _save_exc:
+            _log.warning("story chapter save failed: %s", _save_exc, exc_info=True)
+            result["story_chapter_error"] = str(_save_exc)
 
     return result
 
