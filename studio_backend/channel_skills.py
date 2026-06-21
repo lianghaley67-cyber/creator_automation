@@ -16,7 +16,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "wechat_article_v1": {
         "name": "公众号深度文章",
         "channel": "wechat",
-        "file": "06_wechat_article.md",
+        "file": "wechat/06_wechat_article.md",
         "description": "长文结构、背景解释、个人判断和行动建议。适合深度科普和经验分享。",
         "persona_tags": ["通用"],
         "example": {
@@ -28,7 +28,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "xiaohongshu_note_v1": {
         "name": "小红书知识笔记",
         "channel": "xiaohongshu",
-        "file": "07_xiaohongshu_note.md",
+        "file": "xiaohongshu/07_xiaohongshu_note.md",
         "description": "短标题、钩子、要点、互动问题和话题。适合知识传播类内容。",
         "persona_tags": ["通用"],
         "example": {
@@ -39,7 +39,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "xiaohongshu_images_v1": {
         "name": "小红书图文卡片",
         "channel": "xiaohongshu",
-        "file": "08_xiaohongshu_images.md",
+        "file": "xiaohongshu/08_xiaohongshu_images.md",
         "description": "1080×1440 封面与内容卡片自动分页。适合知识卡片和步骤拆解。",
         "persona_tags": ["通用"],
         "example": {
@@ -51,7 +51,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "wechat_operator_flywheel_v1": {
         "name": "公众号·运营增长飞轮",
         "channel": "wechat",
-        "file": "13_operator_flywheel.md",
+        "file": "shared/13_operator_flywheel.md",
         "description": "参考姜胡说的行动飞轮、极简动作和圈层套利思路，把资讯改造成可复利的操作系统。",
         "persona_tags": ["运营判断", "复利", "变现前置"],
         "example": {
@@ -63,7 +63,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "xiaohongshu_operator_flywheel_v1": {
         "name": "小红书·运营增长飞轮",
         "channel": "xiaohongshu",
-        "file": "13_operator_flywheel.md",
+        "file": "shared/13_operator_flywheel.md",
         "description": "把资讯变成可收藏、可执行、可复盘的小红书实操笔记，适合建立长期信任。",
         "persona_tags": ["运营判断", "复利", "实操"],
         "example": {
@@ -74,7 +74,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "wechat_tool_research_v1": {
         "name": "公众号·工具研究说明书",
         "channel": "wechat",
-        "file": "14_tool_research_playbook.md",
+        "file": "shared/14_tool_research_playbook.md",
         "description": "把一个具体工具讲清楚：它是什么、解决什么问题、适合谁、怎么安装、怎么上手、怎么进阶。",
         "persona_tags": ["工具研究", "教程", "实操"],
         "example": {
@@ -86,7 +86,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "xiaohongshu_tool_research_v1": {
         "name": "小红书·工具研究说明书",
         "channel": "xiaohongshu",
-        "file": "14_tool_research_playbook.md",
+        "file": "shared/14_tool_research_playbook.md",
         "description": "适合工具种草和教程：先讲清楚工具本身，再给安装、上手、进阶和避坑清单。",
         "persona_tags": ["工具研究", "教程", "实操"],
         "example": {
@@ -97,7 +97,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "wechat_tool_deep_review_v1": {
         "name": "公众号·AI工具深度实测",
         "channel": "wechat",
-        "file": "15_tool_deep_review.md",
+        "file": "shared/15_tool_deep_review.md",
         "description": "按工具实测长文写法输出：是什么、安装、基础使用、进阶玩法、避坑、对比和结论。",
         "persona_tags": ["工具实测", "安装教程", "深度教程"],
         "example": {
@@ -109,7 +109,7 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
     "xiaohongshu_tool_deep_review_v1": {
         "name": "小红书·AI工具深度实测",
         "channel": "xiaohongshu",
-        "file": "15_tool_deep_review.md",
+        "file": "shared/15_tool_deep_review.md",
         "description": "把工具实测长文压缩成可收藏笔记：适合谁、安装检查、上手步骤、提示词和避坑。",
         "persona_tags": ["工具实测", "教程", "可收藏"],
         "example": {
