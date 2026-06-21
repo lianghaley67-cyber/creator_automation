@@ -694,7 +694,11 @@ def build_channel_drafts_with_ai(
             )
         except Exception as _exc:  # noqa: BLE001
             import logging
-            logging.getLogger(__name__).warning("_ai_generate_channel_drafts failed: %s", _exc)
+            import traceback
+            logging.getLogger(__name__).warning(
+                "_ai_generate_channel_drafts failed (skill=%s): %s\n%s",
+                wechat_skill_id, _exc, traceback.format_exc()
+            )
 
     fallback = build_channel_drafts(
         source_text=source_text,
@@ -722,8 +726,19 @@ def _ai_generate_channel_drafts(
     base_url: str,
     model: str,
 ) -> dict[str, Any]:
-    wechat_skill_content = load_skill_content(wechat_skill_id) or load_skill_content("wechat_article_v1")
-    xhs_skill_content = load_skill_content(xiaohongshu_skill_id) or load_skill_content("xiaohongshu_note_v1")
+    def _sanitize_skill(raw: str, max_chars: int = 2500) -> str:
+        # 去掉 ``` 代码块（避免嵌入 prompt 后 AI 在 JSON 里生成反引号导致解析失败）
+        cleaned = re.sub(r"```[\s\S]*?```", "[可复制提示词见下方]", raw)
+        # 去掉重复换行
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned[:max_chars]
+
+    wechat_skill_content = _sanitize_skill(
+        load_skill_content(wechat_skill_id) or load_skill_content("wechat_article_v1")
+    )
+    xhs_skill_content = _sanitize_skill(
+        load_skill_content(xiaohongshu_skill_id) or load_skill_content("xiaohongshu_note_v1")
+    )
 
     tags_str = " ".join(f"#{t}" for t in (hashtags or ["AI工具", "普通人学AI"])[:6])
 
@@ -1011,6 +1026,9 @@ def build_channel_drafts(
     final_title = _compact(title, 64) or ("今天值得关注的 3 个变化" if is_trend else "这件事，我终于想明白了")
     # 只有明确选用工具类 Skill 才使用工具模板，避免覆盖其他 Skill 的格式
     is_tool_skill = any(k in wechat_skill_id for k in ("tool_deep_review", "tool_research"))
+    is_growth_diary_skill = "ai_growth_diary" in wechat_skill_id
+    is_writing_workshop_skill = "ai_writing_workshop" in wechat_skill_id
+
     if is_trend and is_tool_skill and _is_tool_research_request(final_title, source_text, source_type):
         return _build_tool_research_fallback(
             source_text=source_text,
@@ -1018,6 +1036,157 @@ def build_channel_drafts(
             summary=summary,
             hashtags=hashtags,
         )
+
+    # Growth diary fallback — persona-aware content instead of generic flywheel
+    if is_growth_diary_skill:
+        paragraphs = _paragraphs(source_text)
+        core_info = _compact(paragraphs[0] if paragraphs else (summary or final_title), 200)
+        tool_hint = _infer_tool_name(final_title, source_text)
+        diary_title = _compact(f"我试了一下{tool_hint}，花了一个午休，发现了这件事", 48)
+        diary_md = f"""# {diary_title}
+
+孩子睡着的那段时间，我打开了电脑，想试试最近看到的这个东西：{tool_hint}。
+
+## 我是怎么开始接触这个的
+
+{core_info}
+
+我当时将信将疑——不确定这对我有没有用。但我只有30分钟，就先试试。
+
+## 我实际操作了什么
+
+我把手头一个一直拖着没做的任务交给了它。提示词大概是这样：
+
+【帮我把以下内容整理成一个可以直接用的格式，要简洁、具体，不要废话：[粘贴内容]】
+
+## 卡在哪里了，怎么解决的
+
+第一次给出的结果格式不是我想要的，重新描述了一遍需求才对。这让我意识到：给AI的指令越具体，结果越接近你要的。
+
+## 现在它帮我省了什么
+
+这件事以前要花我半小时，那次20分钟搞定了，还有10分钟陪孩子玩。
+
+## 你今天可以试的一步
+
+打开Claude或其他AI工具，把你最近最烦的一个重复任务粘贴进去，加上这句话：
+【帮我把这个整理成可以直接用的格式，要简洁，不超过200字】
+
+## 写给同样在路上的你
+
+不是每次都完美，但每次试一下，就少踩一个坑。
+
+你现在最想让AI帮你省哪一件事？A 写周报，B 做选题，C 整理资料，D 学新东西"""
+
+        tags_norm = []
+        for tag in hashtags or ["AI工具", "职场宝妈", "AI学习"]:
+            v = re.sub(r"[#\s]+", "", str(tag)).strip()
+            if v and v not in tags_norm:
+                tags_norm.append(v[:18])
+        xhs_body = (
+            f"孩子睡着的30分钟，我试了一下{tool_hint}。\n\n"
+            f"一句话评价：{core_info[:80]}\n\n"
+            "我怎么用的：\n1. 打开工具，把任务描述清楚\n2. 加上「要简洁、具体、不废话」\n3. 第一次不对就重新描述\n\n"
+            f"卡在哪里：格式第一次不对，重新说了才好。\n\n"
+            "对我最值的：省了20分钟，还有时间陪孩子。\n\n"
+            "你最想让AI帮你省哪件事？A 写周报，B 做选题，C 整理资料，D 学新东西\n\n"
+            + " ".join(f"#{t}" for t in tags_norm[:5])
+        )
+        return {
+            "wechat": {
+                "skill_id": wechat_skill_id,
+                "title": diary_title,
+                "summary": f"一个职场宝妈用{tool_hint}做了一件事，花了一个午休，分享给同样在路上的你。",
+                "markdown": diary_md,
+            },
+            "xiaohongshu": {
+                "skill_id": xiaohongshu_skill_id,
+                "image_skill_id": "xiaohongshu_images_v1",
+                "title": _compact(f"我试了{tool_hint}这件事", 20),
+                "body": xhs_body,
+                "cover_text": _compact(f"试了{tool_hint}", 12),
+                "card_pages": [
+                    {"title": _compact(f"试了{tool_hint}", 12), "body": f"一个午休试了{tool_hint}，结果省了20分钟", "kind": "cover"},
+                    {"title": "我怎么用的", "body": "描述清楚任务，加上「要简洁具体」，第一次不对就重新说", "kind": "content"},
+                    {"title": "卡在哪里", "body": "格式第一次不对是正常的，重新描述需求就好", "kind": "content"},
+                    {"title": "今天可以试", "body": "把你最烦的重复任务粘贴进去，让AI帮你整理成可用格式", "kind": "content"},
+                ],
+            },
+        }
+
+    # Writing workshop fallback
+    if is_writing_workshop_skill:
+        story_title = _compact(f"我让AI写了一段故事开头，然后改了几个字", 40)
+        story_md = f"""# {story_title}
+
+那天晚上孩子睡了，我想试试让AI帮我写一个故事开头——那种脑子里有画面但不知道怎么落笔的感觉。
+
+## 小说片段
+
+她站了很久。
+
+月台上的人来了又走，她的行李一直没动。广播报了三次同一班车的到站，她都没听进去。
+
+他发来消息说「到了」。她回了「好」，然后把手机翻过去，屏幕朝桌面。
+
+## 这段是怎么写出来的
+
+我给AI的提示词核心：「写一个情感场景，第三人称，不要直接写情绪词，用细节和动作表达感受，200字左右」
+
+AI第一稿的问题：写了「她感到心痛」——太直接了，情绪全被说穿了。
+
+## 我改了哪些地方
+
+| AI原版 | 我的修改 |
+|---|---|
+| 她感到心痛 | 把手机翻过去，屏幕朝桌面 |
+| 夜色沉沉 | 广播报了三次同一班车 |
+
+## 你可以直接用的提示词
+
+情感类：「写一个[场景]，第三人称，[X]字左右。不要用[情绪词]，用细节和动作表达感受。」
+玄幻类：「写一个[设定]的开场，有画面感，留下悬念，不要立刻解释[什么]，[X]字内。」
+
+## AI写作的真实边界
+
+AI给素材，你给灵魂。改的那几个字，才是真正属于你的。
+
+你最想用AI写哪类故事？A 现代情感，B 古风玄幻，C 都市悬疑，D 科幻未来"""
+
+        tags_norm = []
+        for tag in hashtags or ["AI创作", "小说写作", "写作技巧"]:
+            v = re.sub(r"[#\s]+", "", str(tag)).strip()
+            if v and v not in tags_norm:
+                tags_norm.append(v[:18])
+        xhs_body = (
+            "「她把手机翻过去，屏幕朝桌面。」\n\n这句话是AI写的，我只改了原版的两个词。\n\n"
+            "我给AI的核心提示词：不要直接写情绪词，用细节和动作来表达。\n\n"
+            "AI原版 vs 我的改动：\n原版【她感到心痛】→ 改成【把手机翻过去，屏幕朝桌面】\n\n"
+            "可直接用的提示词：\n「写一个情感场景，第三人称，不要用情绪词，用细节和动作表达感受，200字左右」\n\n"
+            "你最想用AI写哪类故事？A 现代情感，B 古风玄幻，C 都市悬疑，D 科幻未来\n\n"
+            + " ".join(f"#{t}" for t in tags_norm[:5])
+        )
+        return {
+            "wechat": {
+                "skill_id": wechat_skill_id,
+                "title": story_title,
+                "summary": "用AI写小说不是偷懒，是找到一个开始的方式。这篇分享提示词、AI原版、以及我改了什么。",
+                "markdown": story_md,
+            },
+            "xiaohongshu": {
+                "skill_id": xiaohongshu_skill_id,
+                "image_skill_id": "xiaohongshu_images_v1",
+                "title": "AI写的这句话我只改了两个词",
+                "body": xhs_body,
+                "cover_text": "AI写故事开头",
+                "card_pages": [
+                    {"title": "AI写故事开头", "body": "「她把手机翻过去，屏幕朝桌面。」这是AI写的，我改了两个词。", "kind": "cover"},
+                    {"title": "提示词核心", "body": "不要直接写情绪词，用细节和动作表达感受——这条约束让文字有了张力", "kind": "content"},
+                    {"title": "改了哪里", "body": "【她感到心痛】→【把手机翻过去，屏幕朝桌面】 一个动作比一句情绪描述更有力量", "kind": "content"},
+                    {"title": "你可以试", "body": "直接用：「写一个情感场景，不要用情绪词，用细节动作表达，200字」", "kind": "content"},
+                ],
+            },
+        }
 
     if is_trend:
         wechat_intro = (
