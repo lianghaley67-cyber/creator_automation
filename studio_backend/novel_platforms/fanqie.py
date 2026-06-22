@@ -27,6 +27,7 @@ RESULT_SCREENSHOT = SCREENSHOT_DIR / "result.png"
 
 API_BASE = "https://fanqienovel.com/api/author"
 APP_NAME = "muye_novel"
+AID = "2503"   # ByteDance app_id for FanQie (muye_novel)
 
 _HTTP_HEADERS = {
     "User-Agent": (
@@ -327,42 +328,35 @@ def _build_http_session() -> Any:
     return session
 
 
+def _base_params() -> dict:
+    """FanQie API 通用参数（每次请求都要带）。"""
+    return {"aid": AID, "app_name": APP_NAME}
+
+
 def _verify_login_http(session: Any) -> tuple[bool, str]:
     """
-    用 HTTP GET 验证登录状态，返回 (is_logged_in, username)。
-    不使用 Playwright，无 headless 检测风险。
+    用 HTTP 验证登录状态，返回 (is_logged_in, username)。
+    使用已确认存在的 chapter/draft_list 接口（不需要 msToken/a_bogus）。
     """
     try:
         resp = session.get(
-            f"{API_BASE}/user/author_info/v0/",
-            params={"app_name": APP_NAME},
+            f"{API_BASE}/chapter/draft_list/v1",
+            params={**_base_params(), "book_id": "0", "page_index": "0", "page_count": "1"},
             timeout=15,
         )
-        data = resp.json()
-        if data.get("code") == 0:
-            info = data.get("data") or {}
-            name = (
-                info.get("pen_name")
-                or info.get("nick_name")
-                or info.get("user_name")
-                or ""
-            )
-            return True, str(name)
-    except Exception:
-        pass
-
-    # 备用：检查章节列表接口是否能访问
-    try:
-        resp = session.get(
-            f"{API_BASE}/book/list/v0/",
-            params={"app_name": APP_NAME, "page_count": 1},
-            timeout=15,
-        )
-        if resp.status_code == 200 and resp.json().get("code") == 0:
+        # 返回 200（即使数据为空）说明已登录
+        if resp.status_code == 200:
             return True, ""
+        # 检查是否有 JSON 错误
+        try:
+            body = resp.json()
+            if body.get("code") == 0 or resp.status_code == 200:
+                return True, ""
+        except Exception:
+            if resp.status_code == 200:
+                return True, ""
     except Exception:
         pass
-
     return False, ""
 
 
@@ -658,7 +652,7 @@ def _fanqie_api(session: Any, method: str, path: str, **kwargs: Any) -> dict:
 
 
 def _list_books_http(session: Any) -> list[dict]:
-    """获取创作者名下的书籍列表。"""
+    """获取创作者名下的书籍列表（已知可用的路径）。"""
     for path in [
         "book/list/v0/",
         "book/list/v1/",
@@ -689,63 +683,76 @@ def _find_book_id_http(session: Any, work_name: str) -> str | None:
     return None
 
 
-def _create_chapter_http(session: Any, book_id: str, title: str) -> str:
-    """新建章节，返回 item_id。"""
-    for path in [
-        "article/new_item/v0/",
-        "article/new_article/v0/",
-        "article/create_item/v0/",
-    ]:
-        try:
-            body = _fanqie_api(
-                session, "POST", path,
-                data={
-                    "book_id": book_id,
-                    "item_type": 1,          # 1 = 正文章节
-                    "title": title,
-                    "app_name": APP_NAME,
-                },
-            )
-            if body.get("code") == 0:
-                item_id = (
-                    (body.get("data") or {}).get("item_id")
-                    or (body.get("data") or {}).get("id")
-                )
-                if item_id:
-                    return str(item_id)
-        except Exception:
-            continue
-    raise RuntimeError("无法创建新章节，请检查 API 或联系开发者。")
+def _list_drafts_http(session: Any, book_id: str, page_count: int = 15) -> list[dict]:
+    """
+    获取指定书籍的草稿列表（chapter/draft_list/v1，已验证路径存在）。
+    返回 item 列表，每项含 item_id、title、word_count、create_time 等字段。
+    """
+    resp = session.get(
+        f"{API_BASE}/chapter/draft_list/v1",
+        params={
+            **_base_params(),
+            "book_id": book_id,
+            "page_index": "0",
+            "page_count": str(page_count),
+        },
+        timeout=15,
+    )
+    resp.raise_for_status()
+    try:
+        body = resp.json()
+    except Exception:
+        return []
+    data = body.get("data") or {}
+    items = data.get("item_list") or data.get("items") or data.get("list") or []
+    return items if isinstance(items, list) else []
 
 
-def _save_chapter_content_http(
+def _create_empty_draft_http(session: Any, book_id: str, title: str) -> None:
+    """
+    调用 cover_article/v0/ 创建空草稿（不带 item_id）。
+    FanQie 不在响应中返回 item_id，需要通过 draft_list 获取。
+    """
+    resp = session.post(
+        f"{API_BASE}/article/cover_article/v0/",
+        params=_base_params(),
+        data={
+            "book_id": book_id,
+            "title": title,
+            "content": "",
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+
+
+def _save_content_via_cover_article(
     session: Any,
     book_id: str,
     item_id: str,
     title: str,
     content: str,
 ) -> bool:
-    """保存章节内容（草稿）。"""
-    payload = {
-        "book_id": book_id,
-        "item_id": item_id,
-        "title": title,
-        "content": content,
-        "app_name": APP_NAME,
-    }
-    for path in [
-        "article/save_article/v0/",
-        "article/save_draft/v0/",
-        "article/update_item/v0/",
-        "article/save_doc/v0/",
-    ]:
-        try:
-            body = _fanqie_api(session, "POST", path, data=payload)
-            if body.get("code") == 0:
-                return True
-        except Exception:
-            continue
-    return False
+    """
+    用 cover_article/v0/ 带 item_id 写入章节内容（已验证此路径可用）。
+    """
+    resp = session.post(
+        f"{API_BASE}/article/cover_article/v0/",
+        params=_base_params(),
+        data={
+            "book_id": book_id,
+            "item_id": item_id,
+            "title": title,
+            "content": content,
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    try:
+        body = resp.json()
+        return body.get("code") == 0
+    except Exception:
+        return resp.status_code == 200
 
 
 def push_chapter_via_http(
@@ -756,20 +763,52 @@ def push_chapter_via_http(
 ) -> dict[str, Any]:
     """
     用 HTTP 直接调用 FanQie API 推送章节，不经过 Playwright 浏览器。
-    返回详细信息供调试。
-    """
-    import requests
 
+    流程：
+      1. 获取推送前的草稿列表（记录现有 item_id 集合）
+      2. 调用 cover_article/v0/ 创建空草稿
+      3. 再次获取草稿列表，找到新增的 item_id
+      4. 用 cover_article/v0/ 带 item_id 写入标题和内容
+    """
     session = _build_http_session()
 
     # ── 步骤 1：验证登录 ──
     logged_in, username = _verify_login_http(session)
 
-    # ── 步骤 2：创建新章节（获取 item_id） ──
-    item_id = _create_chapter_http(session, book_id, chapter_title)
+    # ── 步骤 2：记录创建前的草稿 item_id 集合 ──
+    drafts_before = _list_drafts_http(session, book_id)
+    ids_before = {str(d.get("item_id") or "") for d in drafts_before} - {""}
 
-    # ── 步骤 3：写入内容 ──
-    saved = _save_chapter_content_http(session, book_id, item_id, chapter_title, content)
+    # ── 步骤 3：创建空草稿 ──
+    _create_empty_draft_http(session, book_id, chapter_title)
+    time.sleep(1)  # 等服务端落库
+
+    # ── 步骤 4：找到新增草稿的 item_id ──
+    drafts_after = _list_drafts_http(session, book_id)
+    new_items = [
+        d for d in drafts_after
+        if str(d.get("item_id") or "") not in ids_before
+        and str(d.get("item_id") or "")
+    ]
+
+    if not new_items:
+        # 退而求其次：取列表中 create_time 最新的
+        all_items = sorted(
+            drafts_after,
+            key=lambda d: d.get("create_time") or 0,
+            reverse=True,
+        )
+        new_items = all_items[:1]
+
+    if not new_items:
+        raise RuntimeError("创建草稿成功，但无法获取 item_id（draft_list 返回为空）。")
+
+    item_id = str(new_items[0].get("item_id") or "")
+    if not item_id:
+        raise RuntimeError("草稿列表中 item_id 为空，请检查 API。")
+
+    # ── 步骤 5：写入标题和内容 ──
+    saved = _save_content_via_cover_article(session, book_id, item_id, chapter_title, content)
 
     return {
         "ok": saved,
@@ -780,7 +819,7 @@ def push_chapter_via_http(
         "message": (
             f"章节「{chapter_title}」已创建（item_id={item_id}）并保存到草稿箱。"
             if saved
-            else f"章节已创建（item_id={item_id}），但内容写入未确认，请检查番茄后台。"
+            else f"章节已创建（item_id={item_id}），但内容写入返回非 0，请到番茄后台确认。"
         ),
     }
 

@@ -2145,13 +2145,14 @@ def api_fanqie_push_chapter(
 
 
 @app.get("/api/novel/fanqie/http-debug")
-def api_fanqie_http_debug(request: Request, book_id: str = "") -> dict[str, Any]:
+def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
     """
-    直接用 HTTP + 已保存 Cookie 探测 FanQie API，返回原始响应供调试。
-    不启动 Playwright，无 headless 检测。
+    调试端点：测试 draft_list/v1 是否能正常返回草稿，以及完整推送流程。
+    不启动 Playwright，纯 HTTP。
     """
     from .novel_platforms.fanqie import (
-        _build_http_session, COOKIE_FILE, API_BASE, APP_NAME,
+        _build_http_session, _verify_login_http, _list_drafts_http,
+        COOKIE_FILE, API_BASE, APP_NAME, AID,
     )
     out: dict[str, Any] = {"cookie_file_exists": COOKIE_FILE.exists()}
     if not COOKIE_FILE.exists():
@@ -2160,119 +2161,23 @@ def api_fanqie_http_debug(request: Request, book_id: str = "") -> dict[str, Any]
     try:
         session = _build_http_session()
         out["cookie_count"] = len(session.cookies)
-        out["cookie_names"] = [c.name for c in session.cookies]
 
-        def probe(method: str, path: str, as_json: bool = False, **kwargs: Any) -> dict:
-            url = f"{API_BASE}/{path}"
-            params = kwargs.pop("params", {})
-            params.setdefault("app_name", APP_NAME)
-            headers = {}
-            if as_json:
-                headers["Content-Type"] = "application/json;charset=UTF-8"
-            elif method == "POST" and "data" in kwargs:
-                headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8"
-            try:
-                resp = session.request(method, url, params=params, headers=headers, timeout=15, **kwargs)
-                result: dict = {
-                    "status": resp.status_code,
-                    "content_type": resp.headers.get("Content-Type", ""),
-                    "raw": resp.text[:500],
+        logged_in, username = _verify_login_http(session)
+        out["logged_in"] = logged_in
+        out["username"] = username
+
+        if book_id:
+            drafts = _list_drafts_http(session, book_id)
+            out["draft_count"] = len(drafts)
+            out["drafts"] = [
+                {
+                    "item_id": d.get("item_id"),
+                    "title": d.get("title"),
+                    "word_count": d.get("word_count"),
+                    "create_time": d.get("create_time"),
                 }
-                try:
-                    result["json"] = resp.json()
-                except Exception:
-                    pass
-                return result
-            except Exception as e:
-                return {"error": str(e)}
-
-        bid = book_id or "0"
-        item_id_param = request.query_params.get("item_id", "")
-
-        # ── 步骤 1：找草稿列表 API（尝试多个路径）─────────────────────────
-        if bid and bid != "0":
-            import re as _re, json as _json
-
-            # 尝试直接调用可能存在的列表 API
-            list_paths = [
-                f"article/cover_article_list/v0/",
-                f"article/draft_list/v0/",
-                f"article/get_draft_list/v0/",
-                f"article/get_item_list/v0/",
-                f"article/cover_list/v0/",
-                f"article/list_cover/v0/",
-                f"article/list_draft/v0/",
+                for d in drafts[:10]
             ]
-            for lp in list_paths:
-                r = probe("POST", lp, data={"book_id": bid, "app_name": APP_NAME})
-                if r.get("status") != 404:
-                    out[f"LIST_HIT_{lp}"] = r
-
-            # 尝试 GET 版本
-            for lp in [
-                "article/cover_article_list/v0/",
-                "article/draft_list/v0/",
-                "article/get_draft_list/v0/",
-            ]:
-                r = probe("GET", lp, params={"book_id": bid})
-                if r.get("status") != 404:
-                    out[f"LIST_GET_HIT_{lp}"] = r
-
-            # 获取章节管理页 HTML，输出前 1500 字符看结构
-            page_url = f"https://fanqienovel.com/main/writer/chapter-manage/{bid}"
-            try:
-                page_resp = session.get(page_url, timeout=20, params={"type": "2"})
-                html = page_resp.text
-                out["page_status"] = page_resp.status_code
-                out["page_html_head"] = html[:1500]   # 看页面结构
-
-                # 找所有 18 位以上的数字（可能是 item_id）
-                big_ids = _re.findall(r'\b7\d{18}\b', html)
-                out["found_big_ids"] = list(dict.fromkeys(big_ids))
-
-                # 找 __NEXT_DATA__
-                m = _re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, _re.S)
-                if m:
-                    out["has_next_data"] = True
-                    nd_text = m.group(1)
-                    big_ids2 = _re.findall(r'\b7\d{17,}\b', nd_text)
-                    out["next_data_ids"] = list(dict.fromkeys(big_ids2))
-                    try:
-                        nd = _json.loads(nd_text)
-                        out["next_data_top_keys"] = list(nd.keys())
-                    except Exception:
-                        pass
-                else:
-                    out["has_next_data"] = False
-            except Exception as e:
-                out["page_error"] = str(e)
-
-        # ── 步骤 2：用已知 item_id 测试内容字段名 ───────────────────────
-        if item_id_param:
-            for field in ["content", "text", "article_content"]:
-                out[f"cover_article_{field}"] = probe(
-                    "POST", "article/cover_article/v0/",
-                    data={
-                        "book_id": bid, "app_name": APP_NAME,
-                        "item_id": item_id_param,
-                        "title": f"API测试",
-                        field: "灵感工坊测试内容12345",
-                    },
-                )
-
-        # ── 步骤 3：新建章节，捕获响应 headers ──────────────────────────
-        cr = session.post(
-            f"{API_BASE}/article/cover_article/v0/",
-            params={"app_name": APP_NAME},
-            data={"book_id": bid, "app_name": APP_NAME, "title": "API创建测试"},
-            headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
-            timeout=15,
-        )
-        out["create_response"] = {
-            "status": cr.status_code,
-            "headers": dict(cr.headers),
-            "body": cr.text[:200],
-        }
 
     except Exception as exc:
         out["error"] = str(exc)
