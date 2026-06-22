@@ -2187,71 +2187,60 @@ def api_fanqie_http_debug(request: Request, book_id: str = "") -> dict[str, Any]
                 return {"error": str(e)}
 
         bid = book_id or "0"
-        # 如果传入了额外的 item_id 参数，用它测试更新
         item_id_param = request.query_params.get("item_id", "")
 
-        # 已知新建草稿 item_id 传入时，测试不同内容字段名
+        # ── 步骤 1：从章节管理页 HTML 提取草稿 item_id 列表 ──────────────
+        if bid and bid != "0":
+            page_url = (
+                f"https://fanqienovel.com/main/writer/chapter-manage/{bid}"
+                f"&%E7%84%9A%E6%9C%88%E7%81%AF?type=2"   # &烬月灯?type=2 URL-encoded
+            )
+            try:
+                page_resp = session.get(page_url, timeout=20)
+                import re as _re, json as _json
+                # Next.js 把初始数据放在 <script id="__NEXT_DATA__">
+                m = _re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', page_resp.text, _re.S)
+                if m:
+                    nd = _json.loads(m.group(1))
+                    out["next_data_keys"] = list((nd.get("props") or {}).keys())
+                    # 在 JSON 里找所有像章节 ID 的 18 位数字
+                    ids = _re.findall(r'\b76\d{16}\b', m.group(1))
+                    out["found_item_ids"] = list(dict.fromkeys(ids))   # 去重保序
+                else:
+                    # 没有 __NEXT_DATA__，尝试找 item_id 字段
+                    ids = _re.findall(r'"item_id"\s*:\s*"?(\d{18,})"?', page_resp.text)
+                    out["found_item_ids_fallback"] = ids[:20]
+                out["page_status"] = page_resp.status_code
+                out["page_content_type"] = page_resp.headers.get("Content-Type", "")
+            except Exception as e:
+                out["page_error"] = str(e)
+
+        # ── 步骤 2：用已知 item_id 测试内容字段名 ───────────────────────
         if item_id_param:
-            test_content = "灵感工坊自动推送测试内容，验证字段名正确性。"
-            for field in ["content", "text", "article_content", "chapter_content", "body", "txt"]:
-                out[f"cover_article_field_{field}"] = probe(
+            for field in ["content", "text", "article_content"]:
+                out[f"cover_article_{field}"] = probe(
                     "POST", "article/cover_article/v0/",
                     data={
                         "book_id": bid, "app_name": APP_NAME,
                         "item_id": item_id_param,
-                        "title": f"测试字段{field}",
-                        field: test_content,
+                        "title": f"API测试",
+                        field: "灵感工坊测试内容12345",
                     },
                 )
 
-        # 新建草稿 + 捕获响应 headers（看有没有返回 item_id）
-        import requests as _req
-        url = f"{API_BASE}/article/cover_article/v0/"
-        resp = session.post(
-            url,
+        # ── 步骤 3：新建章节，捕获响应 headers ──────────────────────────
+        cr = session.post(
+            f"{API_BASE}/article/cover_article/v0/",
             params={"app_name": APP_NAME},
-            data={"book_id": bid, "app_name": APP_NAME, "title": "API字段测试草稿"},
+            data={"book_id": bid, "app_name": APP_NAME, "title": "API创建测试"},
             headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
             timeout=15,
         )
-        out["cover_article_create_new"] = {
-            "status": resp.status_code,
-            "headers": dict(resp.headers),
-            "raw": resp.text[:500],
+        out["create_response"] = {
+            "status": cr.status_code,
+            "headers": dict(cr.headers),
+            "body": cr.text[:200],
         }
-
-        # 同时测试 save_doc_history 捕获 headers
-        resp2 = session.post(
-            f"{API_BASE}/article/save_doc_history/v0/",
-            params={"app_name": APP_NAME},
-            data={"book_id": bid, "app_name": APP_NAME, "title": "test"},
-            headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
-            timeout=15,
-        )
-        out["save_doc_history_headers"] = {
-            "status": resp2.status_code,
-            "headers": dict(resp2.headers),
-            "raw": resp2.text[:200],
-        }
-
-        if book_id:
-            # 章节列表 —— 多种路径尝试
-            for path in [
-                "article/item_list/v0/",
-                "article/items/v0/",
-                "article/list/v0/",
-                "article/chapter_list/v0/",
-                "book/article_list/v0/",
-            ]:
-                out[f"GET_{path}"] = probe("GET", path, params={"book_id": book_id})
-
-            # 尝试书籍信息
-            for path in [
-                "book/info/v0/",
-                "book/detail/v0/",
-                "article/book_info/v0/",
-            ]:
-                out[f"GET_{path}"] = probe("GET", path, params={"book_id": book_id})
 
     except Exception as exc:
         out["error"] = str(exc)
