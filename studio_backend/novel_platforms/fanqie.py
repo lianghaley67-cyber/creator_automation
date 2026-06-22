@@ -757,22 +757,38 @@ def _push_via_playwright_browser(
                         f" 当前页面：{page.url}"
                     )
 
-                new_btn.click()
+                # ── 3. 监听新标签页，同时点击按钮 ──
+                # 番茄有时在新 tab 打开编辑器，有时在同页跳转
+                with ctx.expect_page(timeout=15_000) as new_page_info:
+                    new_btn.click()
+                    try:
+                        editor_page = new_page_info.value
+                    except Exception:
+                        editor_page = None
 
-                # ── 3. 等待跳转到编辑器（URL 含 /publish/）──
-                try:
-                    page.wait_for_url("**/publish/**", timeout=15_000)
-                except Exception:
-                    # 有些版本是弹窗选择章节类型
-                    confirm = _first_visible_text(page, ["正文", "确定", "开始写作"])
-                    if confirm:
-                        confirm.click()
+                # 如果开了新标签页，切换过去；否则在原页等跳转
+                if editor_page is not None:
+                    editor_page.wait_for_load_state("domcontentloaded", timeout=20_000)
+                    page = editor_page
+                else:
+                    # 同页跳转：等 /publish/ 出现
+                    try:
                         page.wait_for_url("**/publish/**", timeout=15_000)
-                    else:
-                        _screenshot(page, RESULT_SCREENSHOT)
-                        raise RuntimeError(
-                            f"点击新建草稿后未跳转到编辑器，当前 URL：{page.url}"
-                        )
+                    except Exception:
+                        # 可能弹出对话框让选章节类型
+                        confirm = _first_visible_text(page, ["正文", "确定", "开始写作"])
+                        if confirm:
+                            confirm.click()
+                            page.wait_for_url("**/publish/**", timeout=15_000)
+                        else:
+                            _screenshot(page, RESULT_SCREENSHOT)
+                            raise RuntimeError(
+                                f"点击新建草稿后未跳转到编辑器，当前 URL：{page.url}"
+                            )
+
+                # 确保编辑器页也没有停在 /publish/ 之前的路径
+                if "/publish/" not in page.url:
+                    page.wait_for_url("**/publish/**", timeout=15_000)
 
                 page.wait_for_timeout(3000)
 
