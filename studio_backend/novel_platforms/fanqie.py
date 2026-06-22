@@ -784,28 +784,42 @@ def push_chapter_via_http(
     time.sleep(1)  # 等服务端落库
 
     # ── 步骤 4：找到新增草稿的 item_id ──
-    drafts_after = _list_drafts_http(session, book_id)
-    new_items = [
-        d for d in drafts_after
-        if str(d.get("item_id") or "") not in ids_before
-        and str(d.get("item_id") or "")
-    ]
+    # 重试 3 次（等服务端落库）
+    item_id = ""
+    for attempt in range(3):
+        time.sleep(1.5)
+        drafts_after = _list_drafts_http(session, book_id)
 
-    if not new_items:
-        # 退而求其次：取列表中 create_time 最新的
+        # 策略 1：按 item_id 差集找新草稿
+        new_items = [
+            d for d in drafts_after
+            if str(d.get("item_id") or "") not in ids_before
+            and str(d.get("item_id") or "")
+        ]
+        if new_items:
+            item_id = str(new_items[0].get("item_id") or "")
+            break
+
+        # 策略 2：按标题匹配（创建时已传入 chapter_title）
+        title_items = [
+            d for d in drafts_after
+            if chapter_title in (d.get("title") or "")
+        ]
+        if title_items:
+            item_id = str(title_items[0].get("item_id") or "")
+            break
+
+    if not item_id:
+        # 策略 3：取 modify_time 最新的草稿（可能是刚创建的）
         all_items = sorted(
             drafts_after,
-            key=lambda d: d.get("create_time") or 0,
+            key=lambda d: int(d.get("modify_time") or 0),
             reverse=True,
         )
-        new_items = all_items[:1]
+        item_id = str(all_items[0].get("item_id") or "") if all_items else ""
 
-    if not new_items:
-        raise RuntimeError("创建草稿成功，但无法获取 item_id（draft_list 返回为空）。")
-
-    item_id = str(new_items[0].get("item_id") or "")
     if not item_id:
-        raise RuntimeError("草稿列表中 item_id 为空，请检查 API。")
+        raise RuntimeError("创建草稿成功，但无法获取 item_id（draft_list 返回为空）。")
 
     # ── 步骤 5：写入标题和内容 ──
     saved = _save_content_via_cover_article(session, book_id, item_id, chapter_title, content)
