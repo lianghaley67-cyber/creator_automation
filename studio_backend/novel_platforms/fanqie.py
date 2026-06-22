@@ -332,7 +332,16 @@ def import_cookies(cookies_json: list[dict]) -> dict[str, Any]:
         with sync_playwright() as pw:
             ctx = _open_context(pw)
             try:
-                ctx.add_cookies(clean)
+                # 逐个写入，跳过有问题的 Cookie
+                failed = []
+                for ck in clean:
+                    try:
+                        ctx.add_cookies([ck])
+                    except Exception as e:
+                        failed.append(f"{ck.get('name')}: {e}")
+                if failed:
+                    import logging
+                    logging.getLogger(__name__).warning("跳过的 Cookie: %s", failed)
                 # 验证是否已登录
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
                 page.goto(AUTHOR_CENTER_URL, wait_until="domcontentloaded", timeout=30_000)

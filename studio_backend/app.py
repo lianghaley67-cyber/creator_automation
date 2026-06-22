@@ -2089,14 +2089,16 @@ def api_fanqie_login_refresh() -> dict[str, Any]:
 
 @app.post("/api/novel/fanqie/import-cookies")
 async def api_fanqie_import_cookies(request: Request) -> dict[str, Any]:
+    import traceback
     from .novel_platforms import fanqie_import_cookies
     try:
         body = await request.json()
         cookies = body if isinstance(body, list) else body.get("cookies", [])
         result = fanqie_import_cookies(cookies)
         return result
-    except (ValueError, RuntimeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {str(exc)}\n{traceback.format_exc()[-800:]}"
+        raise HTTPException(status_code=400, detail=detail) from exc
 
 
 @app.get("/api/novel/fanqie/works")
