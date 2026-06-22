@@ -112,15 +112,17 @@ def _screenshot(page: Any, path: Path) -> str:
 
 def _is_logged_in(page: Any) -> bool:
     url = str(page.url or "")
-    # 未登录时通常跳回 /login 或显示微信扫码
-    if "/login" in url:
+    # 未登录时跳回 /login（下载 APP 页）
+    if url.rstrip("/").endswith("/login"):
         return False
-    if _first_visible_text(page, ["微信扫码登录", "扫码登录", "手机号登录"]):
-        return False
-    # 已登录标志：有"我的作品"等创作中心元素
-    if _first_visible_text(page, ["我的作品", "作品管理", "创作中心", "新建作品"]):
+    if _first_visible_text(page, ["微信扫码登录", "扫码登录", "手机号登录", "下载番茄小说APP"]):
+        # 只有"下载 APP"按钮说明被踢到了读者登录页，没有作者面板
+        if not _first_visible_text(page, ["工作台", "作品管理", "数据中心", "当前作品"]):
+            return False
+    # 已登录标志：番茄作家中心特有元素
+    if _first_visible_text(page, ["工作台", "作品管理", "数据中心", "当前作品", "开书灵感", "作品运营"]):
         return True
-    if _first_visible(page, ["[class*='work-list']", "[class*='author-center']", "[class*='my-work']"]):
+    if "/main/writer" in url and "/login" not in url:
         return True
     return False
 
@@ -130,9 +132,14 @@ def _get_username(page: Any) -> str:
         el = _first_visible(page, [
             "[class*='user-name']", "[class*='nickname']",
             "[class*='avatar-name']", "header [class*='name']",
+            "[class*='author-name']", "[class*='pen-name']",
         ])
         if el:
             return str(el.inner_text()).strip()[:30]
+        # 从页面 title 提取（番茄作家中心 title 通常含笔名）
+        title = str(page.title() or "")
+        if "-" in title:
+            return title.split("-")[0].strip()[:20]
     except Exception:
         pass
     return ""
