@@ -2187,50 +2187,41 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
                 return {"error": str(e)}
 
         bid = book_id or "0"
-        # 已知真实 item_id（从 URL 中获取的）
         real_item = "7654086628297687576" if bid == "7653982168372235326" else "0"
 
-        # 1. 已知 200 的路径 —— 加上真实 item_id 和内容字段
-        out["cover_article_with_content"] = probe(
+        # 1. 已知 200 的 cover_article —— 不带 item_id，看是否新建章节
+        out["cover_article_no_item_id"] = probe(
             "POST", "article/cover_article/v0/",
             data={
                 "book_id": bid, "app_name": APP_NAME,
-                "item_id": real_item,
-                "title": "测试章节",
-                "content": "这是测试内容。",
+                "title": "API测试新章节",
+                "content": "API自动创建的测试内容，可删除。",
             },
         )
-        out["save_doc_history_real_item"] = probe(
+
+        # 2. save_doc_history 不带 item_id
+        out["save_doc_history_no_item_id"] = probe(
             "POST", "article/save_doc_history/v0/",
-            data={"book_id": bid, "app_name": APP_NAME, "item_id": real_item},
+            data={"book_id": bid, "app_name": APP_NAME, "title": "API测试"},
         )
 
-        # 2. 章节创建 —— 枚举更多路径
+        # 3. 更多创建路径
         for cpath in [
-            "article/new_chapter/v0/",
-            "article/add_item/v0/",
-            "article/create_item/v0/",
-            "article/new_draft/v0/",
-            "article/draft/new/v0/",
-            "article/chapter/new/v0/",
-            "article/submit/v0/",
+            "article/new_article/v0/",
+            "article/publish/v0/",
+            "article/save/v0/",
+            "article/update/v0/",
+            "article/init_item/v0/",
+            "article/new/v0/",
+            "chapter/new/v0/",
+            "chapter/save/v0/",
         ]:
-            out[f"POST_{cpath}"] = probe(
+            r = probe(
                 "POST", cpath,
                 data={"book_id": bid, "app_name": APP_NAME, "item_type": "1", "title": "test"},
             )
-
-        # 3. 章节列表 —— 更多路径
-        for lpath in [
-            "article/list/v0/",
-            "article/get_list/v0/",
-            "article/chapter/list/v0/",
-            "book/chapter_list/v0/",
-        ]:
-            out[f"POST_{lpath}"] = probe(
-                "POST", lpath,
-                data={"book_id": bid, "app_name": APP_NAME},
-            )
+            if r.get("status") != 404:   # 只记录非 404 的
+                out[f"HIT_{cpath}"] = r
 
         if book_id:
             # 章节列表 —— 多种路径尝试
