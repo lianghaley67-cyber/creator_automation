@@ -2147,45 +2147,83 @@ def api_fanqie_push_chapter(
 @app.get("/api/novel/fanqie/http-debug")
 def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
     """
-    调试端点：测试 draft_list/v1 是否能正常返回草稿，以及完整推送流程。
-    不启动 Playwright，纯 HTTP。
+    调试端点：测试各种保存方式，找到真正能写入内容的接口。
     """
     from .novel_platforms.fanqie import (
         _build_http_session, _verify_login_http, _list_drafts_http,
-        COOKIE_FILE, API_BASE, APP_NAME, AID,
+        _base_params, COOKIE_FILE, API_BASE,
     )
     out: dict[str, Any] = {"cookie_file_exists": COOKIE_FILE.exists()}
     if not COOKIE_FILE.exists():
         out["error"] = "Cookie 文件不存在，请先导入 Cookie。"
         return out
     try:
+        import time as _time
         session = _build_http_session()
-        out["cookie_count"] = len(session.cookies)
-
-        logged_in, username = _verify_login_http(session)
+        logged_in, _ = _verify_login_http(session)
         out["logged_in"] = logged_in
-        out["username"] = username
 
-        if book_id:
-            from .novel_platforms.fanqie import API_BASE, _base_params
-            resp = session.get(
-                f"{API_BASE}/chapter/draft_list/v1",
-                params={**_base_params(), "book_id": book_id, "page_index": "0", "page_count": "15"},
-                timeout=15,
+        if not book_id:
+            return out
+
+        def post(path: str, data: dict) -> dict:
+            resp = session.post(
+                f"{API_BASE}/{path}",
+                params=_base_params(),
+                data=data,
+                timeout=30,
             )
-            out["draft_list_status"] = resp.status_code
+            result: dict = {"status": resp.status_code, "body": resp.text[:300]}
             try:
-                raw = resp.json()
-                out["draft_list_raw"] = raw  # 完整原始响应，用于确认字段名
+                result["json"] = resp.json()
             except Exception:
-                out["draft_list_text"] = resp.text[:500]
+                pass
+            return result
 
-            drafts = _list_drafts_http(session, book_id)
-            out["draft_count"] = len(drafts)
-            out["drafts"] = drafts[:10]
+        TEST_TITLE = "API自动测试章节"
+        TEST_CONTENT = "这是灵感工坊自动写入的测试内容，共计30字。" * 3
+
+        # ── 测试1：save_doc_history 不带 item_id（期望创建新章节并返回 item_id）──
+        out["test1_save_doc_history_no_id"] = post(
+            "article/save_doc_history/v0/",
+            {"book_id": book_id, "title": TEST_TITLE, "content": TEST_CONTENT},
+        )
+
+        _time.sleep(1)
+
+        # ── 测试2：save_doc_history 带 item_id（用未命名草稿的 id）──
+        drafts = _list_drafts_http(session, book_id)
+        out["drafts_before"] = [{"item_id": d.get("item_id"), "title": d.get("title"), "wc": d.get("word_number")} for d in drafts]
+        unnamed = next((d for d in drafts if (d.get("word_number") or 0) == 0), None)
+        if unnamed:
+            out["test2_save_doc_history_with_id"] = post(
+                "article/save_doc_history/v0/",
+                {
+                    "book_id": book_id,
+                    "item_id": unnamed["item_id"],
+                    "title": TEST_TITLE + "2",
+                    "content": TEST_CONTENT,
+                },
+            )
+
+        _time.sleep(1.5)
+
+        # ── 测试3：cover_article 不带 item_id 但带 content（单步创建+内容）──
+        out["test3_cover_article_with_content"] = post(
+            "article/cover_article/v0/",
+            {"book_id": book_id, "title": TEST_TITLE + "3", "content": TEST_CONTENT},
+        )
+
+        _time.sleep(1.5)
+
+        # ── 最终草稿列表（看哪个测试有新内容出现）──
+        drafts_after = _list_drafts_http(session, book_id)
+        out["drafts_after"] = [{"item_id": d.get("item_id"), "title": d.get("title"), "wc": d.get("word_number")} for d in drafts_after]
 
     except Exception as exc:
+        import traceback
         out["error"] = str(exc)
+        out["traceback"] = traceback.format_exc()[-500:]
     return out
 
 
