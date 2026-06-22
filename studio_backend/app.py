@@ -2145,7 +2145,7 @@ def api_fanqie_push_chapter(
 
 
 @app.get("/api/novel/fanqie/http-debug")
-def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
+def api_fanqie_http_debug(request: Request, book_id: str = "") -> dict[str, Any]:
     """
     直接用 HTTP + 已保存 Cookie 探测 FanQie API，返回原始响应供调试。
     不启动 Playwright，无 headless 检测。
@@ -2187,41 +2187,52 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
                 return {"error": str(e)}
 
         bid = book_id or "0"
-        real_item = "7654086628297687576" if bid == "7653982168372235326" else "0"
+        # 如果传入了额外的 item_id 参数，用它测试更新
+        item_id_param = request.query_params.get("item_id", "")
 
-        # 1. 已知 200 的 cover_article —— 不带 item_id，看是否新建章节
-        out["cover_article_no_item_id"] = probe(
-            "POST", "article/cover_article/v0/",
-            data={
-                "book_id": bid, "app_name": APP_NAME,
-                "title": "API测试新章节",
-                "content": "API自动创建的测试内容，可删除。",
-            },
+        # 已知新建草稿 item_id 传入时，测试不同内容字段名
+        if item_id_param:
+            test_content = "灵感工坊自动推送测试内容，验证字段名正确性。"
+            for field in ["content", "text", "article_content", "chapter_content", "body", "txt"]:
+                out[f"cover_article_field_{field}"] = probe(
+                    "POST", "article/cover_article/v0/",
+                    data={
+                        "book_id": bid, "app_name": APP_NAME,
+                        "item_id": item_id_param,
+                        "title": f"测试字段{field}",
+                        field: test_content,
+                    },
+                )
+
+        # 新建草稿 + 捕获响应 headers（看有没有返回 item_id）
+        import requests as _req
+        url = f"{API_BASE}/article/cover_article/v0/"
+        resp = session.post(
+            url,
+            params={"app_name": APP_NAME},
+            data={"book_id": bid, "app_name": APP_NAME, "title": "API字段测试草稿"},
+            headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
+            timeout=15,
         )
+        out["cover_article_create_new"] = {
+            "status": resp.status_code,
+            "headers": dict(resp.headers),
+            "raw": resp.text[:500],
+        }
 
-        # 2. save_doc_history 不带 item_id
-        out["save_doc_history_no_item_id"] = probe(
-            "POST", "article/save_doc_history/v0/",
-            data={"book_id": bid, "app_name": APP_NAME, "title": "API测试"},
+        # 同时测试 save_doc_history 捕获 headers
+        resp2 = session.post(
+            f"{API_BASE}/article/save_doc_history/v0/",
+            params={"app_name": APP_NAME},
+            data={"book_id": bid, "app_name": APP_NAME, "title": "test"},
+            headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
+            timeout=15,
         )
-
-        # 3. 更多创建路径
-        for cpath in [
-            "article/new_article/v0/",
-            "article/publish/v0/",
-            "article/save/v0/",
-            "article/update/v0/",
-            "article/init_item/v0/",
-            "article/new/v0/",
-            "chapter/new/v0/",
-            "chapter/save/v0/",
-        ]:
-            r = probe(
-                "POST", cpath,
-                data={"book_id": bid, "app_name": APP_NAME, "item_type": "1", "title": "test"},
-            )
-            if r.get("status") != 404:   # 只记录非 404 的
-                out[f"HIT_{cpath}"] = r
+        out["save_doc_history_headers"] = {
+            "status": resp2.status_code,
+            "headers": dict(resp2.headers),
+            "raw": resp2.text[:200],
+        }
 
         if book_id:
             # 章节列表 —— 多种路径尝试
