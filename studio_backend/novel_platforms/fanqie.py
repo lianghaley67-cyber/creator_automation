@@ -282,6 +282,79 @@ def _capture_qr(page: Any) -> str:
     return _versioned_url(QR_SCREENSHOT)
 
 
+# ── Cookie 导入 ───────────────────────────────────────────────────────
+
+def import_cookies(cookies_json: list[dict]) -> dict[str, Any]:
+    """
+    把从浏览器导出的 Cookie JSON 写入持久化 Profile，
+    下次打开浏览器即为已登录状态。
+    """
+    from playwright.sync_api import sync_playwright
+
+    # 规范化 Cookie 格式（Cookie-Editor 导出 → Playwright 格式）
+    clean: list[dict] = []
+    for c in cookies_json:
+        entry: dict[str, Any] = {
+            "name": str(c.get("name", "")),
+            "value": str(c.get("value", "")),
+            "domain": str(c.get("domain", ".fanqienovel.com")),
+            "path": str(c.get("path", "/")),
+        }
+        # expires: -1 表示 session cookie，Playwright 不接受 -1
+        exp = c.get("expires", -1)
+        if isinstance(exp, (int, float)) and exp > 0:
+            entry["expires"] = float(exp)
+        # sameSite: Cookie-Editor 用 "no_restriction" / "lax" / "strict"
+        same = str(c.get("sameSite", "")).lower()
+        mapping = {"no_restriction": "None", "lax": "Lax", "strict": "Strict", "none": "None"}
+        entry["sameSite"] = mapping.get(same, "Lax")
+        if c.get("httpOnly"):
+            entry["httpOnly"] = True
+        if c.get("secure"):
+            entry["secure"] = True
+        if entry["name"] and entry["value"]:
+            clean.append(entry)
+
+    if not clean:
+        raise ValueError("Cookie 列表为空或格式不正确，请重新导出。")
+
+    with _BROWSER_LOCK:
+        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+        with sync_playwright() as pw:
+            ctx = _open_context(pw)
+            try:
+                ctx.add_cookies(clean)
+                # 验证是否已登录
+                page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                page.goto(AUTHOR_CENTER_URL, wait_until="domcontentloaded", timeout=30_000)
+                page.wait_for_timeout(3000)
+                logged_in = _is_logged_in(page)
+                username = _get_username(page) if logged_in else ""
+                screenshot_url = _screenshot(page, SESSION_SCREENSHOT)
+                if logged_in:
+                    _set_state(
+                        status="logged_in",
+                        logged_in=True,
+                        screenshot_url=screenshot_url,
+                        message=f"Cookie 导入成功，已登录番茄小说：{username or '创作者'}",
+                        username=username,
+                    )
+                return {
+                    "ok": logged_in,
+                    "cookie_count": len(clean),
+                    "logged_in": logged_in,
+                    "username": username,
+                    "screenshot_url": screenshot_url,
+                    "message": (
+                        f"导入 {len(clean)} 个 Cookie，登录验证成功，账号：{username or '未知'}"
+                        if logged_in
+                        else f"导入 {len(clean)} 个 Cookie，但登录验证失败，请确认 Cookie 来自已登录的番茄小说页面。"
+                    ),
+                }
+            finally:
+                ctx.close()
+
+
 # ── 登录 session worker ───────────────────────────────────────────────
 
 def _login_worker() -> None:

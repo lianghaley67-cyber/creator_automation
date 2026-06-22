@@ -2087,6 +2087,18 @@ def api_fanqie_login_refresh() -> dict[str, Any]:
     return fanqie_refresh_login_qr()
 
 
+@app.post("/api/novel/fanqie/import-cookies")
+async def api_fanqie_import_cookies(request: Request) -> dict[str, Any]:
+    from .novel_platforms import fanqie_import_cookies
+    try:
+        body = await request.json()
+        cookies = body if isinstance(body, list) else body.get("cookies", [])
+        result = fanqie_import_cookies(cookies)
+        return result
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/novel/fanqie/works")
 def api_fanqie_works() -> dict[str, Any]:
     from .novel_platforms import fanqie_list_works

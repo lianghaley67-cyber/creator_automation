@@ -125,16 +125,18 @@ const stories = ref([]);
 const selectedStoryId = ref("");
 const storyManageModal = reactive({ visible: false, chapters: [], bible: null, loading: false, storyId: "", expandedChapterId: null });
 const fanqie = reactive({
-  status: "not_started",   // not_started | starting | qr_ready | logged_in | failed
+  status: "not_started",
   logged_in: false,
   qr_url: "",
   screenshot_url: "",
   message: "",
   username: "",
-  pushingChapter: null,   // chapter_number 正在推送
-  pushResult: {},         // { [chapter_number]: { ok, message, error } }
-  workName: "",           // 用户配置的番茄作品名
-  loginVisible: false,    // 是否展开登录面板
+  pushingChapter: null,
+  pushResult: {},
+  workName: "",
+  loginVisible: false,
+  cookieInput: "",
+  importingCookies: false,
 });
 const newStoryForm = reactive({ name: "", genre: "fantasy", visible: false, creating: false, error: "" });
 const trendDiscussionOpen = ref(false); // 多轮讨论是否展开
@@ -2203,6 +2205,38 @@ async function fanqieRefreshQr() {
   }
 }
 
+async function fanqieImportCookies() {
+  let cookies;
+  try {
+    cookies = JSON.parse(fanqie.cookieInput.trim());
+  } catch {
+    fanqie.message = 'Cookie 格式错误，请确认是合法的 JSON 数组。';
+    fanqie.status = 'failed';
+    return;
+  }
+  fanqie.importingCookies = true;
+  fanqie.message = '正在导入 Cookie 并验证登录…';
+  try {
+    const data = await requestApi('/api/novel/fanqie/import-cookies', {
+      method: 'POST',
+      body: JSON.stringify(cookies),
+    }, 60000);
+    Object.assign(fanqie, {
+      logged_in: data.logged_in,
+      username: data.username || '',
+      message: data.message,
+      status: data.logged_in ? 'logged_in' : 'failed',
+      screenshot_url: data.screenshot_url || '',
+    });
+    if (data.logged_in) fanqie.cookieInput = '';
+  } catch (err) {
+    fanqie.message = `导入失败：${err.message}`;
+    fanqie.status = 'failed';
+  } finally {
+    fanqie.importingCookies = false;
+  }
+}
+
 async function fanqiePushChapter(chapter) {
   if (!fanqie.workName.trim()) {
     alert('请先在「番茄小说作品名」中填写对应的作品名称。');
@@ -2595,6 +2629,7 @@ const studioContext = {
   fanqieCheckStatus,
   fanqieStartLogin,
   fanqieRefreshQr,
+  fanqieImportCookies,
   fanqiePushChapter,
 };
 provide("studioContext", studioContext);
@@ -4609,7 +4644,29 @@ textarea {
   align-items: flex-start;
 }
 
+.fanqie-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #a9bfda;
+  line-height: 1.8;
+}
+
+.fanqie-cookie-input {
+  width: 100%;
+  background: rgba(142, 171, 205, 0.06);
+  border: 1px solid rgba(142, 171, 205, 0.2);
+  border-radius: 8px;
+  color: #e8f4ff;
+  font-size: 11px;
+  padding: 8px 10px;
+  resize: vertical;
+  font-family: monospace;
+  box-sizing: border-box;
+}
+
 .fanqie-msg { font-size: 12px; color: #a9bfda; margin: 0; }
+.fanqie-msg.err { color: #ff5040; }
 
 .fanqie-qr {
   width: 100%;

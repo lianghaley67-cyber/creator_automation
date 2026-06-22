@@ -4,6 +4,7 @@ from .fanqie import (
     get_session_state as fanqie_get_session_state,
     list_works as fanqie_list_works,
     push_chapter_draft as fanqie_push_chapter_draft,
+    import_cookies as fanqie_import_cookies,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "fanqie_get_session_state",
     "fanqie_list_works",
     "fanqie_push_chapter_draft",
+    "fanqie_import_cookies",
 ]

@@ -391,16 +391,29 @@ export default {
                           <input v-model="fanqie.workName" placeholder="和番茄小说创作中心的作品名一致" />
                         </label>
                         <div v-if="!fanqie.logged_in" class="fanqie-login-area">
-                          <button class="btn accent small" :disabled="fanqie.status === 'starting'" @click="fanqieStartLogin">
-                            {{ fanqie.status === 'starting' ? '连接中…' : '启动登录 / 扫码' }}
-                          </button>
-                          <button v-if="fanqie.status === 'qr_ready'" class="btn secondary small" @click="fanqieRefreshQr">刷新二维码</button>
-                          <p class="fanqie-msg">{{ fanqie.message }}</p>
-                          <img v-if="fanqie.qr_url" :src="fanqie.qr_url" class="fanqie-qr" alt="番茄小说微信扫码登录" />
+                          <p class="fanqie-msg">通过浏览器 Cookie 授权（无需扫码）：</p>
+                          <ol class="fanqie-steps">
+                            <li>安装浏览器扩展 <strong>Cookie-Editor</strong>（Chrome/Edge 均可）</li>
+                            <li>打开 <strong>fanqienovel.com</strong>（保持登录状态）</li>
+                            <li>点击 Cookie-Editor → Export → <strong>Export as JSON</strong></li>
+                            <li>把复制的内容粘贴到下方文本框</li>
+                          </ol>
+                          <textarea
+                            v-model="fanqie.cookieInput"
+                            class="fanqie-cookie-input"
+                            placeholder='粘贴 Cookie JSON，格式：[{"name":"...","value":"...",...}, ...]'
+                            rows="4"
+                          ></textarea>
+                          <button
+                            class="btn accent small"
+                            :disabled="fanqie.importingCookies || !fanqie.cookieInput?.trim()"
+                            @click="fanqieImportCookies"
+                          >{{ fanqie.importingCookies ? '导入中…' : '导入 Cookie 并验证登录' }}</button>
+                          <p v-if="fanqie.message" class="fanqie-msg" :class="{ err: fanqie.status === 'failed' }">{{ fanqie.message }}</p>
                         </div>
                         <div v-else class="fanqie-logged">
                           <p class="fanqie-msg">{{ fanqie.message }}</p>
-                          <button class="btn secondary small" @click="fanqieStartLogin">重新登录</button>
+                          <button class="btn secondary small" @click="fanqie.logged_in = false; fanqie.message = ''">重新导入 Cookie</button>
                         </div>
                       </div>
                     </div>
