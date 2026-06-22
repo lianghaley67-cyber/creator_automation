@@ -2205,44 +2205,79 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
         TEST_TITLE = "API自动测试章节"
         TEST_CONTENT = "这是灵感工坊自动写入的测试内容。" * 5
 
-        drafts = _list_drafts_http(session, book_id)
-        out["drafts_before"] = [{"item_id": d.get("item_id"), "title": d.get("title"), "wc": d.get("word_number")} for d in drafts]
-
-        # 取已有最小字数草稿的 item_id 测试（避免破坏有内容的草稿）
-        real_drafts = [d for d in drafts if str(d.get("item_id") or "") not in ("", "7654158391115252248")]
-        test_item = real_drafts[0] if real_drafts else (drafts[0] if drafts else None)
-
-        # ── 测试1：cover_article 带 item_id + content（之前成功的路径）──
-        if test_item:
-            out["test1_cover_article_with_body_app_name"] = post(
-                "article/cover_article/v0/",
-                {"book_id": book_id, "item_id": test_item["item_id"],
-                 "title": TEST_TITLE, "content": TEST_CONTENT},
-            )
-
-        _time.sleep(1.5)
-
-        # ── 测试2：save_doc_history 带 item_id + app_name in body ──
-        if test_item:
-            out["test2_save_doc_history_with_body_app_name"] = post(
-                "article/save_doc_history/v0/",
-                {"book_id": book_id, "item_id": test_item["item_id"],
-                 "title": TEST_TITLE + "B", "content": TEST_CONTENT},
-            )
-
-        _time.sleep(1.5)
-
-        # ── 测试3：cover_article 不带 item_id + app_name in body ──
-        out["test3_cover_article_no_id_with_body"] = post(
-            "article/cover_article/v0/",
-            {"book_id": book_id, "title": TEST_TITLE + "C", "content": TEST_CONTENT},
+        # 获取完整草稿数据（含 volume_id）
+        resp_dl = session.get(
+            f"{API_BASE}/chapter/draft_list/v1",
+            params={**_base_params(), "book_id": book_id, "page_index": "0", "page_count": "15"},
+            timeout=15,
         )
+        dl_raw = resp_dl.json() if resp_dl.status_code == 200 else {}
+        drafts_full = (dl_raw.get("data") or {}).get("draft_list") or []
+        out["drafts_before"] = [{"item_id": d.get("item_id"), "title": d.get("title"), "wc": d.get("word_number"), "volume_id": d.get("volume_id")} for d in drafts_full]
 
+        # 取第6章（item_id=7654088628297687576）作为测试目标
+        test_item = next((d for d in drafts_full if d.get("title") == "第6章"), drafts_full[0] if drafts_full else None)
+        if not test_item:
+            out["error"] = "没有找到测试草稿"
+            return out
+
+        tid = test_item["item_id"]
+        vol_id = test_item.get("volume_id", "")
+        editor_url = f"https://fanqienovel.com/main/writer/{book_id}/publish/{tid}?enter_from=modifydraft"
+
+        def post_with_referer(path: str, data: dict, referer: str = editor_url) -> dict:
+            merged = {"app_name": APP_NAME, "aid": AID, **data}
+            headers = {"Referer": referer}
+            if csrf_token:
+                headers["X-CSRFToken"] = csrf_token
+                headers["tt-csrf-token"] = csrf_token
+            resp = session.post(
+                f"{API_BASE}/{path}",
+                params={"app_name": APP_NAME, "aid": AID},
+                data=merged,
+                headers=headers,
+                timeout=30,
+            )
+            result: dict = {"status": resp.status_code, "body": resp.text[:400]}
+            try:
+                result["json"] = resp.json()
+            except Exception:
+                pass
+            return result
+
+        # ── 测试1：cover_article 带 volume_id + 编辑器 Referer ──
+        out["test1_cover_article_volume_id"] = post_with_referer(
+            "article/cover_article/v0/",
+            {"book_id": book_id, "item_id": tid, "volume_id": vol_id,
+             "title": TEST_TITLE + "1", "content": TEST_CONTENT},
+        )
+        _time.sleep(1.5)
+
+        # ── 测试2：save_doc_history 带 volume_id + 编辑器 Referer ──
+        out["test2_save_doc_history_volume_id"] = post_with_referer(
+            "article/save_doc_history/v0/",
+            {"book_id": book_id, "item_id": tid, "volume_id": vol_id,
+             "title": TEST_TITLE + "2", "content": TEST_CONTENT},
+        )
+        _time.sleep(1.5)
+
+        # ── 测试3：save_doc_history 不带 volume_id（对比） ──
+        out["test3_save_doc_history_no_volume"] = post_with_referer(
+            "article/save_doc_history/v0/",
+            {"book_id": book_id, "item_id": tid,
+             "title": TEST_TITLE + "3", "content": TEST_CONTENT},
+        )
         _time.sleep(2)
 
-        drafts_after = _list_drafts_http(session, book_id)
-        out["drafts_after"] = [{"item_id": d.get("item_id"), "title": d.get("title"), "wc": d.get("word_number")} for d in drafts_after]
-        out["test_item_id"] = test_item["item_id"] if test_item else None
+        resp_dl2 = session.get(
+            f"{API_BASE}/chapter/draft_list/v1",
+            params={**_base_params(), "book_id": book_id, "page_index": "0", "page_count": "15"},
+            timeout=15,
+        )
+        dl_raw2 = resp_dl2.json() if resp_dl2.status_code == 200 else {}
+        drafts_full2 = (dl_raw2.get("data") or {}).get("draft_list") or []
+        out["drafts_after"] = [{"item_id": d.get("item_id"), "title": d.get("title"), "wc": d.get("word_number")} for d in drafts_full2]
+        out["test_item_id"] = tid
 
     except Exception as exc:
         import traceback
