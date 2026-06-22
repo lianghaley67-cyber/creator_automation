@@ -294,26 +294,35 @@ def import_cookies(cookies_json: list[dict]) -> dict[str, Any]:
     # 规范化 Cookie 格式（Cookie-Editor 导出 → Playwright 格式）
     clean: list[dict] = []
     for c in cookies_json:
+        name = str(c.get("name") or "").strip()
+        value = str(c.get("value") or "")
+        if not name:
+            continue
         entry: dict[str, Any] = {
-            "name": str(c.get("name", "")),
-            "value": str(c.get("value", "")),
-            "domain": str(c.get("domain", ".fanqienovel.com")),
-            "path": str(c.get("path", "/")),
+            "name": name,
+            "value": value,
+            "domain": str(c.get("domain") or ".fanqienovel.com"),
+            "path": str(c.get("path") or "/"),
         }
-        # expires: -1 表示 session cookie，Playwright 不接受 -1
-        exp = c.get("expires", -1)
+        # Cookie-Editor 用 expirationDate，标准格式用 expires
+        exp = c.get("expirationDate") or c.get("expires")
         if isinstance(exp, (int, float)) and exp > 0:
             entry["expires"] = float(exp)
-        # sameSite: Cookie-Editor 用 "no_restriction" / "lax" / "strict"
-        same = str(c.get("sameSite", "")).lower()
-        mapping = {"no_restriction": "None", "lax": "Lax", "strict": "Strict", "none": "None"}
+        # sameSite: Cookie-Editor 输出 null / "no_restriction" / "lax" / "strict"
+        same_raw = c.get("sameSite")
+        same = str(same_raw).lower() if same_raw is not None else ""
+        mapping = {
+            "no_restriction": "None",
+            "lax": "Lax",
+            "strict": "Strict",
+            "none": "None",
+        }
         entry["sameSite"] = mapping.get(same, "Lax")
         if c.get("httpOnly"):
             entry["httpOnly"] = True
         if c.get("secure"):
             entry["secure"] = True
-        if entry["name"] and entry["value"]:
-            clean.append(entry)
+        clean.append(entry)
 
     if not clean:
         raise ValueError("Cookie 列表为空或格式不正确，请重新导出。")
