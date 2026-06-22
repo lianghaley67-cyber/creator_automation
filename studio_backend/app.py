@@ -2187,38 +2187,50 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
                 return {"error": str(e)}
 
         bid = book_id or "0"
+        # 已知真实 item_id（从 URL 中获取的）
+        real_item = "7654086628297687576" if bid == "7653982168372235326" else "0"
 
-        # 已知路径，用正确的 Content-Type
-        out["POST_save_doc_history_form"] = probe(
-            "POST", "article/save_doc_history/v0/",
-            data={"book_id": bid, "app_name": APP_NAME, "item_id": "0"},
-        )
-        out["POST_cover_article_form"] = probe(
+        # 1. 已知 200 的路径 —— 加上真实 item_id 和内容字段
+        out["cover_article_with_content"] = probe(
             "POST", "article/cover_article/v0/",
-            data={"book_id": bid, "app_name": APP_NAME, "item_id": "0"},
+            data={
+                "book_id": bid, "app_name": APP_NAME,
+                "item_id": real_item,
+                "title": "测试章节",
+                "content": "这是测试内容。",
+            },
         )
-        # JSON body 版本
-        out["POST_save_doc_history_json"] = probe(
+        out["save_doc_history_real_item"] = probe(
             "POST", "article/save_doc_history/v0/",
-            as_json=True,
-            json={"book_id": bid, "app_name": APP_NAME, "item_id": "0"},
+            data={"book_id": bid, "app_name": APP_NAME, "item_id": real_item},
         )
 
-        # 章节列表 —— 尝试 POST（因为 GET 全是 404）
-        out["POST_item_list"] = probe(
-            "POST", "article/item_list/v0/",
-            data={"book_id": bid, "app_name": APP_NAME},
-        )
-        # 新建章节
-        out["POST_new_item"] = probe(
-            "POST", "article/new_item/v0/",
-            data={"book_id": bid, "app_name": APP_NAME, "item_type": "1", "title": "test_chapter"},
-        )
-        # 保存内容
-        out["POST_save_article"] = probe(
-            "POST", "article/save_article/v0/",
-            data={"book_id": bid, "app_name": APP_NAME, "item_id": "0", "content": "test"},
-        )
+        # 2. 章节创建 —— 枚举更多路径
+        for cpath in [
+            "article/new_chapter/v0/",
+            "article/add_item/v0/",
+            "article/create_item/v0/",
+            "article/new_draft/v0/",
+            "article/draft/new/v0/",
+            "article/chapter/new/v0/",
+            "article/submit/v0/",
+        ]:
+            out[f"POST_{cpath}"] = probe(
+                "POST", cpath,
+                data={"book_id": bid, "app_name": APP_NAME, "item_type": "1", "title": "test"},
+            )
+
+        # 3. 章节列表 —— 更多路径
+        for lpath in [
+            "article/list/v0/",
+            "article/get_list/v0/",
+            "article/chapter/list/v0/",
+            "book/chapter_list/v0/",
+        ]:
+            out[f"POST_{lpath}"] = probe(
+                "POST", lpath,
+                data={"book_id": bid, "app_name": APP_NAME},
+            )
 
         if book_id:
             # 章节列表 —— 多种路径尝试
