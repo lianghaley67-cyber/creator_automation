@@ -2166,14 +2166,18 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
         if not book_id:
             return out
 
+        from .novel_platforms.fanqie import APP_NAME, AID
+
         def post(path: str, data: dict) -> dict:
+            # 同时在 URL params 和 POST body 都带 app_name/aid
+            merged = {"app_name": APP_NAME, "aid": AID, **data}
             resp = session.post(
                 f"{API_BASE}/{path}",
-                params=_base_params(),
-                data=data,
+                params={"app_name": APP_NAME, "aid": AID},
+                data=merged,
                 timeout=30,
             )
-            result: dict = {"status": resp.status_code, "body": resp.text[:300]}
+            result: dict = {"status": resp.status_code, "body": resp.text[:400]}
             try:
                 result["json"] = resp.json()
             except Exception:
@@ -2181,44 +2185,46 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
             return result
 
         TEST_TITLE = "API自动测试章节"
-        TEST_CONTENT = "这是灵感工坊自动写入的测试内容，共计30字。" * 3
+        TEST_CONTENT = "这是灵感工坊自动写入的测试内容。" * 5
 
-        # ── 测试1：save_doc_history 不带 item_id（期望创建新章节并返回 item_id）──
-        out["test1_save_doc_history_no_id"] = post(
-            "article/save_doc_history/v0/",
-            {"book_id": book_id, "title": TEST_TITLE, "content": TEST_CONTENT},
-        )
-
-        _time.sleep(1)
-
-        # ── 测试2：save_doc_history 带 item_id（用未命名草稿的 id）──
         drafts = _list_drafts_http(session, book_id)
         out["drafts_before"] = [{"item_id": d.get("item_id"), "title": d.get("title"), "wc": d.get("word_number")} for d in drafts]
-        unnamed = next((d for d in drafts if (d.get("word_number") or 0) == 0), None)
-        if unnamed:
-            out["test2_save_doc_history_with_id"] = post(
-                "article/save_doc_history/v0/",
-                {
-                    "book_id": book_id,
-                    "item_id": unnamed["item_id"],
-                    "title": TEST_TITLE + "2",
-                    "content": TEST_CONTENT,
-                },
+
+        # 取已有最小字数草稿的 item_id 测试（避免破坏有内容的草稿）
+        real_drafts = [d for d in drafts if str(d.get("item_id") or "") not in ("", "7654158391115252248")]
+        test_item = real_drafts[0] if real_drafts else (drafts[0] if drafts else None)
+
+        # ── 测试1：cover_article 带 item_id + content（之前成功的路径）──
+        if test_item:
+            out["test1_cover_article_with_body_app_name"] = post(
+                "article/cover_article/v0/",
+                {"book_id": book_id, "item_id": test_item["item_id"],
+                 "title": TEST_TITLE, "content": TEST_CONTENT},
             )
 
         _time.sleep(1.5)
 
-        # ── 测试3：cover_article 不带 item_id 但带 content（单步创建+内容）──
-        out["test3_cover_article_with_content"] = post(
-            "article/cover_article/v0/",
-            {"book_id": book_id, "title": TEST_TITLE + "3", "content": TEST_CONTENT},
-        )
+        # ── 测试2：save_doc_history 带 item_id + app_name in body ──
+        if test_item:
+            out["test2_save_doc_history_with_body_app_name"] = post(
+                "article/save_doc_history/v0/",
+                {"book_id": book_id, "item_id": test_item["item_id"],
+                 "title": TEST_TITLE + "B", "content": TEST_CONTENT},
+            )
 
         _time.sleep(1.5)
 
-        # ── 最终草稿列表（看哪个测试有新内容出现）──
+        # ── 测试3：cover_article 不带 item_id + app_name in body ──
+        out["test3_cover_article_no_id_with_body"] = post(
+            "article/cover_article/v0/",
+            {"book_id": book_id, "title": TEST_TITLE + "C", "content": TEST_CONTENT},
+        )
+
+        _time.sleep(2)
+
         drafts_after = _list_drafts_http(session, book_id)
         out["drafts_after"] = [{"item_id": d.get("item_id"), "title": d.get("title"), "wc": d.get("word_number")} for d in drafts_after]
+        out["test_item_id"] = test_item["item_id"] if test_item else None
 
     except Exception as exc:
         import traceback
