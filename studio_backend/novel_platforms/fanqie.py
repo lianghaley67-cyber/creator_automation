@@ -127,13 +127,47 @@ def _get_username(page: Any) -> str:
     return ""
 
 
+def _click_wechat_login_tab(page: Any) -> bool:
+    """尝试切换到微信扫码登录标签，返回是否成功。"""
+    candidates = [
+        "微信登录", "微信扫码登录", "扫码登录", "微信扫码",
+        "WeChat", "wechat", "二维码登录",
+    ]
+    for label in candidates:
+        try:
+            els = page.get_by_text(label, exact=False)
+            for i in range(els.count()):
+                el = els.nth(i)
+                if el.is_visible():
+                    el.click()
+                    page.wait_for_timeout(1500)
+                    return True
+        except Exception:
+            continue
+    # 备用：找 class 里含 wechat 的按钮
+    for sel in ["[class*='wechat']", "[class*='wx-login']", "[class*='scan']"]:
+        try:
+            el = page.locator(sel).first
+            if el.is_visible():
+                el.click()
+                page.wait_for_timeout(1500)
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _find_qr_element(page: Any) -> Any | None:
     selectors = [
-        "[class*='qrcode'] canvas",
-        "[class*='qr-code'] canvas",
+        "img[src*='qrcode']",
+        "img[src*='qr_code']",
         "[class*='qrcode'] img",
+        "[class*='qr-code'] img",
+        "[class*='qrcode'] canvas",
+        "[class*='scan-code'] img",
         "[class*='login-qr'] img",
         "img[alt*='二维码']",
+        "img[alt*='扫码']",
         "canvas",
     ]
     for sel in selectors:
@@ -144,7 +178,7 @@ def _find_qr_element(page: Any) -> Any | None:
                 if not el.is_visible():
                     continue
                 box = el.bounding_box()
-                if box and 80 <= box["width"] <= 500 and 80 <= box["height"] <= 500:
+                if box and 80 <= box["width"] <= 400 and 80 <= box["height"] <= 400:
                     return el
         except Exception:
             continue
@@ -152,12 +186,35 @@ def _find_qr_element(page: Any) -> Any | None:
 
 
 def _capture_qr(page: Any) -> str:
+    """截取 QR 码图片。优先截 QR 元素，其次截登录卡片区域，最后截全页。"""
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+
     qr = _find_qr_element(page)
     if qr:
-        qr.screenshot(path=str(QR_SCREENSHOT))
-        return _versioned_url(QR_SCREENSHOT)
-    # 回退：截整页
+        try:
+            qr.screenshot(path=str(QR_SCREENSHOT))
+            return _versioned_url(QR_SCREENSHOT)
+        except Exception:
+            pass
+
+    # 尝试截登录卡片区域（通常在页面居中）
+    for card_sel in [
+        "[class*='login-box']", "[class*='login-card']",
+        "[class*='login-container']", "[class*='login-modal']",
+        "[class*='login-wrap']", "[class*='login-panel']",
+        "form", "[class*='modal']",
+    ]:
+        try:
+            card = page.locator(card_sel).first
+            if card.is_visible():
+                box = card.bounding_box()
+                if box and box["width"] > 100:
+                    card.screenshot(path=str(QR_SCREENSHOT))
+                    return _versioned_url(QR_SCREENSHOT)
+        except Exception:
+            continue
+
+    # 最终回退：全页截图
     page.screenshot(path=str(QR_SCREENSHOT))
     return _versioned_url(QR_SCREENSHOT)
 
@@ -174,6 +231,8 @@ def _login_worker() -> None:
                 context = _open_context(pw)
                 try:
                     page = context.pages[0] if context.pages else context.new_page()
+
+                    # 直接导航到登录页，避免 author 跳转逻辑
                     page.goto(AUTHOR_CENTER_URL, wait_until="domcontentloaded", timeout=60_000)
                     page.wait_for_timeout(3000)
 
@@ -189,7 +248,10 @@ def _login_worker() -> None:
                         _SESSION_READY.set()
                         return
 
-                    # 未登录：展示微信扫码
+                    # 尝试切换到微信扫码登录
+                    _click_wechat_login_tab(page)
+                    page.wait_for_timeout(2000)
+
                     qr_url = _capture_qr(page)
                     _set_state(
                         status="qr_ready",
@@ -200,10 +262,10 @@ def _login_worker() -> None:
                     )
                     _SESSION_READY.set()
 
-                    # 轮询等待扫码
-                    deadline = time.time() + 300  # 5 分钟超时
+                    # 轮询等待扫码（5 分钟）
+                    deadline = time.time() + 300
                     while time.time() < deadline:
-                        page.wait_for_timeout(2000)
+                        page.wait_for_timeout(2500)
                         if _is_logged_in(page):
                             username = _get_username(page)
                             _set_state(
@@ -214,7 +276,7 @@ def _login_worker() -> None:
                                 username=username,
                             )
                             return
-                        # 刷新 QR 截图（微信 QR 有时会自动刷新）
+                        # 每次刷新 QR 截图（QR 会自动过期刷新）
                         new_qr = _capture_qr(page)
                         _set_state(qr_url=new_qr, screenshot_url=new_qr)
 
