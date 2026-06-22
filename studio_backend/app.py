@@ -2181,14 +2181,19 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
             except Exception as e:
                 return {"error": str(e)}
 
-        # 已知存在的路径（来自用户 Network tab 截图）
-        out["known_save_doc_history_GET"] = probe(
+        # 已知存在的路径 —— 不带 msToken/a_bogus（应返回 404）
+        out["known_save_doc_history_no_token"] = probe(
             "GET", "article/save_doc_history/v0/",
             params={"book_id": book_id or "0"},
         )
-        out["known_cover_article_GET"] = probe(
+        # 带假 msToken/a_bogus —— 如果路由依赖这两个参数，结果会变成 4xx JSON 而不是 404 HTML
+        out["known_save_doc_history_fake_token"] = probe(
+            "GET", "article/save_doc_history/v0/",
+            params={"book_id": book_id or "0", "msToken": "faketoken123", "a_bogus": "fakebogus456"},
+        )
+        out["known_cover_article_fake_token"] = probe(
             "GET", "article/cover_article/v0/",
-            params={"book_id": book_id or "0"},
+            params={"book_id": book_id or "0", "msToken": "faketoken123", "a_bogus": "fakebogus456"},
         )
 
         if book_id:
