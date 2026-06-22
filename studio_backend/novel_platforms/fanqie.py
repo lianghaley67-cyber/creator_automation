@@ -708,134 +708,163 @@ def _list_drafts_http(session: Any, book_id: str, page_count: int = 15) -> list[
     return items if isinstance(items, list) else []
 
 
-def _create_empty_draft_http(session: Any, book_id: str, title: str) -> None:
-    """
-    调用 cover_article/v0/ 创建空草稿（不带 item_id）。
-    FanQie 不在响应中返回 item_id，需要通过 draft_list 获取。
-    """
-    resp = session.post(
-        f"{API_BASE}/article/cover_article/v0/",
-        params=_base_params(),
-        data={
-            "book_id": book_id,
-            "title": title,
-            "content": "",
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-
-
-def _save_content_via_cover_article(
-    session: Any,
-    book_id: str,
-    item_id: str,
-    title: str,
-    content: str,
-) -> bool:
-    """
-    用 cover_article/v0/ 带 item_id 写入章节内容（已验证此路径可用）。
-    """
-    resp = session.post(
-        f"{API_BASE}/article/cover_article/v0/",
-        params=_base_params(),
-        data={
-            "book_id": book_id,
-            "item_id": item_id,
-            "title": title,
-            "content": content,
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-    try:
-        body = resp.json()
-        return body.get("code") == 0
-    except Exception:
-        return resp.status_code == 200
-
-
-def push_chapter_via_http(
-    *,
+def _push_via_playwright_browser(
     book_id: str,
     chapter_title: str,
     content: str,
 ) -> dict[str, Any]:
     """
-    用 HTTP 直接调用 FanQie API 推送章节，不经过 Playwright 浏览器。
-
-    流程：
-      1. 获取推送前的草稿列表（记录现有 item_id 集合）
-      2. 调用 cover_article/v0/ 创建空草稿
-      3. 再次获取草稿列表，找到新增的 item_id
-      4. 用 cover_article/v0/ 带 item_id 写入标题和内容
+    用 Playwright 浏览器完成章节写入。
+    不走登录流程，直接用已保存 Cookie 打开章节管理页，
+    点击「新建草稿」，在编辑器里填写内容后保存。
+    浏览器会自动生成 msToken/a_bogus 等签名参数，绕过纯 HTTP 无法签名的问题。
     """
-    session = _build_http_session()
+    from playwright.sync_api import sync_playwright
 
-    # ── 步骤 1：验证登录 ──
-    logged_in, username = _verify_login_http(session)
+    chapter_mgr_url = (
+        f"https://fanqienovel.com/main/writer/chapter-manage/{book_id}?type=2"
+    )
 
-    # ── 步骤 2：记录创建前的草稿 item_id 集合 ──
-    drafts_before = _list_drafts_http(session, book_id)
-    ids_before = {str(d.get("item_id") or "") for d in drafts_before} - {""}
+    with _BROWSER_LOCK:
+        SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+        with sync_playwright() as pw:
+            ctx = _open_context(pw)
+            try:
+                page = ctx.new_page()
 
-    # ── 步骤 3：创建空草稿 ──
-    _create_empty_draft_http(session, book_id, chapter_title)
-    time.sleep(1)  # 等服务端落库
+                # ── 1. 打开草稿箱 ──
+                page.goto(chapter_mgr_url, wait_until="domcontentloaded", timeout=30_000)
+                page.wait_for_timeout(3000)
 
-    # ── 步骤 4：找到新增草稿的 item_id ──
-    # 重试 3 次（等服务端落库）
-    item_id = ""
-    for attempt in range(3):
-        time.sleep(1.5)
-        drafts_after = _list_drafts_http(session, book_id)
+                # 检查是否被重定向到登录页
+                if "/login" in page.url:
+                    raise RuntimeError("Cookie 已过期，请重新导入 Cookie 后再推送。")
 
-        # 策略 1：按 item_id 差集找新草稿
-        new_items = [
-            d for d in drafts_after
-            if str(d.get("item_id") or "") not in ids_before
-            and str(d.get("item_id") or "")
-        ]
-        if new_items:
-            item_id = str(new_items[0].get("item_id") or "")
-            break
+                # ── 2. 点击「新建草稿」──
+                new_btn = (
+                    _first_visible_text(page, ["新建草稿", "+ 新建草稿"])
+                    or _first_visible(page, [
+                        "button[class*='new']",
+                        "button[class*='create']",
+                        "[class*='add-draft']",
+                        "[class*='new-draft']",
+                    ])
+                )
+                if not new_btn:
+                    _screenshot(page, RESULT_SCREENSHOT)
+                    raise RuntimeError(
+                        "未找到「新建草稿」按钮，请检查截图。"
+                        f" 当前页面：{page.url}"
+                    )
 
-        # 策略 2：按标题匹配（创建时已传入 chapter_title）
-        title_items = [
-            d for d in drafts_after
-            if chapter_title in (d.get("title") or "")
-        ]
-        if title_items:
-            item_id = str(title_items[0].get("item_id") or "")
-            break
+                new_btn.click()
 
-    if not item_id:
-        # 策略 3：取 modify_time 最新的草稿（可能是刚创建的）
-        all_items = sorted(
-            drafts_after,
-            key=lambda d: int(d.get("modify_time") or 0),
-            reverse=True,
-        )
-        item_id = str(all_items[0].get("item_id") or "") if all_items else ""
+                # ── 3. 等待跳转到编辑器（URL 含 /publish/）──
+                try:
+                    page.wait_for_url("**/publish/**", timeout=15_000)
+                except Exception:
+                    # 有些版本是弹窗选择章节类型
+                    confirm = _first_visible_text(page, ["正文", "确定", "开始写作"])
+                    if confirm:
+                        confirm.click()
+                        page.wait_for_url("**/publish/**", timeout=15_000)
+                    else:
+                        _screenshot(page, RESULT_SCREENSHOT)
+                        raise RuntimeError(
+                            f"点击新建草稿后未跳转到编辑器，当前 URL：{page.url}"
+                        )
 
-    if not item_id:
-        raise RuntimeError("创建草稿成功，但无法获取 item_id（draft_list 返回为空）。")
+                page.wait_for_timeout(3000)
 
-    # ── 步骤 5：写入标题和内容 ──
-    saved = _save_content_via_cover_article(session, book_id, item_id, chapter_title, content)
+                # 从 URL 提取 item_id
+                m = re.search(r"/publish/(\d+)", page.url)
+                item_id = m.group(1) if m else ""
 
-    return {
-        "ok": saved,
-        "item_id": item_id,
-        "book_id": book_id,
-        "logged_in": logged_in,
-        "username": username,
-        "message": (
-            f"章节「{chapter_title}」已创建（item_id={item_id}）并保存到草稿箱。"
-            if saved
-            else f"章节已创建（item_id={item_id}），但内容写入返回非 0，请到番茄后台确认。"
-        ),
-    }
+                # ── 4. 填写章节标题 ──
+                for title_sel in [
+                    "input[placeholder*='章节名']",
+                    "input[placeholder*='标题']",
+                    "input[class*='chapter-title']",
+                    "input[class*='title']",
+                ]:
+                    try:
+                        inp = page.locator(title_sel).first
+                        if inp.is_visible():
+                            inp.triple_click()
+                            inp.fill(chapter_title)
+                            page.wait_for_timeout(300)
+                            break
+                    except Exception:
+                        continue
+
+                # ── 5. 找到正文编辑器并填入内容 ──
+                editor = None
+                for sel in [
+                    "[contenteditable='true']",
+                    ".ql-editor",
+                    "[data-slate-editor]",
+                    "textarea[placeholder*='正文']",
+                ]:
+                    try:
+                        el = page.locator(sel).first
+                        if el.is_visible():
+                            editor = el
+                            break
+                    except Exception:
+                        continue
+
+                if not editor:
+                    _screenshot(page, RESULT_SCREENSHOT)
+                    raise RuntimeError("未找到正文编辑器，请检查截图。")
+
+                editor.click()
+                page.wait_for_timeout(500)
+
+                tag = editor.evaluate("el => el.tagName").lower()
+                if tag == "textarea":
+                    editor.fill(content)
+                else:
+                    page.evaluate(
+                        """([el, text]) => {
+                            el.focus();
+                            document.execCommand('selectAll', false, null);
+                            document.execCommand('delete', false, null);
+                            document.execCommand('insertText', false, text);
+                        }""",
+                        [editor.element_handle(), content],
+                    )
+
+                page.wait_for_timeout(2000)
+
+                # ── 6. 点击「保存草稿」──
+                save_btn = _first_visible_text(page, [
+                    "保存草稿", "存草稿", "暂存", "保存",
+                ])
+                if save_btn:
+                    save_btn.click()
+                    page.wait_for_timeout(2000)
+
+                screenshot_url = _screenshot(page, RESULT_SCREENSHOT)
+                return {
+                    "ok": True,
+                    "item_id": item_id,
+                    "screenshot_url": screenshot_url,
+                    "message": (
+                        f"章节「{chapter_title}」已通过浏览器写入番茄小说草稿箱"
+                        + (f"（item_id={item_id}）" if item_id else "") + "。"
+                    ),
+                }
+
+            except RuntimeError:
+                raise
+            except Exception as exc:
+                try:
+                    _screenshot(page, RESULT_SCREENSHOT)
+                except Exception:
+                    pass
+                raise RuntimeError(f"Playwright 推稿失败：{str(exc)}") from exc
+            finally:
+                ctx.close()
 
 
 # ── 推章节草稿 ────────────────────────────────────────────────────────
@@ -850,7 +879,8 @@ def push_chapter_draft(
 ) -> dict[str, Any]:
     """
     将章节内容推送到番茄小说对应作品的草稿箱。
-    优先使用 HTTP 直接调用，无 Playwright 浏览器检测问题。
+    用 HTTP 读取草稿列表，用 Playwright 浏览器完成内容写入
+    （浏览器自动生成 msToken/a_bogus 签名参数）。
 
     Args:
         work_name:      番茄小说上的小说名称（用于匹配作品）
@@ -859,185 +889,33 @@ def push_chapter_draft(
         chapter_title:  章节标题
         content:        章节正文（Markdown 或纯文本）
     """
+    if not COOKIE_FILE.exists():
+        raise RuntimeError("未找到番茄小说 Cookie，请先在设置页导入 Cookie。")
+
     plain = _md_to_plain(content)
 
-    # ── 路径 1：HTTP 直接 API ──
-    if COOKIE_FILE.exists():
-        try:
-            session = _build_http_session()
+    # 如果没有传 book_id，用 HTTP 按名称查找
+    bid = book_id
+    if not bid:
+        session = _build_http_session()
+        bid = _find_book_id_http(session, work_name) or ""
 
-            # 如果没有传 book_id，按名称查找
-            bid = book_id
-            if not bid:
-                bid = _find_book_id_http(session, work_name) or ""
-
-            if not bid:
-                raise RuntimeError(
-                    f"未能在番茄小说找到作品「{work_name}」，"
-                    "请在前端填写 book_id（从章节管理 URL 获取）。"
-                )
-
-            result = push_chapter_via_http(
-                book_id=bid,
-                chapter_title=chapter_title,
-                content=plain,
-            )
-            result["chapter_number"] = chapter_number
-            if result.get("ok"):
-                result["message"] = (
-                    f"第 {chapter_number} 章「{chapter_title}」" + result.get("message", "")
-                )
-            return result
-
-        except RuntimeError:
-            raise
-        except Exception as exc:
-            raise RuntimeError(f"番茄小说 HTTP 推稿失败：{str(exc)}") from exc
-
-    # ── 路径 2：Playwright 浏览器（备用，仅在 cookie 文件不存在时走） ──
-    from playwright.sync_api import sync_playwright
-
-    with _BROWSER_LOCK:
-        with sync_playwright() as pw:
-            context = _open_context(pw)
-            try:
-                page = context.pages[0] if context.pages else context.new_page()
-                page.goto(AUTHOR_CENTER_URL, wait_until="domcontentloaded", timeout=60_000)
-                page.wait_for_timeout(3000)
-
-                if not _is_logged_in(page):
-                    raise RuntimeError("番茄小说未登录，请先导入 Cookie。")
-
-                _navigate_to_work(page, work_name)
-                _click_new_chapter(page)
-                _fill_chapter_title(page, chapter_title)
-                _fill_chapter_content(page, plain)
-                _save_draft(page)
-
-                screenshot_url = _screenshot(page, RESULT_SCREENSHOT)
-                return {
-                    "ok": True,
-                    "message": f"第 {chapter_number} 章「{chapter_title}」已保存到番茄小说草稿箱。",
-                    "screenshot_url": screenshot_url,
-                }
-            except Exception as exc:
-                try:
-                    screenshot_url = _screenshot(page, RESULT_SCREENSHOT)
-                except Exception:
-                    screenshot_url = ""
-                raise RuntimeError(f"番茄小说推稿失败：{str(exc)}") from exc
-            finally:
-                context.close()
-
-
-# ── 内部导航步骤 ──────────────────────────────────────────────────────
-
-def _navigate_to_work(page: Any, work_name: str) -> None:
-    """在创作中心找到指定作品，点击进入章节管理。"""
-    page.wait_for_timeout(2000)
-
-    # 尝试按文本找到作品
-    work_el = page.get_by_text(work_name, exact=False)
-    if work_el.count() > 0:
-        work_el.first.click()
-        page.wait_for_timeout(2000)
-        return
-
-    # 尝试找"章节管理"按钮（某些布局下作品名旁边有直接按钮）
-    chapter_mgr = _first_visible_text(page, ["章节管理", "管理章节"])
-    if chapter_mgr:
-        chapter_mgr.click()
-        page.wait_for_timeout(2000)
-        return
-
-    _screenshot(page, RESULT_SCREENSHOT)
-    raise RuntimeError(
-        f"未找到作品「{work_name}」，请确认番茄小说创作中心中存在此作品，"
-        f"或检查 screenshot_url 查看当前页面。"
-    )
-
-
-def _click_new_chapter(page: Any) -> None:
-    """点击「新建章节」按钮。"""
-    btn = _first_visible_text(page, ["新建章节", "添加章节", "+ 新建", "新建正文"])
-    if not btn:
-        btn = _first_visible(page, [
-            "button[class*='add']",
-            "button[class*='create']",
-            "button[class*='new']",
-            "[class*='add-chapter']",
-        ])
-    if not btn:
-        _screenshot(page, RESULT_SCREENSHOT)
-        raise RuntimeError("未找到「新建章节」按钮，页面结构可能已改版。")
-    btn.click()
-    page.wait_for_timeout(2500)
-
-
-def _fill_chapter_title(page: Any, title: str) -> None:
-    title_input = _first_visible(page, [
-        "input[placeholder*='章节名']",
-        "input[placeholder*='标题']",
-        "input[placeholder*='章节标题']",
-        "input[class*='chapter-title']",
-        "input[class*='title']",
-    ])
-    if not title_input:
-        _screenshot(page, RESULT_SCREENSHOT)
-        raise RuntimeError("未找到章节标题输入框。")
-    title_input.triple_click()
-    title_input.fill(title)
-
-
-def _fill_chapter_content(page: Any, text: str) -> None:
-    """向富文本编辑器填入纯文本正文。"""
-    editor = _first_visible(page, [
-        "[contenteditable='true']",
-        "textarea[placeholder*='正文']",
-        "textarea[placeholder*='内容']",
-        "[class*='editor'] [contenteditable]",
-        "[class*='content-editor']",
-        ".ql-editor",
-        "[data-slate-editor]",
-    ])
-    if not editor:
-        _screenshot(page, RESULT_SCREENSHOT)
-        raise RuntimeError("未找到章节正文编辑器。")
-
-    editor.click()
-    page.wait_for_timeout(500)
-
-    # contenteditable 用 JS 注入更可靠
-    tag = editor.evaluate("el => el.tagName").lower()
-    if tag != "textarea":
-        page.evaluate(
-            """([el, content]) => {
-                el.focus();
-                document.execCommand('selectAll');
-                document.execCommand('insertText', false, content);
-            }""",
-            [editor.element_handle(), text],
+    if not bid:
+        raise RuntimeError(
+            f"未能在番茄小说找到作品「{work_name}」，"
+            "请在前端填写 book_id（从章节管理 URL 获取）。"
         )
-    else:
-        editor.fill(text)
 
-    page.wait_for_timeout(1000)
+    result = _push_via_playwright_browser(
+        book_id=bid,
+        chapter_title=chapter_title,
+        content=plain,
+    )
+    result["chapter_number"] = chapter_number
+    if result.get("ok"):
+        result["message"] = f"第 {chapter_number} 章「{chapter_title}」" + result.get("message", "")
+    return result
 
-
-def _save_draft(page: Any) -> None:
-    btn = _first_visible_text(page, [
-        "保存草稿", "存草稿", "暂存", "保存", "存储",
-    ])
-    if not btn:
-        btn = _first_visible(page, [
-            "button[class*='save']",
-            "button[class*='draft']",
-        ])
-    if not btn:
-        _screenshot(page, RESULT_SCREENSHOT)
-        raise RuntimeError("未找到「保存草稿」按钮。")
-    btn.click()
-    page.wait_for_timeout(2000)
 
 
 # ── 工具函数 ──────────────────────────────────────────────────────────
