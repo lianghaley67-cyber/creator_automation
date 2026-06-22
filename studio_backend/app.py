@@ -82,6 +82,7 @@ from .schemas import (
     TrendChatRequest,
     XiaohongshuDirectPublishRequest,
     XiaohongshuPublishStatusRequest,
+    FanqiePushRequest,
     XiaohongshuDragRequest,
     XiaohongshuSmsRequest,
     XiaohongshuSmsVerifyRequest,
@@ -2070,12 +2071,6 @@ def api_fanqie_works() -> dict[str, Any]:
         return {"works": works}
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-class FanqiePushRequest(BaseModel):
-    story_id: str
-    chapter_number: int
-    work_name: str  # 番茄小说上的作品名
 
 
 @app.post("/api/novel/fanqie/push-chapter")

@@ -252,3 +252,9 @@ class XiaohongshuDragRequest(BaseModel):
     start_y: float = Field(ge=0, le=1000)
     end_x: float = Field(ge=0, le=1440)
     end_y: float = Field(ge=0, le=1000)
+
+
+class FanqiePushRequest(BaseModel):
+    story_id: str
+    chapter_number: int
+    work_name: str
