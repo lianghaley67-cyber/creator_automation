@@ -16,7 +16,7 @@ from typing import Any
 from ..storage import STUDIO_DIR, to_media_url
 
 # ── 常量 ──────────────────────────────────────────────────────────────
-AUTHOR_CENTER_URL = "https://fanqienovel.com/author"
+AUTHOR_CENTER_URL = "https://fanqienovel.com/main/writer"
 LOGIN_URL = "https://fanqienovel.com/login"
 PROFILE_DIR = STUDIO_DIR / "fanqie_browser_profile"
 SCREENSHOT_DIR = STUDIO_DIR / "fanqie_session"
@@ -63,8 +63,18 @@ def _open_context(playwright: Any) -> Any:
         str(PROFILE_DIR),
         headless=True,
         viewport={"width": 1440, "height": 900},
-        args=["--no-sandbox", "--disable-dev-shm-usage"],
         locale="zh-CN",
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        args=[
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+        ],
+        ignore_default_args=["--enable-automation"],
     )
 
 
