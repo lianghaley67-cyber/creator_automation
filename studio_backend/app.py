@@ -2181,19 +2181,28 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
             except Exception as e:
                 return {"error": str(e)}
 
-        # 已知存在的路径 —— 不带 msToken/a_bogus（应返回 404）
-        out["known_save_doc_history_no_token"] = probe(
-            "GET", "article/save_doc_history/v0/",
-            params={"book_id": book_id or "0"},
+        bid = book_id or "0"
+        # POST 不带 token
+        out["POST_save_doc_history_no_token"] = probe(
+            "POST", "article/save_doc_history/v0/",
+            data={"book_id": bid, "app_name": APP_NAME, "item_id": "0"},
         )
-        # 带假 msToken/a_bogus —— 如果路由依赖这两个参数，结果会变成 4xx JSON 而不是 404 HTML
-        out["known_save_doc_history_fake_token"] = probe(
-            "GET", "article/save_doc_history/v0/",
-            params={"book_id": book_id or "0", "msToken": "faketoken123", "a_bogus": "fakebogus456"},
+        # POST 带假 token
+        out["POST_save_doc_history_fake_token"] = probe(
+            "POST", "article/save_doc_history/v0/",
+            params={"msToken": "faketoken123", "a_bogus": "fakebogus456"},
+            data={"book_id": bid, "app_name": APP_NAME, "item_id": "0"},
         )
-        out["known_cover_article_fake_token"] = probe(
-            "GET", "article/cover_article/v0/",
-            params={"book_id": book_id or "0", "msToken": "faketoken123", "a_bogus": "fakebogus456"},
+        out["POST_cover_article_fake_token"] = probe(
+            "POST", "article/cover_article/v0/",
+            params={"msToken": "faketoken123", "a_bogus": "fakebogus456"},
+            data={"book_id": bid, "app_name": APP_NAME, "item_id": "0"},
+        )
+        # 尝试新建章节 POST
+        out["POST_new_item_fake_token"] = probe(
+            "POST", "article/new_item/v0/",
+            params={"msToken": "faketoken123", "a_bogus": "fakebogus456"},
+            data={"book_id": bid, "app_name": APP_NAME, "item_type": 1, "title": "test"},
         )
 
         if book_id:
