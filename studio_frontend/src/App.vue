@@ -2248,6 +2248,7 @@ async function fanqiePushChapter(chapter) {
   try {
     const data = await requestApi("/api/novel/fanqie/push-chapter", {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         story_id: storyManageModal.storyId,
         chapter_number: chapter.chapter_number,
