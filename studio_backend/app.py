@@ -2162,53 +2162,53 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
         out["cookie_count"] = len(session.cookies)
         out["cookie_names"] = [c.name for c in session.cookies]
 
-        # 逐个探测登录验证接口，返回原始内容
-        probe_urls = [
-            f"{API_BASE}/user/author_info/v0/",
-            f"{API_BASE}/book/list/v0/",
-            f"{API_BASE}/book/list/v1/",
-            f"{API_BASE}/book/get_author_book_list/v0/",
-        ]
-        for url in probe_urls:
+        def probe(method: str, path: str, **kwargs: Any) -> dict:
+            url = f"{API_BASE}/{path}"
+            params = kwargs.pop("params", {})
+            params.setdefault("app_name", APP_NAME)
             try:
-                resp = session.get(url, params={"app_name": APP_NAME}, timeout=15)
-                key = url.split("/api/author/")[-1].rstrip("/")
-                out[key] = {
+                resp = session.request(method, url, params=params, timeout=15, **kwargs)
+                result: dict = {
                     "status": resp.status_code,
                     "content_type": resp.headers.get("Content-Type", ""),
-                    "raw": resp.text[:500],      # 前 500 字符，看是 JSON 还是 HTML
+                    "raw": resp.text[:300],
                 }
                 try:
-                    out[key]["json"] = resp.json()
+                    result["json"] = resp.json()
                 except Exception:
                     pass
+                return result
             except Exception as e:
-                out[url] = {"error": str(e)}
+                return {"error": str(e)}
 
-        # 章节列表探测
+        # 已知存在的路径（来自用户 Network tab 截图）
+        out["known_save_doc_history_GET"] = probe(
+            "GET", "article/save_doc_history/v0/",
+            params={"book_id": book_id or "0"},
+        )
+        out["known_cover_article_GET"] = probe(
+            "GET", "article/cover_article/v0/",
+            params={"book_id": book_id or "0"},
+        )
+
         if book_id:
+            # 章节列表 —— 多种路径尝试
             for path in [
-                "article/list_items/v0/",
                 "article/item_list/v0/",
-                "article/list_article/v0/",
+                "article/items/v0/",
+                "article/list/v0/",
+                "article/chapter_list/v0/",
+                "book/article_list/v0/",
             ]:
-                try:
-                    resp = session.get(
-                        f"{API_BASE}/{path}",
-                        params={"book_id": book_id, "app_name": APP_NAME, "page_count": 5},
-                        timeout=15,
-                    )
-                    key = f"chapter_{path.rstrip('/')}"
-                    out[key] = {
-                        "status": resp.status_code,
-                        "raw": resp.text[:500],
-                    }
-                    try:
-                        out[key]["json"] = resp.json()
-                    except Exception:
-                        pass
-                except Exception as e:
-                    out[f"chapter_{path}_error"] = str(e)
+                out[f"GET_{path}"] = probe("GET", path, params={"book_id": book_id})
+
+            # 尝试书籍信息
+            for path in [
+                "book/info/v0/",
+                "book/detail/v0/",
+                "article/book_info/v0/",
+            ]:
+                out[f"GET_{path}"] = probe("GET", path, params={"book_id": book_id})
 
     except Exception as exc:
         out["error"] = str(exc)
