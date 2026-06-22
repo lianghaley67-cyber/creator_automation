@@ -2042,6 +2042,74 @@ def api_delete_chapter(story_id: str, chapter_number: int) -> dict[str, Any]:
     return {"ok": True, "story_id": story_id, "chapter_number": chapter_number}
 
 
+# ── 番茄小说 ──────────────────────────────────────────────────────────
+
+@app.get("/api/novel/fanqie/status")
+def api_fanqie_status() -> dict[str, Any]:
+    from .novel_platforms import fanqie_get_session_state
+    return fanqie_get_session_state()
+
+
+@app.post("/api/novel/fanqie/login")
+def api_fanqie_login() -> dict[str, Any]:
+    from .novel_platforms import fanqie_capture_login_session
+    return fanqie_capture_login_session()
+
+
+@app.post("/api/novel/fanqie/login/refresh")
+def api_fanqie_login_refresh() -> dict[str, Any]:
+    from .novel_platforms import fanqie_refresh_login_qr
+    return fanqie_refresh_login_qr()
+
+
+@app.get("/api/novel/fanqie/works")
+def api_fanqie_works() -> dict[str, Any]:
+    from .novel_platforms import fanqie_list_works
+    try:
+        works = fanqie_list_works()
+        return {"works": works}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class FanqiePushRequest(BaseModel):
+    story_id: str
+    chapter_number: int
+    work_name: str  # 番茄小说上的作品名
+
+
+@app.post("/api/novel/fanqie/push-chapter")
+def api_fanqie_push_chapter(
+    payload: FanqiePushRequest,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
+    from .novel_platforms import fanqie_push_chapter_draft
+    from .story_db import list_chapters
+
+    chapters = list_chapters(payload.story_id)
+    chapter = next(
+        (c for c in chapters if c["chapter_number"] == payload.chapter_number),
+        None,
+    )
+    if not chapter:
+        raise HTTPException(status_code=404, detail="章节不存在。")
+
+    content = str(chapter.get("content_markdown") or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="章节内容为空，无法推送。")
+
+    try:
+        result = fanqie_push_chapter_draft(
+            work_name=payload.work_name,
+            chapter_number=payload.chapter_number,
+            chapter_title=str(chapter.get("title") or f"第{payload.chapter_number}章"),
+            content=content,
+        )
+        return result
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.post("/api/channel-skills/upload")
 async def upload_channel_skill(
     file: UploadFile = File(...),

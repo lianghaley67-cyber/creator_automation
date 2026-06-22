@@ -359,9 +359,52 @@ export default {
                         <div v-if="storyManageModal.expandedChapterId === ch.id" class="chapter-content" @click.stop>
                           <pre>{{ ch.content_markdown }}</pre>
                         </div>
-                        <button class="btn danger small chapter-del" @click.stop="deleteChapterConfirm(ch)">删除</button>
+                        <div class="chapter-actions" @click.stop>
+                          <button class="btn danger small" @click.stop="deleteChapterConfirm(ch)">删除</button>
+                          <button
+                            class="btn fanqie small"
+                            :disabled="fanqie.pushingChapter === ch.chapter_number"
+                            @click.stop="fanqiePushChapter(ch)"
+                            title="推送到番茄小说草稿箱"
+                          >
+                            {{ fanqie.pushingChapter === ch.chapter_number ? '推送中…' : '→ 番茄' }}
+                          </button>
+                        </div>
+                        <div v-if="fanqie.pushResult[ch.chapter_number]" class="chapter-push-result" @click.stop
+                             :class="{ ok: fanqie.pushResult[ch.chapter_number].ok, err: !fanqie.pushResult[ch.chapter_number].ok }">
+                          {{ fanqie.pushResult[ch.chapter_number].message || fanqie.pushResult[ch.chapter_number].error }}
+                        </div>
                       </div>
                     </div>
+
+                    <!-- 番茄小说推稿配置 & 登录 -->
+                    <div class="fanqie-panel">
+                      <div class="fanqie-panel-head" @click="fanqieCheckStatus(); fanqie.loginVisible = !fanqie.loginVisible">
+                        <span class="fanqie-logo">🍅 番茄小说</span>
+                        <span class="fanqie-status-dot" :class="fanqie.logged_in ? 'online' : 'offline'"></span>
+                        <span class="fanqie-status-text">{{ fanqie.logged_in ? `已登录：${fanqie.username || '创作者'}` : '未登录' }}</span>
+                        <span style="margin-left:auto;font-size:11px;color:#6a8aaa;">{{ fanqie.loginVisible ? '▲' : '▼' }}</span>
+                      </div>
+                      <div v-if="fanqie.loginVisible" class="fanqie-panel-body">
+                        <label class="fanqie-field">
+                          <span>番茄作品名（用于章节关联）</span>
+                          <input v-model="fanqie.workName" placeholder="和番茄小说创作中心的作品名一致" />
+                        </label>
+                        <div v-if="!fanqie.logged_in" class="fanqie-login-area">
+                          <button class="btn accent small" :disabled="fanqie.status === 'starting'" @click="fanqieStartLogin">
+                            {{ fanqie.status === 'starting' ? '连接中…' : '启动登录 / 扫码' }}
+                          </button>
+                          <button v-if="fanqie.status === 'qr_ready'" class="btn secondary small" @click="fanqieRefreshQr">刷新二维码</button>
+                          <p class="fanqie-msg">{{ fanqie.message }}</p>
+                          <img v-if="fanqie.qr_url" :src="fanqie.qr_url" class="fanqie-qr" alt="番茄小说微信扫码登录" />
+                        </div>
+                        <div v-else class="fanqie-logged">
+                          <p class="fanqie-msg">{{ fanqie.message }}</p>
+                          <button class="btn secondary small" @click="fanqieStartLogin">重新登录</button>
+                        </div>
+                      </div>
+                    </div>
+
                     <div v-if="storyManageModal.bible" class="bible-block">
                       <strong>故事档案（Story Bible）</strong>
                       <div v-if="storyManageModal.bible.characters?.length" class="bible-section">

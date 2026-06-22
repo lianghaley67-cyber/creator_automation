@@ -124,6 +124,18 @@ const skillSelectorVisible = ref(false); // 是否展开 skill 选择面板
 const stories = ref([]);
 const selectedStoryId = ref("");
 const storyManageModal = reactive({ visible: false, chapters: [], bible: null, loading: false, storyId: "", expandedChapterId: null });
+const fanqie = reactive({
+  status: "not_started",   // not_started | starting | qr_ready | logged_in | failed
+  logged_in: false,
+  qr_url: "",
+  screenshot_url: "",
+  message: "",
+  username: "",
+  pushingChapter: null,   // chapter_number 正在推送
+  pushResult: {},         // { [chapter_number]: { ok, message, error } }
+  workName: "",           // 用户配置的番茄作品名
+  loginVisible: false,    // 是否展开登录面板
+});
 const newStoryForm = reactive({ name: "", genre: "fantasy", visible: false, creating: false, error: "" });
 const trendDiscussionOpen = ref(false); // 多轮讨论是否展开
 const trendFreshHighlight = ref(false); // 资讯刷新后的短暂高亮
@@ -2158,6 +2170,63 @@ async function deleteChapterConfirm(chapter) {
   }
 }
 
+// ── 番茄小说 ──────────────────────────────────────────────────────────
+
+async function fanqieCheckStatus() {
+  const base = verifiedApiBase.value || configuredApiBase.value || "";
+  try {
+    const data = await requestApi("/api/novel/fanqie/status", {}, 10000);
+    Object.assign(fanqie, data);
+  } catch (_) {}
+}
+
+async function fanqieStartLogin() {
+  const base = verifiedApiBase.value || configuredApiBase.value || "";
+  fanqie.loginVisible = true;
+  fanqie.status = "starting";
+  fanqie.message = "正在启动番茄小说登录页面……";
+  try {
+    const data = await requestApi("/api/novel/fanqie/login", { method: "POST" }, 25000);
+    Object.assign(fanqie, data);
+  } catch (err) {
+    fanqie.message = `启动失败：${err.message}`;
+    fanqie.status = "failed";
+  }
+}
+
+async function fanqieRefreshQr() {
+  try {
+    const data = await requestApi("/api/novel/fanqie/login/refresh", { method: "POST" }, 25000);
+    Object.assign(fanqie, data);
+  } catch (err) {
+    fanqie.message = `刷新失败：${err.message}`;
+  }
+}
+
+async function fanqiePushChapter(chapter) {
+  if (!fanqie.workName.trim()) {
+    alert('请先在「番茄小说作品名」中填写对应的作品名称。');
+    return;
+  }
+  fanqie.pushingChapter = chapter.chapter_number;
+  fanqie.pushResult = { ...fanqie.pushResult, [chapter.chapter_number]: null };
+  try {
+    const data = await requestApi("/api/novel/fanqie/push-chapter", {
+      method: "POST",
+      body: JSON.stringify({
+        story_id: storyManageModal.storyId,
+        chapter_number: chapter.chapter_number,
+        work_name: fanqie.workName,
+      }),
+    }, 60000);
+    fanqie.pushResult = { ...fanqie.pushResult, [chapter.chapter_number]: { ok: true, message: data.message } };
+  } catch (err) {
+    fanqie.pushResult = { ...fanqie.pushResult, [chapter.chapter_number]: { ok: false, error: err.message } };
+  } finally {
+    fanqie.pushingChapter = null;
+  }
+}
+
 const uploadSkillModal = ref({
   visible: false,
   channel: "wechat",
@@ -2521,6 +2590,12 @@ const studioContext = {
   deleteStoryConfirm,
   openStoryManage,
   deleteChapterConfirm,
+  // 番茄小说
+  fanqie,
+  fanqieCheckStatus,
+  fanqieStartLogin,
+  fanqieRefreshQr,
+  fanqiePushChapter,
 };
 provide("studioContext", studioContext);
 
@@ -4442,6 +4517,108 @@ textarea {
 .channel-tab.active {
   background: #00d5e8;
   color: #06111c;
+}
+
+/* 章节操作按钮组 */
+.chapter-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.btn.fanqie {
+  background: rgba(255, 80, 60, 0.12);
+  color: #ff5040;
+  border: 1px solid rgba(255, 80, 60, 0.3);
+  border-radius: 6px;
+}
+.btn.fanqie:hover:not(:disabled) {
+  background: rgba(255, 80, 60, 0.22);
+}
+.btn.fanqie:disabled {
+  opacity: 0.5;
+}
+
+.chapter-push-result {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-top: 4px;
+}
+.chapter-push-result.ok  { background: rgba(0, 200, 120, 0.1); color: #00c878; }
+.chapter-push-result.err { background: rgba(255, 80, 60, 0.1);  color: #ff5040; }
+
+/* 番茄小说推稿面板 */
+.fanqie-panel {
+  border: 1px solid rgba(255, 80, 60, 0.2);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.fanqie-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(255, 80, 60, 0.06);
+  cursor: pointer;
+  user-select: none;
+}
+
+.fanqie-logo { font-size: 13px; font-weight: 700; }
+
+.fanqie-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.fanqie-status-dot.online  { background: #00c878; box-shadow: 0 0 4px #00c87880; }
+.fanqie-status-dot.offline { background: #6a8aaa; }
+
+.fanqie-status-text { font-size: 12px; color: #a9bfda; }
+
+.fanqie-panel-body {
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid rgba(255, 80, 60, 0.12);
+}
+
+.fanqie-field {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: #a9bfda;
+}
+.fanqie-field input {
+  background: rgba(142, 171, 205, 0.08);
+  border: 1px solid rgba(142, 171, 205, 0.18);
+  border-radius: 6px;
+  color: #e8f4ff;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.fanqie-login-area, .fanqie-logged {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.fanqie-msg { font-size: 12px; color: #a9bfda; margin: 0; }
+
+.fanqie-qr {
+  width: 180px;
+  height: 180px;
+  border-radius: 8px;
+  border: 1px solid rgba(142, 171, 205, 0.2);
+  object-fit: contain;
+  background: #fff;
+  padding: 4px;
 }
 
 /* Two-column channel layout */
