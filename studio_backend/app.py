@@ -2189,29 +2189,61 @@ def api_fanqie_http_debug(request: Request, book_id: str = "") -> dict[str, Any]
         bid = book_id or "0"
         item_id_param = request.query_params.get("item_id", "")
 
-        # ── 步骤 1：从章节管理页 HTML 提取草稿 item_id 列表 ──────────────
+        # ── 步骤 1：找草稿列表 API（尝试多个路径）─────────────────────────
         if bid and bid != "0":
-            page_url = (
-                f"https://fanqienovel.com/main/writer/chapter-manage/{bid}"
-                f"&%E7%84%9A%E6%9C%88%E7%81%AF?type=2"   # &烬月灯?type=2 URL-encoded
-            )
+            import re as _re, json as _json
+
+            # 尝试直接调用可能存在的列表 API
+            list_paths = [
+                f"article/cover_article_list/v0/",
+                f"article/draft_list/v0/",
+                f"article/get_draft_list/v0/",
+                f"article/get_item_list/v0/",
+                f"article/cover_list/v0/",
+                f"article/list_cover/v0/",
+                f"article/list_draft/v0/",
+            ]
+            for lp in list_paths:
+                r = probe("POST", lp, data={"book_id": bid, "app_name": APP_NAME})
+                if r.get("status") != 404:
+                    out[f"LIST_HIT_{lp}"] = r
+
+            # 尝试 GET 版本
+            for lp in [
+                "article/cover_article_list/v0/",
+                "article/draft_list/v0/",
+                "article/get_draft_list/v0/",
+            ]:
+                r = probe("GET", lp, params={"book_id": bid})
+                if r.get("status") != 404:
+                    out[f"LIST_GET_HIT_{lp}"] = r
+
+            # 获取章节管理页 HTML，输出前 1500 字符看结构
+            page_url = f"https://fanqienovel.com/main/writer/chapter-manage/{bid}"
             try:
-                page_resp = session.get(page_url, timeout=20)
-                import re as _re, json as _json
-                # Next.js 把初始数据放在 <script id="__NEXT_DATA__">
-                m = _re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', page_resp.text, _re.S)
-                if m:
-                    nd = _json.loads(m.group(1))
-                    out["next_data_keys"] = list((nd.get("props") or {}).keys())
-                    # 在 JSON 里找所有像章节 ID 的 18 位数字
-                    ids = _re.findall(r'\b76\d{16}\b', m.group(1))
-                    out["found_item_ids"] = list(dict.fromkeys(ids))   # 去重保序
-                else:
-                    # 没有 __NEXT_DATA__，尝试找 item_id 字段
-                    ids = _re.findall(r'"item_id"\s*:\s*"?(\d{18,})"?', page_resp.text)
-                    out["found_item_ids_fallback"] = ids[:20]
+                page_resp = session.get(page_url, timeout=20, params={"type": "2"})
+                html = page_resp.text
                 out["page_status"] = page_resp.status_code
-                out["page_content_type"] = page_resp.headers.get("Content-Type", "")
+                out["page_html_head"] = html[:1500]   # 看页面结构
+
+                # 找所有 18 位以上的数字（可能是 item_id）
+                big_ids = _re.findall(r'\b7\d{18}\b', html)
+                out["found_big_ids"] = list(dict.fromkeys(big_ids))
+
+                # 找 __NEXT_DATA__
+                m = _re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, _re.S)
+                if m:
+                    out["has_next_data"] = True
+                    nd_text = m.group(1)
+                    big_ids2 = _re.findall(r'\b7\d{17,}\b', nd_text)
+                    out["next_data_ids"] = list(dict.fromkeys(big_ids2))
+                    try:
+                        nd = _json.loads(nd_text)
+                        out["next_data_top_keys"] = list(nd.keys())
+                    except Exception:
+                        pass
+                else:
+                    out["has_next_data"] = False
             except Exception as e:
                 out["page_error"] = str(e)
 
