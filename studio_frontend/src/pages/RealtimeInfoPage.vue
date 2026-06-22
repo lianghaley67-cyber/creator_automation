@@ -387,11 +387,17 @@ export default {
                       </div>
                       <div v-if="fanqie.loginVisible" class="fanqie-panel-body">
                         <label class="fanqie-field">
-                          <span>番茄作品名（用于章节关联）</span>
+                          <span>番茄作品名（按名查找，可留空）</span>
                           <input v-model="fanqie.workName" placeholder="和番茄小说创作中心的作品名一致" />
                         </label>
-                        <div v-if="!fanqie.logged_in" class="fanqie-login-area">
-                          <p class="fanqie-msg">通过浏览器 Cookie 授权（无需扫码）：</p>
+                        <label class="fanqie-field">
+                          <span>Book ID（推荐，从章节管理 URL 获取）</span>
+                          <input v-model="fanqie.bookId" placeholder="如 7653982168372235326" />
+                        </label>
+                        <p class="fanqie-tip">Book ID 在章节管理页 URL 中：<code>/chapter-manage/<strong>7653982168…</strong>&amp;书名</code></p>
+
+                        <div class="fanqie-login-area">
+                          <p class="fanqie-msg">Cookie 授权（无需扫码）：</p>
                           <ol class="fanqie-steps">
                             <li>安装浏览器扩展 <strong>Cookie-Editor</strong>（Chrome/Edge 均可）</li>
                             <li>打开 <strong>fanqienovel.com</strong>（保持登录状态）</li>
@@ -408,11 +414,11 @@ export default {
                             class="btn accent small"
                             :disabled="fanqie.importingCookies || !fanqie.cookieInput?.trim()"
                             @click="fanqieImportCookies"
-                          >{{ fanqie.importingCookies ? '导入中…' : '导入 Cookie 并验证登录' }}</button>
+                          >{{ fanqie.importingCookies ? '导入中…' : '导入 Cookie 并验证' }}</button>
                           <p v-if="fanqie.message" class="fanqie-msg" :class="{ err: fanqie.status === 'failed' }">{{ fanqie.message }}</p>
                         </div>
-                        <div v-else class="fanqie-logged">
-                          <p class="fanqie-msg">{{ fanqie.message }}</p>
+
+                        <div v-if="fanqie.logged_in" class="fanqie-logged">
                           <button class="btn secondary small" @click="fanqie.logged_in = false; fanqie.message = ''">重新导入 Cookie</button>
                         </div>
                       </div>

@@ -134,6 +134,7 @@ const fanqie = reactive({
   pushingChapter: null,
   pushResult: {},
   workName: "",
+  bookId: "",   // FanQie book_id，从章节管理 URL 获取，优先于按名称查找
   loginVisible: false,
   cookieInput: "",
   importingCookies: false,
@@ -2238,8 +2239,8 @@ async function fanqieImportCookies() {
 }
 
 async function fanqiePushChapter(chapter) {
-  if (!fanqie.workName.trim()) {
-    alert('请先在「番茄小说作品名」中填写对应的作品名称。');
+  if (!fanqie.workName.trim() && !fanqie.bookId.trim()) {
+    alert('请先填写「番茄小说作品名」或「Book ID」。');
     return;
   }
   fanqie.pushingChapter = chapter.chapter_number;
@@ -2251,6 +2252,7 @@ async function fanqiePushChapter(chapter) {
         story_id: storyManageModal.storyId,
         chapter_number: chapter.chapter_number,
         work_name: fanqie.workName,
+        book_id: fanqie.bookId,
       }),
     }, 60000);
     fanqie.pushResult = { ...fanqie.pushResult, [chapter.chapter_number]: { ok: true, message: data.message } };
@@ -4667,6 +4669,8 @@ textarea {
 
 .fanqie-msg { font-size: 12px; color: #a9bfda; margin: 0; }
 .fanqie-msg.err { color: #ff5040; }
+.fanqie-tip { font-size: 11px; color: #6a8aaa; margin: 2px 0 6px; }
+.fanqie-tip code { background: #1a2a3a; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
 
 .fanqie-qr {
   width: 100%;

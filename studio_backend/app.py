@@ -2134,6 +2134,7 @@ def api_fanqie_push_chapter(
     try:
         result = fanqie_push_chapter_draft(
             work_name=payload.work_name,
+            book_id=payload.book_id,
             chapter_number=payload.chapter_number,
             chapter_title=str(chapter.get("title") or f"第{payload.chapter_number}章"),
             content=content,
@@ -2141,6 +2142,54 @@ def api_fanqie_push_chapter(
         return result
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/novel/fanqie/http-debug")
+def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
+    """
+    直接用 HTTP + 已保存 Cookie 探测 FanQie API，返回原始响应供调试。
+    不启动 Playwright，无 headless 检测。
+    """
+    from .novel_platforms.fanqie import (
+        _build_http_session, _verify_login_http,
+        _list_books_http, COOKIE_FILE, API_BASE, APP_NAME,
+    )
+    out: dict[str, Any] = {"cookie_file_exists": COOKIE_FILE.exists()}
+    if not COOKIE_FILE.exists():
+        out["error"] = "Cookie 文件不存在，请先导入 Cookie。"
+        return out
+    try:
+        session = _build_http_session()
+        logged_in, username = _verify_login_http(session)
+        out["logged_in"] = logged_in
+        out["username"] = username
+
+        books = _list_books_http(session)
+        out["books"] = books[:10]   # 最多返回前 10 本
+
+        # 如果传了 book_id，探测章节列表
+        if book_id:
+            for path in [
+                "article/list_items/v0/",
+                "article/item_list/v0/",
+                "article/list_article/v0/",
+            ]:
+                try:
+                    import requests as _req
+                    resp = session.get(
+                        f"{API_BASE}/{path}",
+                        params={"book_id": book_id, "app_name": APP_NAME, "page_count": 5},
+                        timeout=15,
+                    )
+                    body = resp.json()
+                    out[f"chapters_path_{path}"] = body
+                    if body.get("code") == 0:
+                        break
+                except Exception as e:
+                    out[f"chapters_path_{path}_error"] = str(e)
+    except Exception as exc:
+        out["error"] = str(exc)
+    return out
 
 
 @app.post("/api/channel-skills/upload")

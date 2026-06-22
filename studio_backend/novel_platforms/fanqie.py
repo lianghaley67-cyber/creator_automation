@@ -1,8 +1,8 @@
 """
 番茄小说（FanQie Novel）自动化发布模块。
 
-登录方式：微信扫码（WeChat QR）
-发布流程：创作中心 → 选作品 → 新建章节 → 填内容 → 保存草稿
+登录方式：Cookie 导入（从浏览器导出后粘贴）
+发布流程：HTTP API 直接调用（不使用 Playwright 浏览器，绕开 headless 检测）
 """
 from __future__ import annotations
 
@@ -20,9 +20,25 @@ AUTHOR_CENTER_URL = "https://fanqienovel.com/main/writer"
 LOGIN_URL = "https://fanqienovel.com/login"
 PROFILE_DIR = STUDIO_DIR / "fanqie_browser_profile"
 SCREENSHOT_DIR = STUDIO_DIR / "fanqie_session"
+COOKIE_FILE = STUDIO_DIR / "fanqie_cookies.json"
 QR_SCREENSHOT = SCREENSHOT_DIR / "qr.png"
 SESSION_SCREENSHOT = SCREENSHOT_DIR / "session.png"
 RESULT_SCREENSHOT = SCREENSHOT_DIR / "result.png"
+
+API_BASE = "https://fanqienovel.com/api/author"
+APP_NAME = "muye_novel"
+
+_HTTP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://fanqienovel.com/",
+    "Origin": "https://fanqienovel.com",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
 
 _BROWSER_LOCK = threading.Lock()
 _STATE_LOCK = threading.Lock()
@@ -289,6 +305,72 @@ def _capture_qr(page: Any) -> str:
     return _versioned_url(QR_SCREENSHOT)
 
 
+# ── HTTP 会话工具 ─────────────────────────────────────────────────────
+
+def _build_http_session() -> Any:
+    """从保存的 cookie 文件构建 requests.Session。"""
+    import requests
+
+    if not COOKIE_FILE.exists():
+        raise RuntimeError("未找到已保存的 Cookie，请先导入 Cookie。")
+
+    cookies_data: list[dict] = json.loads(COOKIE_FILE.read_text(encoding="utf-8"))
+    session = requests.Session()
+    session.headers.update(_HTTP_HEADERS)
+    for c in cookies_data:
+        domain = c.get("domain", "fanqienovel.com").lstrip(".")
+        session.cookies.set(c["name"], c["value"], domain=domain, path=c.get("path", "/"))
+    return session
+
+
+def _verify_login_http(session: Any) -> tuple[bool, str]:
+    """
+    用 HTTP GET 验证登录状态，返回 (is_logged_in, username)。
+    不使用 Playwright，无 headless 检测风险。
+    """
+    try:
+        resp = session.get(
+            f"{API_BASE}/user/author_info/v0/",
+            params={"app_name": APP_NAME},
+            timeout=15,
+        )
+        data = resp.json()
+        if data.get("code") == 0:
+            info = data.get("data") or {}
+            name = (
+                info.get("pen_name")
+                or info.get("nick_name")
+                or info.get("user_name")
+                or ""
+            )
+            return True, str(name)
+    except Exception:
+        pass
+
+    # 备用：检查章节列表接口是否能访问
+    try:
+        resp = session.get(
+            f"{API_BASE}/book/list/v0/",
+            params={"app_name": APP_NAME, "page_count": 1},
+            timeout=15,
+        )
+        if resp.status_code == 200 and resp.json().get("code") == 0:
+            return True, ""
+    except Exception:
+        pass
+
+    return False, ""
+
+
+def _save_cookies_to_file(ctx_cookies: list[dict]) -> None:
+    """将 Playwright 上下文中的 cookie 列表保存到 JSON 文件。"""
+    STUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    COOKIE_FILE.write_text(
+        json.dumps(ctx_cookies, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 # ── Cookie 导入 ───────────────────────────────────────────────────────
 
 def import_cookies(cookies_json: list[dict]) -> dict[str, Any]:
@@ -334,12 +416,12 @@ def import_cookies(cookies_json: list[dict]) -> dict[str, Any]:
     if not clean:
         raise ValueError("Cookie 列表为空或格式不正确，请重新导出。")
 
+    # ── 阶段 1：把 cookie 写入 Playwright profile（供浏览器自动化备用） ──
     with _BROWSER_LOCK:
         PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         with sync_playwright() as pw:
             ctx = _open_context(pw)
             try:
-                # 逐个写入，跳过有问题的 Cookie
                 failed = []
                 for ck in clean:
                     try:
@@ -349,35 +431,41 @@ def import_cookies(cookies_json: list[dict]) -> dict[str, Any]:
                 if failed:
                     import logging
                     logging.getLogger(__name__).warning("跳过的 Cookie: %s", failed)
-                # 验证是否已登录
-                page = ctx.pages[0] if ctx.pages else ctx.new_page()
-                page.goto(AUTHOR_CENTER_URL, wait_until="domcontentloaded", timeout=30_000)
-                page.wait_for_timeout(3000)
-                logged_in = _is_logged_in(page)
-                username = _get_username(page) if logged_in else ""
-                screenshot_url = _screenshot(page, SESSION_SCREENSHOT)
-                if logged_in:
-                    _set_state(
-                        status="logged_in",
-                        logged_in=True,
-                        screenshot_url=screenshot_url,
-                        message=f"Cookie 导入成功，已登录番茄小说：{username or '创作者'}",
-                        username=username,
-                    )
-                return {
-                    "ok": logged_in,
-                    "cookie_count": len(clean),
-                    "logged_in": logged_in,
-                    "username": username,
-                    "screenshot_url": screenshot_url,
-                    "message": (
-                        f"导入 {len(clean)} 个 Cookie，登录验证成功，账号：{username or '未知'}"
-                        if logged_in
-                        else f"导入 {len(clean)} 个 Cookie，但登录验证失败，请确认 Cookie 来自已登录的番茄小说页面。"
-                    ),
-                }
+
+                # 把 Playwright 中的 cookie 存成 JSON，供 HTTP 直接调用
+                all_cookies = ctx.cookies()
+                _save_cookies_to_file(all_cookies)
             finally:
                 ctx.close()
+
+    # ── 阶段 2：用 requests 直接 HTTP 验证（不启动浏览器，无 headless 检测） ──
+    session = _build_http_session()
+    logged_in, username = _verify_login_http(session)
+
+    if logged_in:
+        _set_state(
+            status="logged_in",
+            logged_in=True,
+            screenshot_url="",
+            message=f"Cookie 导入成功，已登录番茄小说：{username or '创作者'}",
+            username=username,
+        )
+
+    return {
+        "ok": logged_in,
+        "cookie_count": len(clean),
+        "logged_in": logged_in,
+        "username": username,
+        "screenshot_url": "",
+        "message": (
+            f"导入 {len(clean)} 个 Cookie，HTTP 验证成功，账号：{username or '创作者'}"
+            if logged_in
+            else (
+                f"导入 {len(clean)} 个 Cookie 并已保存，但 HTTP 验证暂未通过。"
+                " Cookie 已存储，可以尝试直接推送章节。"
+            )
+        ),
+    }
 
 
 # ── 登录 session worker ───────────────────────────────────────────────
@@ -551,28 +639,206 @@ def list_works() -> list[dict[str, Any]]:
                 context.close()
 
 
+# ── HTTP 直接推章节（主要路径） ───────────────────────────────────────
+
+def _fanqie_api(session: Any, method: str, path: str, **kwargs: Any) -> dict:
+    """封装 FanQie API 调用，统一加 app_name 参数并检查返回码。"""
+    url = f"{API_BASE}/{path.lstrip('/')}"
+    # 在 params 里始终带 app_name
+    params = kwargs.pop("params", {})
+    params.setdefault("app_name", APP_NAME)
+    resp = session.request(method, url, params=params, timeout=30, **kwargs)
+    resp.raise_for_status()
+    body = resp.json()
+    return body
+
+
+def _list_books_http(session: Any) -> list[dict]:
+    """获取创作者名下的书籍列表。"""
+    for path in [
+        "book/list/v0/",
+        "book/list/v1/",
+        "book/get_author_book_list/v0/",
+    ]:
+        try:
+            body = _fanqie_api(session, "GET", path, params={"page_count": 50})
+            if body.get("code") == 0:
+                items = (
+                    body.get("data", {}).get("book_list")
+                    or body.get("data", {}).get("items")
+                    or body.get("data", [])
+                )
+                if isinstance(items, list):
+                    return items
+        except Exception:
+            continue
+    return []
+
+
+def _find_book_id_http(session: Any, work_name: str) -> str | None:
+    """按书名在书籍列表里查找 book_id。"""
+    books = _list_books_http(session)
+    for book in books:
+        name = book.get("book_name") or book.get("title") or book.get("name") or ""
+        if work_name in name or name in work_name:
+            return str(book.get("book_id") or book.get("id") or "")
+    return None
+
+
+def _create_chapter_http(session: Any, book_id: str, title: str) -> str:
+    """新建章节，返回 item_id。"""
+    for path in [
+        "article/new_item/v0/",
+        "article/new_article/v0/",
+        "article/create_item/v0/",
+    ]:
+        try:
+            body = _fanqie_api(
+                session, "POST", path,
+                data={
+                    "book_id": book_id,
+                    "item_type": 1,          # 1 = 正文章节
+                    "title": title,
+                    "app_name": APP_NAME,
+                },
+            )
+            if body.get("code") == 0:
+                item_id = (
+                    (body.get("data") or {}).get("item_id")
+                    or (body.get("data") or {}).get("id")
+                )
+                if item_id:
+                    return str(item_id)
+        except Exception:
+            continue
+    raise RuntimeError("无法创建新章节，请检查 API 或联系开发者。")
+
+
+def _save_chapter_content_http(
+    session: Any,
+    book_id: str,
+    item_id: str,
+    title: str,
+    content: str,
+) -> bool:
+    """保存章节内容（草稿）。"""
+    payload = {
+        "book_id": book_id,
+        "item_id": item_id,
+        "title": title,
+        "content": content,
+        "app_name": APP_NAME,
+    }
+    for path in [
+        "article/save_article/v0/",
+        "article/save_draft/v0/",
+        "article/update_item/v0/",
+        "article/save_doc/v0/",
+    ]:
+        try:
+            body = _fanqie_api(session, "POST", path, data=payload)
+            if body.get("code") == 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def push_chapter_via_http(
+    *,
+    book_id: str,
+    chapter_title: str,
+    content: str,
+) -> dict[str, Any]:
+    """
+    用 HTTP 直接调用 FanQie API 推送章节，不经过 Playwright 浏览器。
+    返回详细信息供调试。
+    """
+    import requests
+
+    session = _build_http_session()
+
+    # ── 步骤 1：验证登录 ──
+    logged_in, username = _verify_login_http(session)
+
+    # ── 步骤 2：创建新章节（获取 item_id） ──
+    item_id = _create_chapter_http(session, book_id, chapter_title)
+
+    # ── 步骤 3：写入内容 ──
+    saved = _save_chapter_content_http(session, book_id, item_id, chapter_title, content)
+
+    return {
+        "ok": saved,
+        "item_id": item_id,
+        "book_id": book_id,
+        "logged_in": logged_in,
+        "username": username,
+        "message": (
+            f"章节「{chapter_title}」已创建（item_id={item_id}）并保存到草稿箱。"
+            if saved
+            else f"章节已创建（item_id={item_id}），但内容写入未确认，请检查番茄后台。"
+        ),
+    }
+
+
 # ── 推章节草稿 ────────────────────────────────────────────────────────
 
 def push_chapter_draft(
     *,
     work_name: str,
+    book_id: str = "",
     chapter_number: int,
     chapter_title: str,
     content: str,
 ) -> dict[str, Any]:
     """
     将章节内容推送到番茄小说对应作品的草稿箱。
+    优先使用 HTTP 直接调用，无 Playwright 浏览器检测问题。
 
     Args:
         work_name:      番茄小说上的小说名称（用于匹配作品）
+        book_id:        直接指定 book_id（填了就跳过名称查找）
         chapter_number: 章节序号（仅用于日志/标题）
         chapter_title:  章节标题
-        content:        章节正文（Markdown 纯文本）
+        content:        章节正文（Markdown 或纯文本）
     """
-    from playwright.sync_api import sync_playwright
-
-    # 把 Markdown 转成纯文本（去掉 # ## 等标记符）
     plain = _md_to_plain(content)
+
+    # ── 路径 1：HTTP 直接 API ──
+    if COOKIE_FILE.exists():
+        try:
+            session = _build_http_session()
+
+            # 如果没有传 book_id，按名称查找
+            bid = book_id
+            if not bid:
+                bid = _find_book_id_http(session, work_name) or ""
+
+            if not bid:
+                raise RuntimeError(
+                    f"未能在番茄小说找到作品「{work_name}」，"
+                    "请在前端填写 book_id（从章节管理 URL 获取）。"
+                )
+
+            result = push_chapter_via_http(
+                book_id=bid,
+                chapter_title=chapter_title,
+                content=plain,
+            )
+            result["chapter_number"] = chapter_number
+            if result.get("ok"):
+                result["message"] = (
+                    f"第 {chapter_number} 章「{chapter_title}」" + result.get("message", "")
+                )
+            return result
+
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(f"番茄小说 HTTP 推稿失败：{str(exc)}") from exc
+
+    # ── 路径 2：Playwright 浏览器（备用，仅在 cookie 文件不存在时走） ──
+    from playwright.sync_api import sync_playwright
 
     with _BROWSER_LOCK:
         with sync_playwright() as pw:
@@ -583,21 +849,12 @@ def push_chapter_draft(
                 page.wait_for_timeout(3000)
 
                 if not _is_logged_in(page):
-                    raise RuntimeError("番茄小说未登录，请先扫码登录。")
+                    raise RuntimeError("番茄小说未登录，请先导入 Cookie。")
 
-                # 1. 找到目标作品并进入章节管理
                 _navigate_to_work(page, work_name)
-
-                # 2. 新建章节
                 _click_new_chapter(page)
-
-                # 3. 填写标题
                 _fill_chapter_title(page, chapter_title)
-
-                # 4. 填写正文
                 _fill_chapter_content(page, plain)
-
-                # 5. 保存草稿
                 _save_draft(page)
 
                 screenshot_url = _screenshot(page, RESULT_SCREENSHOT)
