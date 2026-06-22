@@ -2255,9 +2255,9 @@ async function fanqiePushChapter(chapter) {
         book_id: fanqie.bookId,
       }),
     }, 60000);
-    fanqie.pushResult = { ...fanqie.pushResult, [chapter.chapter_number]: { ok: true, message: data.message } };
+    fanqie.pushResult = { ...fanqie.pushResult, [chapter.chapter_number]: { ok: true, message: String(data.message || data.detail || "推送成功") } };
   } catch (err) {
-    fanqie.pushResult = { ...fanqie.pushResult, [chapter.chapter_number]: { ok: false, error: err.message } };
+    fanqie.pushResult = { ...fanqie.pushResult, [chapter.chapter_number]: { ok: false, error: String(err.message || err || "推送失败") } };
   } finally {
     fanqie.pushingChapter = null;
   }

@@ -2167,17 +2167,22 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
         out["username"] = username
 
         if book_id:
+            from .novel_platforms.fanqie import API_BASE, _base_params
+            resp = session.get(
+                f"{API_BASE}/chapter/draft_list/v1",
+                params={**_base_params(), "book_id": book_id, "page_index": "0", "page_count": "15"},
+                timeout=15,
+            )
+            out["draft_list_status"] = resp.status_code
+            try:
+                raw = resp.json()
+                out["draft_list_raw"] = raw  # 完整原始响应，用于确认字段名
+            except Exception:
+                out["draft_list_text"] = resp.text[:500]
+
             drafts = _list_drafts_http(session, book_id)
             out["draft_count"] = len(drafts)
-            out["drafts"] = [
-                {
-                    "item_id": d.get("item_id"),
-                    "title": d.get("title"),
-                    "word_count": d.get("word_count"),
-                    "create_time": d.get("create_time"),
-                }
-                for d in drafts[:10]
-            ]
+            out["drafts"] = drafts[:10]
 
     except Exception as exc:
         out["error"] = str(exc)
