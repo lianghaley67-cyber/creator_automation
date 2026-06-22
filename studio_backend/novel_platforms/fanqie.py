@@ -704,7 +704,7 @@ def _list_drafts_http(session: Any, book_id: str, page_count: int = 15) -> list[
     except Exception:
         return []
     data = body.get("data") or {}
-    items = data.get("item_list") or data.get("items") or data.get("list") or []
+    items = data.get("draft_list") or data.get("item_list") or data.get("items") or data.get("list") or []
     return items if isinstance(items, list) else []
 
 
