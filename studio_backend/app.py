@@ -2051,10 +2051,36 @@ def api_fanqie_status() -> dict[str, Any]:
     return fanqie_get_session_state()
 
 
+@app.post("/api/novel/fanqie/login")
+def api_fanqie_login() -> dict[str, Any]:
+    from .novel_platforms import fanqie_capture_login_session
+    return fanqie_capture_login_session()
+
+
+@app.post("/api/novel/fanqie/login/refresh")
+def api_fanqie_login_refresh() -> dict[str, Any]:
+    from .novel_platforms import fanqie_refresh_login_qr
+    return fanqie_refresh_login_qr()
+
+
+@app.post("/api/novel/fanqie/import-cookies")
+async def api_fanqie_import_cookies(request: Request) -> dict[str, Any]:
+    import asyncio, traceback
+    from .novel_platforms import fanqie_import_cookies
+    try:
+        body = await request.json()
+        cookies = body if isinstance(body, list) else body.get("cookies", [])
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, fanqie_import_cookies, cookies)
+        return result
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {str(exc)[:400]}"
+        raise HTTPException(status_code=400, detail=detail) from exc
+
+
 @app.get("/api/novel/fanqie/debug-page")
-def api_fanqie_debug_page() -> dict[str, Any]:
-    """临时调试接口：在已启动的 session 截图并返回页面元素信息。"""
-    from .novel_platforms.fanqie import _page_debug_info, _capture_qr, _click_wechat_login_tab, _open_context, AUTHOR_CENTER_URL, LOGIN_URL
+def api_fanqie_debug_page() -> dict[str, Any]:  # sync — avoids asyncio conflict
+    from .novel_platforms.fanqie import _page_debug_info, _capture_qr, _open_context, AUTHOR_CENTER_URL
     from playwright.sync_api import sync_playwright
     from .novel_platforms.fanqie import _BROWSER_LOCK, SCREENSHOT_DIR
     try:
@@ -2073,32 +2099,6 @@ def api_fanqie_debug_page() -> dict[str, Any]:
                     ctx.close()
     except Exception as exc:
         return {"error": str(exc)}
-
-
-@app.post("/api/novel/fanqie/login")
-def api_fanqie_login() -> dict[str, Any]:
-    from .novel_platforms import fanqie_capture_login_session
-    return fanqie_capture_login_session()
-
-
-@app.post("/api/novel/fanqie/login/refresh")
-def api_fanqie_login_refresh() -> dict[str, Any]:
-    from .novel_platforms import fanqie_refresh_login_qr
-    return fanqie_refresh_login_qr()
-
-
-@app.post("/api/novel/fanqie/import-cookies")
-async def api_fanqie_import_cookies(request: Request) -> dict[str, Any]:
-    import traceback
-    from .novel_platforms import fanqie_import_cookies
-    try:
-        body = await request.json()
-        cookies = body if isinstance(body, list) else body.get("cookies", [])
-        result = fanqie_import_cookies(cookies)
-        return result
-    except Exception as exc:
-        detail = f"{type(exc).__name__}: {str(exc)}\n{traceback.format_exc()[-800:]}"
-        raise HTTPException(status_code=400, detail=detail) from exc
 
 
 @app.get("/api/novel/fanqie/works")
