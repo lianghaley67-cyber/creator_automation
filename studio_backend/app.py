@@ -2168,13 +2168,31 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
 
         from .novel_platforms.fanqie import APP_NAME, AID
 
-        def post(path: str, data: dict) -> dict:
-            # 同时在 URL params 和 POST body 都带 app_name/aid
+        # 从 Cookie 提取 CSRF token（ByteDance 写操作需要同时在 header 里带）
+        csrf_token = ""
+        for cookie in session.cookies:
+            if "csrf" in cookie.name.lower():
+                csrf_token = cookie.value
+                break
+
+        out["csrf_token_found"] = bool(csrf_token)
+        out["csrf_cookie_name"] = next(
+            (c.name for c in session.cookies if "csrf" in c.name.lower()), ""
+        )
+
+        def post(path: str, data: dict, extra_headers: dict | None = None) -> dict:
             merged = {"app_name": APP_NAME, "aid": AID, **data}
+            headers = {}
+            if csrf_token:
+                headers["X-CSRFToken"] = csrf_token
+                headers["tt-csrf-token"] = csrf_token
+            if extra_headers:
+                headers.update(extra_headers)
             resp = session.post(
                 f"{API_BASE}/{path}",
                 params={"app_name": APP_NAME, "aid": AID},
                 data=merged,
+                headers=headers,
                 timeout=30,
             )
             result: dict = {"status": resp.status_code, "body": resp.text[:400]}
