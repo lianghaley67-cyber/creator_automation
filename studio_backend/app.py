@@ -2051,6 +2051,30 @@ def api_fanqie_status() -> dict[str, Any]:
     return fanqie_get_session_state()
 
 
+@app.get("/api/novel/fanqie/debug-page")
+def api_fanqie_debug_page() -> dict[str, Any]:
+    """临时调试接口：在已启动的 session 截图并返回页面元素信息。"""
+    from .novel_platforms.fanqie import _page_debug_info, _capture_qr, _click_wechat_login_tab, _open_context, AUTHOR_CENTER_URL, LOGIN_URL
+    from playwright.sync_api import sync_playwright
+    from .novel_platforms.fanqie import _BROWSER_LOCK, SCREENSHOT_DIR
+    try:
+        with _BROWSER_LOCK:
+            SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+            with sync_playwright() as pw:
+                ctx = _open_context(pw)
+                try:
+                    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                    page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
+                    page.wait_for_timeout(3000)
+                    dbg = _page_debug_info(page)
+                    qr_url = _capture_qr(page)
+                    return {"debug": dbg, "qr_url": qr_url, "page_url": page.url}
+                finally:
+                    ctx.close()
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 @app.post("/api/novel/fanqie/login")
 def api_fanqie_login() -> dict[str, Any]:
     from .novel_platforms import fanqie_capture_login_session

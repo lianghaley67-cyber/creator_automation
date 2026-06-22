@@ -17,6 +17,7 @@ from ..storage import STUDIO_DIR, to_media_url
 
 # ── 常量 ──────────────────────────────────────────────────────────────
 AUTHOR_CENTER_URL = "https://fanqienovel.com/author"
+LOGIN_URL = "https://fanqienovel.com/login"
 PROFILE_DIR = STUDIO_DIR / "fanqie_browser_profile"
 SCREENSHOT_DIR = STUDIO_DIR / "fanqie_session"
 QR_SCREENSHOT = SCREENSHOT_DIR / "qr.png"
@@ -127,30 +128,70 @@ def _get_username(page: Any) -> str:
     return ""
 
 
+def _page_debug_info(page: Any) -> dict:
+    """收集页面调试信息（URL、所有可见文本按钮、输入框）。"""
+    try:
+        info = page.evaluate("""() => {
+            const btns = Array.from(document.querySelectorAll('button, [role=button], a, span[class*=tab], div[class*=tab], li[class*=tab]'))
+                .filter(el => el.offsetParent !== null)
+                .map(el => ({ tag: el.tagName, cls: el.className?.substring(0,80), text: el.innerText?.trim()?.substring(0,40) }))
+                .filter(x => x.text);
+            const imgs = Array.from(document.querySelectorAll('img, canvas'))
+                .filter(el => el.offsetParent !== null)
+                .map(el => ({ tag: el.tagName, src: (el.src||'').substring(0,80), w: el.offsetWidth, h: el.offsetHeight, cls: el.className?.substring(0,60) }))
+                .filter(x => x.w > 50 && x.h > 50);
+            return { url: location.href, title: document.title, btns, imgs };
+        }""")
+        return info or {}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def _click_wechat_login_tab(page: Any) -> bool:
     """尝试切换到微信扫码登录标签，返回是否成功。"""
-    candidates = [
-        "微信登录", "微信扫码登录", "扫码登录", "微信扫码",
-        "WeChat", "wechat", "二维码登录",
-    ]
-    for label in candidates:
+    # 先用 JS 找所有包含"微信"/"wechat"/"扫码"文字的可点击元素
+    try:
+        result = page.evaluate("""() => {
+            const keywords = ['微信', 'wechat', 'WeChat', '扫码', '二维码', 'scan', 'qr'];
+            const els = Array.from(document.querySelectorAll('*'))
+                .filter(el => {
+                    if (!el.offsetParent) return false;
+                    const t = (el.innerText || el.textContent || '').trim();
+                    const cls = (el.className || '').toLowerCase();
+                    const id = (el.id || '').toLowerCase();
+                    return keywords.some(k => t.includes(k) || cls.includes(k.toLowerCase()) || id.includes(k.toLowerCase()));
+                });
+            if (els.length > 0) {
+                els[0].click();
+                return { clicked: true, text: els[0].innerText?.trim()?.substring(0,40), cls: els[0].className?.substring(0,60) };
+            }
+            return { clicked: false };
+        }""")
+        if result and result.get("clicked"):
+            page.wait_for_timeout(2000)
+            return True
+    except Exception:
+        pass
+
+    # 备用：Playwright 文本选择器
+    for label in ["微信登录", "微信扫码登录", "扫码登录", "微信扫码", "二维码登录"]:
         try:
             els = page.get_by_text(label, exact=False)
             for i in range(els.count()):
                 el = els.nth(i)
                 if el.is_visible():
                     el.click()
-                    page.wait_for_timeout(1500)
+                    page.wait_for_timeout(2000)
                     return True
         except Exception:
             continue
-    # 备用：找 class 里含 wechat 的按钮
-    for sel in ["[class*='wechat']", "[class*='wx-login']", "[class*='scan']"]:
+
+    for sel in ["[class*='wechat']", "[class*='wx-login']", "[class*='scan']", "[class*='qr']"]:
         try:
             el = page.locator(sel).first
             if el.is_visible():
                 el.click()
-                page.wait_for_timeout(1500)
+                page.wait_for_timeout(2000)
                 return True
         except Exception:
             continue
@@ -244,9 +285,18 @@ def _login_worker() -> None:
                 try:
                     page = context.pages[0] if context.pages else context.new_page()
 
-                    # 直接导航到登录页，避免 author 跳转逻辑
-                    page.goto(AUTHOR_CENTER_URL, wait_until="domcontentloaded", timeout=60_000)
-                    page.wait_for_timeout(3000)
+                    # 先尝试直接登录页
+                    for url in [LOGIN_URL, AUTHOR_CENTER_URL]:
+                        try:
+                            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+                            page.wait_for_timeout(3000)
+                            if _is_logged_in(page):
+                                break
+                            # 检查是否有登录表单
+                            if page.locator("input, [class*='login']").count() > 0:
+                                break
+                        except Exception:
+                            continue
 
                     if _is_logged_in(page):
                         username = _get_username(page)
@@ -259,6 +309,10 @@ def _login_worker() -> None:
                         )
                         _SESSION_READY.set()
                         return
+
+                    # 收集调试信息写入状态
+                    dbg = _page_debug_info(page)
+                    _set_state(debug_info=dbg)
 
                     # 尝试切换到微信扫码登录
                     _click_wechat_login_tab(page)
