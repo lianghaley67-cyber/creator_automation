@@ -317,9 +317,9 @@ def _build_http_session() -> Any:
     cookies_data: list[dict] = json.loads(COOKIE_FILE.read_text(encoding="utf-8"))
     session = requests.Session()
     session.headers.update(_HTTP_HEADERS)
+    # 直接按名/值设置，不指定 domain，确保所有请求都带上 cookie
     for c in cookies_data:
-        domain = c.get("domain", "fanqienovel.com").lstrip(".")
-        session.cookies.set(c["name"], c["value"], domain=domain, path=c.get("path", "/"))
+        session.cookies.set(c["name"], c["value"])
     return session
 
 

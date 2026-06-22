@@ -2151,8 +2151,7 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
     不启动 Playwright，无 headless 检测。
     """
     from .novel_platforms.fanqie import (
-        _build_http_session, _verify_login_http,
-        _list_books_http, COOKIE_FILE, API_BASE, APP_NAME,
+        _build_http_session, COOKIE_FILE, API_BASE, APP_NAME,
     )
     out: dict[str, Any] = {"cookie_file_exists": COOKIE_FILE.exists()}
     if not COOKIE_FILE.exists():
@@ -2160,14 +2159,33 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
         return out
     try:
         session = _build_http_session()
-        logged_in, username = _verify_login_http(session)
-        out["logged_in"] = logged_in
-        out["username"] = username
+        out["cookie_count"] = len(session.cookies)
+        out["cookie_names"] = [c.name for c in session.cookies]
 
-        books = _list_books_http(session)
-        out["books"] = books[:10]   # 最多返回前 10 本
+        # 逐个探测登录验证接口，返回原始内容
+        probe_urls = [
+            f"{API_BASE}/user/author_info/v0/",
+            f"{API_BASE}/book/list/v0/",
+            f"{API_BASE}/book/list/v1/",
+            f"{API_BASE}/book/get_author_book_list/v0/",
+        ]
+        for url in probe_urls:
+            try:
+                resp = session.get(url, params={"app_name": APP_NAME}, timeout=15)
+                key = url.split("/api/author/")[-1].rstrip("/")
+                out[key] = {
+                    "status": resp.status_code,
+                    "content_type": resp.headers.get("Content-Type", ""),
+                    "raw": resp.text[:500],      # 前 500 字符，看是 JSON 还是 HTML
+                }
+                try:
+                    out[key]["json"] = resp.json()
+                except Exception:
+                    pass
+            except Exception as e:
+                out[url] = {"error": str(e)}
 
-        # 如果传了 book_id，探测章节列表
+        # 章节列表探测
         if book_id:
             for path in [
                 "article/list_items/v0/",
@@ -2175,18 +2193,23 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
                 "article/list_article/v0/",
             ]:
                 try:
-                    import requests as _req
                     resp = session.get(
                         f"{API_BASE}/{path}",
                         params={"book_id": book_id, "app_name": APP_NAME, "page_count": 5},
                         timeout=15,
                     )
-                    body = resp.json()
-                    out[f"chapters_path_{path}"] = body
-                    if body.get("code") == 0:
-                        break
+                    key = f"chapter_{path.rstrip('/')}"
+                    out[key] = {
+                        "status": resp.status_code,
+                        "raw": resp.text[:500],
+                    }
+                    try:
+                        out[key]["json"] = resp.json()
+                    except Exception:
+                        pass
                 except Exception as e:
-                    out[f"chapters_path_{path}_error"] = str(e)
+                    out[f"chapter_{path}_error"] = str(e)
+
     except Exception as exc:
         out["error"] = str(exc)
     return out
