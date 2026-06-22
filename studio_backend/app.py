@@ -2162,16 +2162,21 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
         out["cookie_count"] = len(session.cookies)
         out["cookie_names"] = [c.name for c in session.cookies]
 
-        def probe(method: str, path: str, **kwargs: Any) -> dict:
+        def probe(method: str, path: str, as_json: bool = False, **kwargs: Any) -> dict:
             url = f"{API_BASE}/{path}"
             params = kwargs.pop("params", {})
             params.setdefault("app_name", APP_NAME)
+            headers = {}
+            if as_json:
+                headers["Content-Type"] = "application/json;charset=UTF-8"
+            elif method == "POST" and "data" in kwargs:
+                headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8"
             try:
-                resp = session.request(method, url, params=params, timeout=15, **kwargs)
+                resp = session.request(method, url, params=params, headers=headers, timeout=15, **kwargs)
                 result: dict = {
                     "status": resp.status_code,
                     "content_type": resp.headers.get("Content-Type", ""),
-                    "raw": resp.text[:300],
+                    "raw": resp.text[:500],
                 }
                 try:
                     result["json"] = resp.json()
@@ -2182,27 +2187,37 @@ def api_fanqie_http_debug(book_id: str = "") -> dict[str, Any]:
                 return {"error": str(e)}
 
         bid = book_id or "0"
-        # POST 不带 token
-        out["POST_save_doc_history_no_token"] = probe(
+
+        # 已知路径，用正确的 Content-Type
+        out["POST_save_doc_history_form"] = probe(
             "POST", "article/save_doc_history/v0/",
             data={"book_id": bid, "app_name": APP_NAME, "item_id": "0"},
         )
-        # POST 带假 token
-        out["POST_save_doc_history_fake_token"] = probe(
-            "POST", "article/save_doc_history/v0/",
-            params={"msToken": "faketoken123", "a_bogus": "fakebogus456"},
-            data={"book_id": bid, "app_name": APP_NAME, "item_id": "0"},
-        )
-        out["POST_cover_article_fake_token"] = probe(
+        out["POST_cover_article_form"] = probe(
             "POST", "article/cover_article/v0/",
-            params={"msToken": "faketoken123", "a_bogus": "fakebogus456"},
             data={"book_id": bid, "app_name": APP_NAME, "item_id": "0"},
         )
-        # 尝试新建章节 POST
-        out["POST_new_item_fake_token"] = probe(
+        # JSON body 版本
+        out["POST_save_doc_history_json"] = probe(
+            "POST", "article/save_doc_history/v0/",
+            as_json=True,
+            json={"book_id": bid, "app_name": APP_NAME, "item_id": "0"},
+        )
+
+        # 章节列表 —— 尝试 POST（因为 GET 全是 404）
+        out["POST_item_list"] = probe(
+            "POST", "article/item_list/v0/",
+            data={"book_id": bid, "app_name": APP_NAME},
+        )
+        # 新建章节
+        out["POST_new_item"] = probe(
             "POST", "article/new_item/v0/",
-            params={"msToken": "faketoken123", "a_bogus": "fakebogus456"},
-            data={"book_id": bid, "app_name": APP_NAME, "item_type": 1, "title": "test"},
+            data={"book_id": bid, "app_name": APP_NAME, "item_type": "1", "title": "test_chapter"},
+        )
+        # 保存内容
+        out["POST_save_article"] = probe(
+            "POST", "article/save_article/v0/",
+            data={"book_id": bid, "app_name": APP_NAME, "item_id": "0", "content": "test"},
         )
 
         if book_id:

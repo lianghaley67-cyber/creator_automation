@@ -38,6 +38,10 @@ _HTTP_HEADERS = {
     "Origin": "https://fanqienovel.com",
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-dest": "empty",
 }
 
 _BROWSER_LOCK = threading.Lock()
