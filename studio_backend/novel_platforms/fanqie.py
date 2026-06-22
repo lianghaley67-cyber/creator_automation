@@ -186,9 +186,21 @@ def _find_qr_element(page: Any) -> Any | None:
 
 
 def _capture_qr(page: Any) -> str:
-    """截取 QR 码图片。优先截 QR 元素，其次截登录卡片区域，最后截全页。"""
+    """截取登录页面，优先截 QR 元素或登录卡片，最终回退全页截图。"""
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # 1. 检查微信 QR iframe（wx.qq.com / open.weixin.qq.com）
+    try:
+        for frame in page.frames:
+            if any(k in (frame.url or "") for k in ["weixin", "wx.qq", "open.weixin"]):
+                frame_el = page.frame_locator(f"iframe[src*='weixin'], iframe[src*='wx.qq']").locator("img, canvas").first
+                if frame_el.is_visible():
+                    frame_el.screenshot(path=str(QR_SCREENSHOT))
+                    return _versioned_url(QR_SCREENSHOT)
+    except Exception:
+        pass
+
+    # 2. 找 QR 元素
     qr = _find_qr_element(page)
     if qr:
         try:
@@ -197,25 +209,25 @@ def _capture_qr(page: Any) -> str:
         except Exception:
             pass
 
-    # 尝试截登录卡片区域（通常在页面居中）
+    # 3. 截登录卡片区域
     for card_sel in [
         "[class*='login-box']", "[class*='login-card']",
         "[class*='login-container']", "[class*='login-modal']",
         "[class*='login-wrap']", "[class*='login-panel']",
-        "form", "[class*='modal']",
+        "form",
     ]:
         try:
             card = page.locator(card_sel).first
             if card.is_visible():
                 box = card.bounding_box()
-                if box and box["width"] > 100:
+                if box and box["width"] > 80:
                     card.screenshot(path=str(QR_SCREENSHOT))
                     return _versioned_url(QR_SCREENSHOT)
         except Exception:
             continue
 
-    # 最终回退：全页截图
-    page.screenshot(path=str(QR_SCREENSHOT))
+    # 4. 全页截图（让用户看到完整页面，自行找 QR）
+    page.screenshot(path=str(QR_SCREENSHOT), full_page=True)
     return _versioned_url(QR_SCREENSHOT)
 
 

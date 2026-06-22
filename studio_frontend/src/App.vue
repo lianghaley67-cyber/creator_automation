@@ -4612,13 +4612,15 @@ textarea {
 .fanqie-msg { font-size: 12px; color: #a9bfda; margin: 0; }
 
 .fanqie-qr {
-  width: 180px;
-  height: 180px;
+  width: 100%;
+  max-width: 360px;
+  height: auto;
   border-radius: 8px;
   border: 1px solid rgba(142, 171, 205, 0.2);
   object-fit: contain;
   background: #fff;
   padding: 4px;
+  cursor: zoom-in;
 }
 
 /* Two-column channel layout */
