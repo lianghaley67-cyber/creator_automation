@@ -2064,7 +2064,7 @@ def api_fanqie_debug_page() -> dict[str, Any]:
                 ctx = _open_context(pw)
                 try:
                     page = ctx.pages[0] if ctx.pages else ctx.new_page()
-                    page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
+                    page.goto(AUTHOR_CENTER_URL, wait_until="domcontentloaded", timeout=30_000)
                     page.wait_for_timeout(3000)
                     dbg = _page_debug_info(page)
                     qr_url = _capture_qr(page)

@@ -285,18 +285,9 @@ def _login_worker() -> None:
                 try:
                     page = context.pages[0] if context.pages else context.new_page()
 
-                    # 先尝试直接登录页
-                    for url in [LOGIN_URL, AUTHOR_CENTER_URL]:
-                        try:
-                            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-                            page.wait_for_timeout(3000)
-                            if _is_logged_in(page):
-                                break
-                            # 检查是否有登录表单
-                            if page.locator("input, [class*='login']").count() > 0:
-                                break
-                        except Exception:
-                            continue
+                    # 直接进作者中心，让它自然跳到作者登录页
+                    page.goto(AUTHOR_CENTER_URL, wait_until="domcontentloaded", timeout=30_000)
+                    page.wait_for_timeout(4000)
 
                     if _is_logged_in(page):
                         username = _get_username(page)
