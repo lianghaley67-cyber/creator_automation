@@ -162,15 +162,49 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
 }
 
 # 预设主题组，前端展示为可点击的 Chip
+# 围绕 IP 定位：独立女性/职场宝妈/AI学习开发者/自媒体博主
+# 4 大内容支柱：工具教程 / AI学习心得 / AI提效 / AI辅助创作
 PRESET_TOPICS = [
-    {"id": "ai_tools_tips", "label": "自媒体AI使用技巧", "query": "AI tools for content creators latest tips 2025 自媒体AI工具使用技巧"},
-    {"id": "vibe_coding", "label": "Vibe Coding技巧", "query": "vibe coding AI programming no-code tools cursor windsurf latest 2025"},
-    {"id": "skill_generation", "label": "Skill生成技巧", "query": "AI skill generation prompt engineering Claude skills automation 2025"},
-    {"id": "ai_news", "label": "最新AI动态", "query": "AI latest news models tools 2025 最新AI新闻"},
-    {"id": "ai_workflow", "label": "AI提效工作流", "query": "AI productivity workflow automation tools 2025 AI工作流提效"},
-    {"id": "ai_for_creators", "label": "创作者AI工具", "query": "AI tools for content creators video image text generation 2025"},
-    {"id": "ai_monetization", "label": "AI变现机会", "query": "AI side hustle monetization opportunities content creator 2025 AI变现"},
-    {"id": "notebooklm_podcast", "label": "NotebookLM播客", "query": "NotebookLM podcast audio overview latest features tips 2025"},
+    {
+        "id": "cursor_beginner",
+        "label": "Cursor新手避坑",
+        "query": "Cursor AI IDE beginner mistakes tips workflow 2026 cursor新手使用技巧踩坑",
+    },
+    {
+        "id": "claude_skill_prompt",
+        "label": "Claude Skill提示词",
+        "query": "Claude skill system prompt writing best practices 2026 如何写高质量Claude skill提示词",
+    },
+    {
+        "id": "ai_novel_serial",
+        "label": "AI写连载小说",
+        "query": "AI fiction writing serial novel chapter generation Claude 2026 AI辅助写玄幻情感连载小说",
+    },
+    {
+        "id": "working_mom_ai",
+        "label": "职场宝妈AI效率",
+        "query": "AI productivity tools working mom fragmented time management 2026 职场妈妈用AI利用碎片时间提效",
+    },
+    {
+        "id": "vibe_coding_zero",
+        "label": "零基础Vibe Coding",
+        "query": "vibe coding no programming experience beginner cursor windsurf 2026 零基础用AI写代码实战",
+    },
+    {
+        "id": "ai_learning_journal",
+        "label": "学AI真实踩坑",
+        "query": "AI learning journey beginner real mistakes pitfalls growth 2026 普通人学AI的真实经历踩坑记录",
+    },
+    {
+        "id": "xiaohongshu_ai_workflow",
+        "label": "小红书AI发布流程",
+        "query": "xiaohongshu content creation AI workflow automation tools 2026 小红书AI辅助内容创作全流程",
+    },
+    {
+        "id": "ai_tools_2026",
+        "label": "2026最新AI工具",
+        "query": "AI tools new releases 2026 latest models features 最新AI工具发布动态",
+    },
 ]
 
 
