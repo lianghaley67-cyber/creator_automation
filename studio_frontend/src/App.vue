@@ -222,6 +222,7 @@ const busy = reactive({
   trendDistribution: false,
   trendDistWechat: false,
   trendDistXhs: false,
+  generatingChapter: false,
   materialIntake: false,
   materialVoice: false,
   notebooklm: false,
@@ -974,7 +975,7 @@ async function prepareTrendDistribution(preferGeneratedScript = false, destinati
           wechat_skill_id: selectedWechatSkill.value || "",
           xiaohongshu_skill_id: selectedXhsSkill.value || "",
           hashtags: trendAiSummary.value?.suggested_hashtags || [],
-          story_id: isWritingWorkshopMode.value ? (selectedStoryId.value || "") : "",
+          story_id: "",  // 章节通过「生成下一章」按钮单独生成，分发按钮不传 story_id
           target_channel: channel,
         })
       },
@@ -2176,6 +2177,50 @@ async function deleteChapterConfirm(chapter) {
   }
 }
 
+async function generateNextChapter() {
+  const trend = aiTrends.value[0];
+  if (!trend?.id) { setError("请先获取实时资讯，章节生成需要以资讯为创作背景。"); return; }
+  if (!selectedStoryId.value) { setError("请先选择一个故事档案。"); return; }
+  busy.generatingChapter = true;
+  try {
+    const script = _buildTrendScript(false, null);
+    const result = await requestApi(
+      `/api/ai-trends/${trend.id}/distribution`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          script,
+          question: "",
+          title: trend.title || "",
+          wechat_skill_id: selectedWechatSkill.value || "",
+          xiaohongshu_skill_id: selectedXhsSkill.value || "",
+          hashtags: trendAiSummary.value?.suggested_hashtags || [],
+          story_id: selectedStoryId.value,
+          target_channel: "wechat",
+        })
+      },
+      60000
+    );
+    const chNum = result?.story_chapter_saved;
+    if (chNum) {
+      setNotice(`第 ${chNum} 章已生成并保存到故事档案，可在「查看章节」中推送到番茄小说。`);
+    } else {
+      setNotice("章节已生成，请在「查看章节」中查看。");
+    }
+    // 刷新章节列表（如果弹窗已打开）
+    if (storyManageModal.visible && storyManageModal.storyId === selectedStoryId.value) {
+      await openStoryManage({ id: selectedStoryId.value });
+    }
+    // 同时更新故事列表（last_chapter_number 等信息）
+    await loadStories();
+  } catch (error) {
+    setError(normalizeErrorMessage(error, "章节生成失败。"));
+  } finally {
+    busy.generatingChapter = false;
+  }
+}
+
 // ── 番茄小说 ──────────────────────────────────────────────────────────
 
 async function fanqieCheckStatus() {
@@ -2656,6 +2701,7 @@ const studioContext = {
   createStorySubmit,
   deleteStoryConfirm,
   openStoryManage,
+  generateNextChapter,
   deleteChapterConfirm,
   // 番茄小说
   fanqie,

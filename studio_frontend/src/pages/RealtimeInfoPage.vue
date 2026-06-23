@@ -287,6 +287,13 @@ export default {
               <button class="btn secondary small" @click="newStoryForm.visible = true">+ 新建故事</button>
               <button
                 v-if="selectedStory"
+                class="btn accent small"
+                :disabled="busy.generatingChapter"
+                @click="generateNextChapter()"
+                title="根据当前资讯生成下一章节，并保存到故事档案"
+              >{{ busy.generatingChapter ? '生成中...' : '生成下一章' }}</button>
+              <button
+                v-if="selectedStory"
                 class="btn secondary small"
                 @click="openStoryManage(selectedStory)"
               >查看章节</button>
