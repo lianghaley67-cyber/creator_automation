@@ -198,8 +198,8 @@ export default {
             <!-- 平台分发手风琴：选 Skill → 展开 → 生成 → 推送 -->
             <div class="platform-generate-bar">
 
-              <!-- ① 番茄小说（连载模式，置顶） -->
-              <div v-if="isWritingWorkshopMode" class="pgb-section" :class="{ 'pgb-expanded': expandedPlatforms.fanqie }">
+              <!-- ① 番茄小说（置顶，始终可见） -->
+              <div class="pgb-section" :class="{ 'pgb-expanded': expandedPlatforms.fanqie }">
                 <div class="pgb-row pgb-fanqie-row">
                   <span class="pgb-label pgb-label-fanqie">番茄小说</span>
                   <!-- 故事选择（始终可见） -->
@@ -404,7 +404,7 @@ export default {
             </div>
 
           <!-- 连载故事弹窗（Teleport 到 body，不需要可视容器） -->
-          <template v-if="isWritingWorkshopMode">
+          <template>
 
             <!-- 新建故事弹窗 -->
             <Teleport to="body">
