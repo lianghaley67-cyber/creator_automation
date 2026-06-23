@@ -1,0 +1,42 @@
+# 运行时数据（大量 JSON/DB/媒体文件，不需要 AI 读取）
+studio_runtime/
+runtime_logs/
+data/
+reports/
+outputs/
+
+# 前端构建产物
+studio_frontend/node_modules/
+studio_frontend/dist/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 媒体文件
+*.png
+*.jpg
+*.jpeg
+*.mp4
+*.mp3
+*.wav
+*.zip
+*.bz2
+*.pth
+
+# 日志
+*.log
+
+# 工具二进制
+tools/
+gfpgan/weights/
+
+# Git
+.git/
+
+# 运行时状态
+studio_data/
+*.db
+*.db-shm
+*.db-wal
