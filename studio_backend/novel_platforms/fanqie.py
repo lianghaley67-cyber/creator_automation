@@ -1009,6 +1009,6 @@ def _md_to_plain(md: str) -> str:
         line = re.sub(r"`{1,3}[^`]*`{1,3}", "", line)
         lines.append(line)
     text = "\n".join(lines).strip()
-    # 连续多个空行压缩为一个，避免富文本编辑器产生过大行间距
-    text = re.sub(r"\n{3,}", "\n\n", text)
+    # 把所有连续空行压成单个换行，避免富文本编辑器产生空段落
+    text = re.sub(r"\n{2,}", "\n", text)
     return text
