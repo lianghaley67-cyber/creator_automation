@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from "vue";
 import { coreModules, modulePageMeta as getModulePageMeta, sidebarModules, workflowCards } from "./modules/navigation.js";
 import {
   jobProgress,
