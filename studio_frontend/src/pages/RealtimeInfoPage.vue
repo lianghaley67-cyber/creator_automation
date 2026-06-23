@@ -200,24 +200,26 @@ export default {
 
               <!-- ① 番茄小说（连载模式，置顶） -->
               <div v-if="isWritingWorkshopMode" class="pgb-section" :class="{ 'pgb-expanded': expandedPlatforms.fanqie }">
-                <div class="pgb-row pgb-row-toggle" @click="expandedPlatforms.fanqie = !expandedPlatforms.fanqie">
+                <div class="pgb-row pgb-fanqie-row">
                   <span class="pgb-label pgb-label-fanqie">番茄小说</span>
-                  <span class="pgb-meta">{{ selectedStory ? `《${selectedStory.name}》第 ${(selectedStory.last_chapter_number ?? 0) + 1} 章待写` : '未选故事' }}</span>
-                  <button class="btn accent small" :disabled="busy.generatingChapter || !selectedStoryId" @click.stop="generateNextChapter()">
+                  <!-- 故事选择（始终可见） -->
+                  <select class="story-select pgb-story-select" v-model="selectedStoryId">
+                    <option value="">— 选故事 —</option>
+                    <option v-for="s in stories" :key="s.id" :value="s.id">《{{ s.name }}》</option>
+                  </select>
+                  <button class="btn secondary small" @click="newStoryForm.visible = true">+ 新建故事</button>
+                  <span v-if="selectedStory" class="pgb-chapter-hint">第 {{ (selectedStory.last_chapter_number ?? 0) + 1 }} 章待写</span>
+                  <button class="btn accent small" :disabled="busy.generatingChapter || !selectedStoryId" @click="generateNextChapter()">
                     {{ busy.generatingChapter ? '生成中...' : '生成下一章' }}
                   </button>
-                  <button v-if="selectedStory" class="btn secondary small" @click.stop="openStoryManage(selectedStory)">查看章节</button>
-                  <span class="pgb-chevron">{{ expandedPlatforms.fanqie ? '▲' : '▼' }}</span>
+                  <button v-if="selectedStory" class="btn secondary small" @click="openStoryManage(selectedStory)">查看章节</button>
+                  <!-- 折叠触发（只控制"删除故事"等低频操作） -->
+                  <span class="pgb-chevron" @click="expandedPlatforms.fanqie = !expandedPlatforms.fanqie" title="更多操作">{{ expandedPlatforms.fanqie ? '▲' : '▼' }}</span>
                 </div>
                 <div v-if="expandedPlatforms.fanqie" class="pgb-detail">
                   <div class="pgb-detail-row">
-                    <label class="pgb-detail-label">故事档案</label>
-                    <select class="story-select pgb-story-select" v-model="selectedStoryId">
-                      <option value="">不关联故事（独立生成）</option>
-                      <option v-for="s in stories" :key="s.id" :value="s.id">《{{ s.name }}》</option>
-                    </select>
-                    <button class="btn secondary small" @click="newStoryForm.visible = true">+ 新建故事</button>
                     <button v-if="selectedStory" class="btn danger small" @click="deleteStoryConfirm(selectedStory)">删除故事</button>
+                    <span class="pgb-detail-hint">删除后不可恢复，章节数据将一并移除。</span>
                   </div>
                 </div>
               </div>

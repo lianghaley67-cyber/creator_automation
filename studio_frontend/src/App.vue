@@ -4516,6 +4516,23 @@ textarea {
   text-align: center;
 }
 
+.pgb-fanqie-row {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.pgb-chapter-hint {
+  font-size: 11px;
+  color: #ff9a5c;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.pgb-detail-hint {
+  font-size: 11px;
+  color: rgba(142, 171, 205, 0.5);
+}
+
 .skill-card.selected {
   border-color: #00d5e8;
   background: rgba(0, 213, 232, 0.12);
