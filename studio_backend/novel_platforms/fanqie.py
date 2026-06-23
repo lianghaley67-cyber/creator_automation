@@ -796,59 +796,83 @@ def _push_via_playwright_browser(
                 m = re.search(r"/publish/(\d+)", page.url)
                 item_id = m.group(1) if m else ""
 
-                # ── 4. 填写章节标题 ──
-                for title_sel in [
-                    "input[placeholder*='章节名']",
-                    "input[placeholder*='标题']",
-                    "input[class*='chapter-title']",
-                    "input[class*='title']",
-                ]:
-                    try:
-                        inp = page.locator(title_sel).first
-                        if inp.is_visible():
-                            inp.triple_click()
-                            inp.fill(chapter_title)
-                            page.wait_for_timeout(300)
-                            break
-                    except Exception:
-                        continue
-
-                # ── 5. 找到正文编辑器并填入内容 ──
-                editor = None
-                for sel in [
-                    "[contenteditable='true']",
-                    ".ql-editor",
-                    "[data-slate-editor]",
-                    "textarea[placeholder*='正文']",
-                ]:
-                    try:
-                        el = page.locator(sel).first
-                        if el.is_visible():
-                            editor = el
-                            break
-                    except Exception:
-                        continue
-
-                if not editor:
-                    _screenshot(page, RESULT_SCREENSHOT)
-                    raise RuntimeError("未找到正文编辑器，请检查截图。")
-
-                editor.click()
+                # ── 4. 填写章节标题（JS 多策略注入，兼容 input 和 contenteditable）──
+                title_filled = page.evaluate(
+                    """(title) => {
+                        // 策略 1：普通 input（placeholder 含"标题"或"章节名"）
+                        const inputs = Array.from(document.querySelectorAll('input'));
+                        const inp = inputs.find(el => {
+                            const ph = el.placeholder || '';
+                            return ph.includes('标题') || ph.includes('章节名');
+                        });
+                        if (inp) {
+                            inp.focus();
+                            const setter = Object.getOwnPropertyDescriptor(
+                                window.HTMLInputElement.prototype, 'value'
+                            ).set;
+                            setter.call(inp, title);
+                            inp.dispatchEvent(new Event('input', { bubbles: true }));
+                            inp.dispatchEvent(new Event('change', { bubbles: true }));
+                            return 'input';
+                        }
+                        // 策略 2：contenteditable（placeholder / data-placeholder 含"标题"）
+                        const ces = Array.from(document.querySelectorAll('[contenteditable="true"]'));
+                        const tce = ces.find(el => {
+                            const ph = el.getAttribute('placeholder') ||
+                                       el.getAttribute('data-placeholder') || '';
+                            return ph.includes('标题') || ph.includes('章节名');
+                        });
+                        if (tce) {
+                            tce.focus();
+                            document.execCommand('selectAll', false, null);
+                            document.execCommand('insertText', false, title);
+                            return 'contenteditable';
+                        }
+                        return 'not found';
+                    }""",
+                    chapter_title,
+                )
                 page.wait_for_timeout(500)
 
-                tag = editor.evaluate("el => el.tagName").lower()
-                if tag == "textarea":
-                    editor.fill(content)
-                else:
-                    page.evaluate(
-                        """([el, text]) => {
-                            el.focus();
-                            document.execCommand('selectAll', false, null);
-                            document.execCommand('delete', false, null);
-                            document.execCommand('insertText', false, text);
-                        }""",
-                        [editor.element_handle(), content],
-                    )
+                # ── 5. 找到正文编辑器并填入内容 ──
+                # 用 JS 区分标题 contenteditable 与正文 contenteditable：
+                # 正文编辑器通常面积更大，或 placeholder 含"正文"/"内容"，
+                # 或者是所有 contenteditable 中的最后一个（标题在前，正文在后）
+                content_injected = page.evaluate(
+                    """(text) => {
+                        const ces = Array.from(document.querySelectorAll('[contenteditable="true"]'));
+
+                        // 先按 placeholder 找正文编辑器
+                        let editor = ces.find(el => {
+                            const ph = el.getAttribute('placeholder') ||
+                                       el.getAttribute('data-placeholder') || '';
+                            return ph.includes('正文') || ph.includes('内容') || ph.includes('故事');
+                        });
+
+                        // 若没找到，取面积最大的那个
+                        if (!editor && ces.length > 0) {
+                            editor = ces.reduce((a, b) =>
+                                (a.offsetHeight * a.offsetWidth) >= (b.offsetHeight * b.offsetWidth)
+                                ? a : b
+                            );
+                        }
+
+                        if (!editor) return false;
+
+                        editor.focus();
+                        document.execCommand('selectAll', false, null);
+                        document.execCommand('delete', false, null);
+                        document.execCommand('insertText', false, text);
+                        return true;
+                    }""",
+                    content,
+                )
+
+                if not content_injected:
+                    # fallback：用 textarea
+                    ta = page.locator("textarea").first
+                    if ta.is_visible():
+                        ta.fill(content)
 
                 page.wait_for_timeout(2000)
 
@@ -948,4 +972,7 @@ def _md_to_plain(md: str) -> str:
         # 去掉代码块标记
         line = re.sub(r"`{1,3}[^`]*`{1,3}", "", line)
         lines.append(line)
-    return "\n".join(lines).strip()
+    text = "\n".join(lines).strip()
+    # 连续多个空行压缩为一个，避免富文本编辑器产生过大行间距
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text
