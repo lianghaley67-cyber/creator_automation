@@ -981,11 +981,14 @@ async function prepareTrendDistribution(preferGeneratedScript = false, destinati
       },
       30000
     );
-    // 合并结果：只覆盖生成了的渠道
+    // 合并结果：严格按 channel 只更新对应平台，避免"生成公众号"时连带覆盖小红书
     if (!trendDistributionDraft.value) trendDistributionDraft.value = {};
-    if (result.wechat) trendDistributionDraft.value = { ...trendDistributionDraft.value, ...result, wechat: result.wechat };
-    if (result.xiaohongshu) trendDistributionDraft.value = { ...trendDistributionDraft.value, ...result, xiaohongshu: result.xiaohongshu };
+    const _prev = trendDistributionDraft.value;
+    const _merged = { ..._prev, id: result.id };
+    if (!channel || channel === "wechat")      { if (result.wechat)      _merged.wechat      = result.wechat; }
+    if (!channel || channel === "xiaohongshu") { if (result.xiaohongshu) _merged.xiaohongshu = result.xiaohongshu; }
     if (!result.wechat && !result.xiaohongshu) trendDistributionDraft.value = result;
+    else trendDistributionDraft.value = _merged;
     trendDistributionView.value = channel === "xiaohongshu" ? "xiaohongshu" : "wechat";
     trendWorkflowReview.value = null;
     const channelLabel = channel === "wechat" ? "公众号文案" : channel === "xiaohongshu" ? "小红书文案" : "公众号和小红书文案";
@@ -4449,6 +4452,68 @@ textarea {
   font-size: 12px;
   color: #a9bfda;
   flex: 1;
+}
+
+.pgb-section {
+  border-bottom: 1px solid rgba(142, 171, 205, 0.08);
+}
+
+.pgb-section:last-child {
+  border-bottom: none;
+}
+
+.pgb-row-toggle {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.pgb-row-toggle:hover {
+  background: rgba(142, 171, 205, 0.06);
+}
+
+.pgb-chevron {
+  margin-left: auto;
+  font-size: 10px;
+  color: #6a8aaa;
+  flex-shrink: 0;
+  padding-left: 4px;
+}
+
+.pgb-label-fanqie {
+  color: #ff6b35;
+}
+
+.pgb-detail {
+  padding: 12px 16px 16px;
+  border-top: 1px solid rgba(142, 171, 205, 0.1);
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.pgb-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pgb-detail-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #a9bfda;
+  flex-shrink: 0;
+}
+
+.pgb-story-select {
+  flex: 1;
+  min-width: 160px;
+}
+
+.pgb-empty-hint {
+  font-size: 12px;
+  color: rgba(142, 171, 205, 0.4);
+  padding: 12px 0;
+  text-align: center;
 }
 
 .skill-card.selected {
