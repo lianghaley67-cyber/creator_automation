@@ -712,6 +712,7 @@ def _push_via_playwright_browser(
     book_id: str,
     chapter_title: str,
     content: str,
+    author_note: str = "",
 ) -> dict[str, Any]:
     """
     用 Playwright 浏览器完成章节写入。
@@ -884,6 +885,33 @@ def _push_via_playwright_browser(
                     save_btn.click()
                     page.wait_for_timeout(2000)
 
+                # ── 7. 填写「作者有话说」(下期预告) ──
+                if author_note:
+                    try:
+                        add_btn = _first_visible_text(page, ["+ 添加", "添加"])
+                        if add_btn:
+                            add_btn.click()
+                            page.wait_for_timeout(1000)
+                            note_area = None
+                            for sel in [
+                                "textarea[placeholder*='话说']",
+                                "textarea[placeholder*='作者']",
+                                "[class*='author'] textarea",
+                                "textarea",
+                            ]:
+                                try:
+                                    el = page.locator(sel).last
+                                    if el.is_visible():
+                                        note_area = el
+                                        break
+                                except Exception:
+                                    continue
+                            if note_area:
+                                note_area.fill(author_note)
+                                page.wait_for_timeout(500)
+                    except Exception:
+                        pass  # 作者有话说失败不影响主推稿
+
                 screenshot_url = _screenshot(page, RESULT_SCREENSHOT)
                 return {
                     "ok": True,
@@ -934,6 +962,13 @@ def push_chapter_draft(
 
     plain = _md_to_plain(content)
 
+    # 从正文末尾提取【下期预告】，单独写入作者有话说
+    author_note = ""
+    preview_match = re.search(r"\n*【下期预告】(.+?)$", plain, re.DOTALL)
+    if preview_match:
+        author_note = "【下期预告】" + preview_match.group(1).strip()
+        plain = plain[: preview_match.start()].strip()
+
     # 如果没有传 book_id，用 HTTP 按名称查找
     bid = book_id
     if not bid:
@@ -950,6 +985,7 @@ def push_chapter_draft(
         book_id=bid,
         chapter_title=chapter_title,
         content=plain,
+        author_note=author_note,
     )
     result["chapter_number"] = chapter_number
     if result.get("ok"):

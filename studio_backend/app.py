@@ -2063,15 +2063,75 @@ def api_fanqie_login_refresh() -> dict[str, Any]:
     return fanqie_refresh_login_qr()
 
 
+@app.get("/api/novel/fanqie/settings")
+def api_fanqie_get_settings() -> dict[str, Any]:
+    from .novel_platforms.fanqie import COOKIE_FILE, _build_http_session, _verify_login_http
+    from .storage import STUDIO_DIR
+    settings_file = STUDIO_DIR / "fanqie_settings.json"
+    settings: dict = {}
+    if settings_file.exists():
+        try:
+            settings = json.loads(settings_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    cookie_valid = False
+    username = ""
+    if COOKIE_FILE.exists():
+        try:
+            session = _build_http_session()
+            cookie_valid, username = _verify_login_http(session)
+        except Exception:
+            pass
+    return {
+        "book_id": settings.get("book_id", ""),
+        "work_name": settings.get("work_name", ""),
+        "cookie_valid": cookie_valid,
+        "cookie_imported_at": settings.get("cookie_imported_at", ""),
+        "logged_in": cookie_valid,
+        "username": username,
+    }
+
+
+@app.post("/api/novel/fanqie/settings")
+async def api_fanqie_save_settings(request: Request) -> dict[str, Any]:
+    from .storage import STUDIO_DIR
+    settings_file = STUDIO_DIR / "fanqie_settings.json"
+    body = await request.json()
+    existing: dict = {}
+    if settings_file.exists():
+        try:
+            existing = json.loads(settings_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    for key in ("book_id", "work_name", "cookie_imported_at"):
+        if key in body:
+            existing[key] = body[key]
+    settings_file.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True}
+
+
 @app.post("/api/novel/fanqie/import-cookies")
 async def api_fanqie_import_cookies(request: Request) -> dict[str, Any]:
-    import asyncio, traceback
+    import asyncio
+    from datetime import datetime, timezone
     from .novel_platforms import fanqie_import_cookies
+    from .storage import STUDIO_DIR
     try:
         body = await request.json()
         cookies = body if isinstance(body, list) else body.get("cookies", [])
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, fanqie_import_cookies, cookies)
+        # 成功导入后把时间戳写入 settings
+        if result.get("logged_in"):
+            settings_file = STUDIO_DIR / "fanqie_settings.json"
+            existing: dict = {}
+            if settings_file.exists():
+                try:
+                    existing = json.loads(settings_file.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+            existing["cookie_imported_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            settings_file.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
         return result
     except Exception as exc:
         detail = f"{type(exc).__name__}: {str(exc)[:400]}"

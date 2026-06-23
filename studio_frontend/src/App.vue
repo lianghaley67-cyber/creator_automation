@@ -138,6 +138,9 @@ const fanqie = reactive({
   loginVisible: false,
   cookieInput: "",
   importingCookies: false,
+  cookieImportedAt: "",   // 上次成功导入 Cookie 的时间
+  settingsLoaded: false,
+  showCookieImport: false, // 手动展开导入表单
 });
 const newStoryForm = reactive({ name: "", genre: "fantasy", visible: false, creating: false, error: "" });
 const trendDiscussionOpen = ref(false); // 多轮讨论是否展开
@@ -2176,10 +2179,32 @@ async function deleteChapterConfirm(chapter) {
 // ── 番茄小说 ──────────────────────────────────────────────────────────
 
 async function fanqieCheckStatus() {
-  const base = verifiedApiBase.value || configuredApiBase.value || "";
   try {
     const data = await requestApi("/api/novel/fanqie/status", {}, 10000);
     Object.assign(fanqie, data);
+  } catch (_) {}
+}
+
+async function fanqieLoadSettings() {
+  if (fanqie.settingsLoaded) return;
+  try {
+    const data = await requestApi("/api/novel/fanqie/settings", {}, 8000);
+    if (data.book_id)  fanqie.bookId  = data.book_id;
+    if (data.work_name) fanqie.workName = data.work_name;
+    fanqie.logged_in        = !!data.logged_in;
+    fanqie.username         = data.username || "";
+    fanqie.cookieImportedAt = data.cookie_imported_at || "";
+    fanqie.settingsLoaded   = true;
+  } catch (_) {}
+}
+
+async function fanqieSaveSettings() {
+  try {
+    await requestApi("/api/novel/fanqie/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ book_id: fanqie.bookId, work_name: fanqie.workName }),
+    }, 5000);
   } catch (_) {}
 }
 
@@ -2229,7 +2254,12 @@ async function fanqieImportCookies() {
       status: data.logged_in ? 'logged_in' : 'failed',
       screenshot_url: data.screenshot_url || '',
     });
-    if (data.logged_in) fanqie.cookieInput = '';
+    if (data.logged_in) {
+      fanqie.cookieInput = '';
+      fanqie.showCookieImport = false;
+      const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+      fanqie.cookieImportedAt = now;
+    }
   } catch (err) {
     fanqie.message = `导入失败：${err.message}`;
     fanqie.status = 'failed';
@@ -2630,6 +2660,8 @@ const studioContext = {
   // 番茄小说
   fanqie,
   fanqieCheckStatus,
+  fanqieLoadSettings,
+  fanqieSaveSettings,
   fanqieStartLogin,
   fanqieRefreshQr,
   fanqieImportCookies,

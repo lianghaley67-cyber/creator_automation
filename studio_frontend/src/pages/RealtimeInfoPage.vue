@@ -379,7 +379,7 @@ export default {
 
                     <!-- 番茄小说推稿配置 & 登录 -->
                     <div class="fanqie-panel">
-                      <div class="fanqie-panel-head" @click="fanqieCheckStatus(); fanqie.loginVisible = !fanqie.loginVisible">
+                      <div class="fanqie-panel-head" @click="fanqieLoadSettings(); fanqie.loginVisible = !fanqie.loginVisible">
                         <span class="fanqie-logo">🍅 番茄小说</span>
                         <span class="fanqie-status-dot" :class="fanqie.logged_in ? 'online' : 'offline'"></span>
                         <span class="fanqie-status-text">{{ fanqie.logged_in ? `已登录：${fanqie.username || '创作者'}` : '未登录' }}</span>
@@ -388,15 +388,28 @@ export default {
                       <div v-if="fanqie.loginVisible" class="fanqie-panel-body">
                         <label class="fanqie-field">
                           <span>番茄作品名（按名查找，可留空）</span>
-                          <input v-model="fanqie.workName" placeholder="和番茄小说创作中心的作品名一致" />
+                          <input v-model="fanqie.workName" placeholder="和番茄小说创作中心的作品名一致"
+                                 @blur="fanqieSaveSettings" />
                         </label>
                         <label class="fanqie-field">
                           <span>Book ID（推荐，从章节管理 URL 获取）</span>
-                          <input v-model="fanqie.bookId" placeholder="如 7653982168372235326" />
+                          <input v-model="fanqie.bookId" placeholder="如 7653982168372235326"
+                                 @blur="fanqieSaveSettings" />
                         </label>
                         <p class="fanqie-tip">Book ID 在章节管理页 URL 中：<code>/chapter-manage/<strong>7653982168…</strong>&amp;书名</code></p>
 
-                        <div class="fanqie-login-area">
+                        <!-- Cookie 已有效：只显示状态 + 重新导入按钮 -->
+                        <div v-if="fanqie.logged_in && !fanqie.showCookieImport" class="fanqie-logged">
+                          <span class="fanqie-status-dot online" style="display:inline-block;margin-right:6px;"></span>
+                          <span class="fanqie-status-text">Cookie 有效{{ fanqie.cookieImportedAt ? `，导入于 ${fanqie.cookieImportedAt}` : '' }}</span>
+                          <button class="btn secondary small" style="margin-left:10px"
+                                  @click="fanqie.showCookieImport = true; fanqie.message = ''">
+                            重新导入 Cookie
+                          </button>
+                        </div>
+
+                        <!-- Cookie 未导入 或 用户点了「重新导入」-->
+                        <div v-if="!fanqie.logged_in || fanqie.showCookieImport" class="fanqie-login-area">
                           <p class="fanqie-msg">Cookie 授权（无需扫码）：</p>
                           <ol class="fanqie-steps">
                             <li>安装浏览器扩展 <strong>Cookie-Editor</strong>（Chrome/Edge 均可）</li>
@@ -416,10 +429,6 @@ export default {
                             @click="fanqieImportCookies"
                           >{{ fanqie.importingCookies ? '导入中…' : '导入 Cookie 并验证' }}</button>
                           <p v-if="fanqie.message" class="fanqie-msg" :class="{ err: fanqie.status === 'failed' }">{{ fanqie.message }}</p>
-                        </div>
-
-                        <div v-if="fanqie.logged_in" class="fanqie-logged">
-                          <button class="btn secondary small" @click="fanqie.logged_in = false; fanqie.message = ''">重新导入 Cookie</button>
                         </div>
                       </div>
                     </div>
