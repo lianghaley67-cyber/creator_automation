@@ -185,15 +185,64 @@ export default {
           <!-- Skill 选择器 -->
           <div class="skill-selector-block">
             <div class="skill-selector-head" @click="skillSelectorVisible = !skillSelectorVisible">
-              <strong>选择内容 Skill</strong>
-              <span class="meta">
-                已选：{{ selectedWechatSkillName }} · {{ selectedXhsSkillName }}
-              </span>
-              <button class="btn secondary small">{{ skillSelectorVisible ? '收起' : '展开选择' }}</button>
+              <strong>内容 Skill &amp; 平台分发</strong>
+              <span class="meta">选技能 → 生成 → 推送</span>
+              <button class="btn secondary small">{{ skillSelectorVisible ? '收起 Skill 卡片' : '展开 Skill 卡片' }}</button>
             </div>
-            <div class="skill-selected-summary">
-              <span>公众号：{{ selectedWechatSkillName }}</span>
-              <span>小红书：{{ selectedXhsSkillName }}</span>
+
+            <!-- 平台操作栏：选 Skill → 生成 → 推送，一行搞定 -->
+            <div class="platform-generate-bar">
+              <!-- 公众号 -->
+              <div class="pgb-row">
+                <span class="pgb-label">公众号</span>
+                <select class="pgb-skill-pick" v-model="selectedWechatSkill" @change="wechatSkillManuallySelected = true">
+                  <option value="">— 选 Skill —</option>
+                  <option v-for="s in channelSkillsList.filter(s => s.channel === 'wechat')" :key="s.id" :value="s.id">{{ s.name }}</option>
+                </select>
+                <button class="btn accent small" :disabled="busy.trendDistWechat || !selectedWechatSkill" @click="prepareTrendDistribution(false, 'wechat')">
+                  {{ busy.trendDistWechat ? '生成中...' : '生成文案' }}
+                </button>
+                <template v-if="trendDistributionDraft?.wechat">
+                  <span class="pgb-done">✓ 已生成</span>
+                  <a class="btn secondary small" :href="mediaUrl(trendDistributionDraft.wechat?.article_html_url)" target="_blank">预览文章</a>
+                  <button class="btn primary small"
+                    :disabled="busy.wechatDraft === String(trendDistributionDraft.id)"
+                    @click="createTrendWechatDraft">
+                    {{ busy.wechatDraft === String(trendDistributionDraft.id) ? '发送中...' : '→ 草稿箱' }}
+                  </button>
+                </template>
+              </div>
+              <!-- 小红书 -->
+              <div class="pgb-row">
+                <span class="pgb-label">小红书</span>
+                <select class="pgb-skill-pick" v-model="selectedXhsSkill" @change="xhsSkillManuallySelected = true">
+                  <option value="">— 选 Skill —</option>
+                  <option v-for="s in channelSkillsList.filter(s => s.channel === 'xiaohongshu')" :key="s.id" :value="s.id">{{ s.name }}</option>
+                </select>
+                <button class="btn primary small" :disabled="busy.trendDistXhs || !selectedXhsSkill" @click="prepareTrendDistribution(false, 'xiaohongshu')">
+                  {{ busy.trendDistXhs ? '生成中...' : '生成文案' }}
+                </button>
+                <template v-if="trendDistributionDraft?.xiaohongshu">
+                  <span class="pgb-done">✓ 已生成</span>
+                  <button class="btn accent small"
+                    :disabled="busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) || trendDistributionDraft.xiaohongshu?.status === 'published'"
+                    @click="directPublishXiaohongshu(trendDistributionDraft, applyTrendDistributionResult)">
+                    {{ busy.xiaohongshuDirectPublish === String(trendDistributionDraft.id) ? '发布中...' : '→ 直接发布' }}
+                  </button>
+                  <button class="btn secondary small" @click="copyText(trendDistributionDraft.xiaohongshu?.body, '小红书正文已复制。')">复制正文</button>
+                </template>
+              </div>
+              <!-- 番茄小说（连载模式） -->
+              <div v-if="isWritingWorkshopMode" class="pgb-row">
+                <span class="pgb-label">番茄小说</span>
+                <span class="pgb-meta">{{ selectedStory ? `《${selectedStory.name}》第 ${(selectedStory.last_chapter_number ?? 0) + 1} 章待写` : '未选故事（见下方）' }}</span>
+                <button class="btn accent small"
+                  :disabled="busy.generatingChapter || !selectedStoryId"
+                  @click="generateNextChapter()">
+                  {{ busy.generatingChapter ? '生成中...' : '生成下一章' }}
+                </button>
+                <button v-if="selectedStory" class="btn secondary small" @click="openStoryManage(selectedStory)">查看章节</button>
+              </div>
             </div>
             <div v-if="skillSelectorVisible" class="skill-selector-body">
               <!-- 公众号 Skill -->
@@ -537,8 +586,8 @@ export default {
             </div>
           </div>
 
-          <!-- 双渠道文案生成（左公众号，右小红书） -->
-          <div class="dist-two-col">
+          <!-- 详细结果预览（图文卡片、状态追踪等） -->
+          <div v-if="trendDistributionDraft?.wechat || trendDistributionDraft?.xiaohongshu" class="dist-two-col">
 
             <!-- 公众号列 -->
             <div class="dist-col">

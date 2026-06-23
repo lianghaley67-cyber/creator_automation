@@ -4393,6 +4393,64 @@ textarea {
   font-weight: 800;
 }
 
+/* Platform generate bar: 技能选择 + 生成 + 推送 一行 */
+.platform-generate-bar {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid rgba(142, 171, 205, 0.18);
+  background: rgba(0, 213, 232, 0.03);
+}
+
+.pgb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(142, 171, 205, 0.08);
+  flex-wrap: wrap;
+}
+
+.pgb-row:last-child {
+  border-bottom: none;
+}
+
+.pgb-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #a9bfda;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  min-width: 52px;
+  flex-shrink: 0;
+}
+
+.pgb-skill-pick {
+  flex: 1;
+  min-width: 140px;
+  max-width: 240px;
+  font-size: 12px;
+  padding: 5px 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(142, 171, 205, 0.25);
+  border-radius: 6px;
+  color: #c8daea;
+  cursor: pointer;
+}
+
+.pgb-done {
+  font-size: 11px;
+  font-weight: 700;
+  color: #4cd964;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+
+.pgb-meta {
+  font-size: 12px;
+  color: #a9bfda;
+  flex: 1;
+}
+
 .skill-card.selected {
   border-color: #00d5e8;
   background: rgba(0, 213, 232, 0.12);
