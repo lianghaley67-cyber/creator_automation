@@ -95,6 +95,19 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
             "body": "Trae 不是一个普通文档工具，它更像 AI 编程助手。\n\n适合：想用 AI 辅助写代码、改代码、理解项目的新手。\n\n安装前先确认：系统版本、官网来源、账号登录、模型权限。\n\n#AI工具 #Trae教程",
         },
     },
+    "wechat_ai_tips_discovery_v1": {
+        "name": "公众号·AI使用技巧发现",
+        "channel": "wechat",
+        "content_kind": "ai_tips_discovery",
+        "file": "wechat/ai_tips_discovery_wechat.md",
+        "description": "从搜索结果里挑一个最实用的AI使用技巧，用'我刚发现了这个'的口吻写出来。不是教程，是发现分享。400-600字，没有步骤编号，没有表格。",
+        "persona_tags": ["AI技巧", "实用发现", "口语化", "微技巧"],
+        "example": {
+            "title": "用了Claude Code一个月，这个操作让我少浪费了很多token",
+            "summary": "每次开新任务之前发一条/clear，从此告别AI'记错事'的问题。一个动作，但我用了三周才知道有这个。",
+            "excerpt": "上周我在处理一个完全不相关的新任务，但Claude一直在用上一个项目的背景回答我——我说让它写个小脚本，它给我的还是连载小说的语气。\n\n后来我才知道有个叫/clear的指令……",
+        },
+    },
     "wechat_tool_deep_review_v1": {
         "name": "公众号·AI工具深度实测",
         "channel": "wechat",
@@ -307,6 +320,8 @@ def _skill_content_kind(skill_id: str) -> str:
         return explicit
     if "ai_writing_workshop" in normalized:
         return "fiction_serial"
+    if "ai_tips_discovery" in normalized:
+        return "ai_tips_discovery"
     if "tool_deep_review" in normalized:
         return "tool_deep_review"
     if "tool_research" in normalized:
@@ -325,6 +340,8 @@ def _skill_content_kind(skill_id: str) -> str:
 
 
 def _skill_family(kind: str) -> str:
+    if kind == "ai_tips_discovery":
+        return "ai_tips_discovery"
     if kind == "tool_deep_review":
         return "tool_deep_review"   # 五幕叙事，区别于旧的 tool_tutorial
     if kind == "tool_research":
@@ -346,6 +363,15 @@ def _skill_type_contract(skill_id: str, channel: str) -> str:
             "- 只能写小说正文或连载预告，禁止写AI创作教程、提示词拆解、工具测评、表格清单。\n"
             "- 必须有具体人物、目标、阻碍、关系张力和结尾悬念。\n"
             "- 如果原始素材是工具/资讯，只把它当灵感，不要照着写成工具文章。"
+        )
+    if kind == "ai_tips_discovery":
+        return (
+            f"【{channel} 当前 Skill 类型：AI使用技巧发现·口语化微技巧分享】\n"
+            "- 从搜索结果里只挑一个具体技巧（不是功能介绍，是操作技巧），用'我刚发现了这个'的语气写出来。\n"
+            "- 全文400-600字，四段：偶然发现 → 为什么对你有用 → 现在就试（一句话）→ 让我意外的是。\n"
+            "- 开头第一句必须从'我当时在做什么'开始，禁止从工具介绍或功能说明开始。\n"
+            "- 禁止步骤1/步骤2编号、禁止表格、禁止截图说明，每段不超过4行。\n"
+            "- 结尾只留1个A/B/C/D选择题，不问'你怎么看''欢迎分享'。"
         )
     if kind == "tool_deep_review":
         return (
@@ -856,11 +882,13 @@ def build_channel_drafts_with_ai(
     target_channel: str = "",
 ) -> dict[str, Any]:
     """生成渠道内容草稿，优先用 OpenAI 按 Skill 规则生成，无 API Key 时降级到规则模板。"""
-    uses_tool_deep_review = any(
-        _skill_content_kind(skill_id) == "tool_deep_review"
+    # tool_deep_review and ai_tips_discovery must always go through the AI narrative path.
+    # Only redirect to the product-manual template fallback for pure tool_research skills.
+    _any_narrative_skill = any(
+        _skill_content_kind(skill_id) in {"tool_deep_review", "ai_tips_discovery"}
         for skill_id in (wechat_skill_id, xiaohongshu_skill_id)
     )
-    if uses_tool_deep_review and _is_tool_research_request(title, source_text, source_type):
+    if not _any_narrative_skill and _is_tool_research_request(title, source_text, source_type):
         fallback = _build_tool_research_fallback(
             source_text=source_text,
             title=title,
@@ -970,6 +998,7 @@ def _ai_generate_channel_drafts(
     is_growth_diary = "growth_diary" in families
     is_writing_workshop = "fiction_serial" in families
     is_flywheel = "operator_flywheel" in families
+    is_tips_discovery = "ai_tips_discovery" in families
     jianghushuo_lens = _load_jianghushuo_lens() if (is_flywheel or is_growth_diary) else ""
 
     # ── 通用基础规则（所有 skill 都适用）──────────────────────
@@ -1055,6 +1084,58 @@ def _ai_generate_channel_drafts(
 × 赋能、颠覆、范式、生态
 
 公众号字数控制在1200-1800字。"""
+
+    # ── AI使用技巧发现规则 ───────────────────────────────────
+    ai_tips_discovery_rules = (
+        """AI使用技巧发现规则类型：
+
+【写作本质】：我刚发现了一件事，你也可以试试。
+不是教程，不是测评，不是步骤清单。是一个真实的人在分享自己刚用到、真的有用的一个操作技巧。
+全文只讲一个技巧，不要为了"完整"塞进第二个。
+
+【写前必须做的一件事】：
+从搜索结果里找出唯一最值得分享的一个可操作技巧。
+优先选：帮人省时间的（如/clear、/compact、subagents）/ 让回答更准的（如CLAUDE.md写法、具体提示词结构）/ 解决一个具体卡点的（如上下文满了怎么办、速度慢怎么选模型）
+不选：功能介绍、版本更新、企业级用途
+
+【四段结构（没有标题，自然流动）】：
+
+段1·偶然发现（80-120字）
+- 从"我当时在做什么"开始，有时间感（"上周"、"前两天"、"刚才"）
+- 什么情况下我遇到了这个技巧？我第一反应是什么？
+- 不从工具介绍开始，不从"今天来分享"开始
+
+段2·为什么这件事对你有用（150-200字）
+- 用"你"，不用"我们"或"大家"
+- 连接一个具体场景：如果你也在[做某件事]，这个技巧能帮你省掉[具体步骤]
+- 不讲道理，讲效果：不是"提升效率"，而是"从此不用每次开头重新解释背景了"
+
+段3·现在就可以试（50-80字）
+- 就一句话，具体到今天就能做的动作
+- 不是"你可以考虑"，是"打开Claude Code，输入/clear，然后..."
+- 这段越短越好，越具体越好
+
+段4·让我意外的是（100-150字）
+- 这个技巧有什么出乎意料的地方？
+- 你以为它只能用在X，结果发现它也适合Y
+- 或者：用了之后发现比你想象的更省力（用具体数字或动作量化，不说"大大提升"）
+
+【结尾互动（固定，不可省略）】：
+只留1个选择题，A/B/C/D格式，读者不用想太久就能回答。
+问题要能引导下一篇的选题方向。
+
+【格式规则】：
+× 禁止步骤1/步骤2编号格式
+× 禁止表格
+× 禁止"截图建议"或截图说明
+× 禁止同时讲超过1个技巧
+× 禁止"我们"、"大家"、"用户"
+× 禁止：赋能、颠覆、范式、生态、全面提升
+× 禁止结尾问"你怎么看？欢迎留言"
+全文字数控制在400-600字。"""
+        if is_tips_discovery
+        else ""
+    )
 
     # ── AI成长实录专属规则 ────────────────────────────────────
     growth_diary_rules = (
@@ -1172,6 +1253,8 @@ def _ai_generate_channel_drafts(
 - 不使用"### 第X步："格式，步骤用"1. 2. 3."或"**第一件事：**"等自然格式。"""
 
     def _family_rules(family: str) -> str:
+        if family == "ai_tips_discovery":
+            return ai_tips_discovery_rules
         if family == "tool_deep_review":
             return tool_deep_review_rules
         if family == "tool_tutorial":
