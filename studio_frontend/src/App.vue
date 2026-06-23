@@ -122,7 +122,7 @@ const xhsSkillManuallySelected = ref(false);
 const skillSelectorVisible = ref(false); // 是否展开 skill 选择面板
 // 连载故事档案
 const stories = ref([]);
-const selectedStoryId = ref("");
+const selectedStoryId = ref(localStorage.getItem("selectedStoryId") || "");
 const storyManageModal = reactive({ visible: false, chapters: [], bible: null, loading: false, storyId: "", expandedChapterId: null });
 const fanqie = reactive({
   status: "not_started",
@@ -2105,12 +2105,19 @@ async function loadStories() {
   try {
     const result = await requestApi("/api/stories");
     stories.value = Array.isArray(result?.items) ? result.items : [];
-    // 只有一个故事时自动选中，避免忘记选择
-    if (stories.value.length === 1 && !selectedStoryId.value) {
+    // 恢复上次选中的故事；若记录失效或无选中则默认选第一个
+    const storedId = selectedStoryId.value;
+    const stillExists = storedId && stories.value.some(s => s.id === storedId);
+    if (!stillExists && stories.value.length > 0) {
       selectedStoryId.value = stories.value[0].id;
     }
   } catch (_) { /* ignore */ }
 }
+
+watch(selectedStoryId, (v) => {
+  if (v) localStorage.setItem("selectedStoryId", v);
+  else localStorage.removeItem("selectedStoryId");
+});
 
 async function createStorySubmit() {
   if (!newStoryForm.name.trim()) { newStoryForm.error = "请填写故事名称"; return; }
