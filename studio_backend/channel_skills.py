@@ -208,6 +208,28 @@ PRESET_TOPICS = [
 ]
 
 
+USER_TOPICS_FILE = SKILLS_DIR / "user_topics.json"
+
+
+def load_preset_topics() -> list[dict[str, Any]]:
+    """返回用户自定义列表；若未修改过，返回内置默认值。"""
+    if USER_TOPICS_FILE.exists():
+        try:
+            data = json.loads(USER_TOPICS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+    return list(PRESET_TOPICS)
+
+
+def save_preset_topics(topics: list[dict[str, Any]]) -> None:
+    SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    USER_TOPICS_FILE.write_text(
+        json.dumps(topics, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
 USER_SKILLS_FILE = SKILLS_DIR / "user_skills.json"
 
 

@@ -31,7 +31,7 @@ from .ai_trends import (
     collect_ai_trends,
     summarize_trends_with_ai,
 )
-from .channel_skills import PRESET_TOPICS
+from .channel_skills import load_preset_topics, save_preset_topics
 from .avatar import detect_sadtalker_status, normalize_sadtalker_config
 from .generation import render_job, synthesize_audio_asset
 from .kids_mode import (
@@ -2382,7 +2382,32 @@ def remove_channel_skill(skill_id: str) -> dict[str, Any]:
 
 @app.get("/api/ai-trends/preset-topics")
 def get_preset_topics() -> dict[str, Any]:
-    return {"items": PRESET_TOPICS}
+    return {"items": load_preset_topics()}
+
+
+@app.post("/api/ai-trends/preset-topics")
+async def add_preset_topic(request: Request) -> dict[str, Any]:
+    body = await request.json()
+    label = (body.get("label") or "").strip()
+    query = (body.get("query") or "").strip()
+    if not label or not query:
+        raise HTTPException(status_code=400, detail="label 和 query 不能为空")
+    import uuid
+    topics = load_preset_topics()
+    new_topic = {"id": f"custom_{uuid.uuid4().hex[:8]}", "label": label, "query": query}
+    topics.append(new_topic)
+    save_preset_topics(topics)
+    return {"ok": True, "topic": new_topic}
+
+
+@app.delete("/api/ai-trends/preset-topics/{topic_id}")
+def delete_preset_topic(topic_id: str) -> dict[str, Any]:
+    topics = load_preset_topics()
+    new_topics = [t for t in topics if t["id"] != topic_id]
+    if len(new_topics) == len(topics):
+        raise HTTPException(status_code=404, detail="topic not found")
+    save_preset_topics(new_topics)
+    return {"ok": True}
 
 
 @app.post("/api/ai-trends/summarize")

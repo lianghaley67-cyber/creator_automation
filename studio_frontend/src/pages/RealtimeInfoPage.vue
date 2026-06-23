@@ -1,5 +1,5 @@
 <script>
-import { reactive, watch } from "vue";
+import { reactive, ref, watch } from "vue";
 import { useStudioContext } from "./useStudioContext.js";
 
 export default {
@@ -9,7 +9,45 @@ export default {
     const expandedPlatforms = reactive({ fanqie: false, wechat: false, xiaohongshu: false });
     watch(() => ctx.trendDistributionDraft.value?.wechat,      (v) => { if (v) expandedPlatforms.wechat = true; });
     watch(() => ctx.trendDistributionDraft.value?.xiaohongshu, (v) => { if (v) expandedPlatforms.xiaohongshu = true; });
-    return { ...ctx, expandedPlatforms };
+
+    // 快速选题编辑态
+    const topicsEditMode = ref(false);
+    const newTopicLabel = ref("");
+    const newTopicQuery = ref("");
+    const addingTopic = ref(false);
+
+    async function deleteTopic(topic) {
+      if (!confirm(`确认删除「${topic.label}」？`)) return;
+      try {
+        await ctx.requestApi(`/api/ai-trends/preset-topics/${topic.id}`, { method: "DELETE" });
+        await ctx.loadPresetTopicsAndSkills();
+      } catch (e) {
+        ctx.setError("删除失败：" + (e?.message || e));
+      }
+    }
+
+    async function addTopic() {
+      const label = newTopicLabel.value.trim();
+      const query = newTopicQuery.value.trim();
+      if (!label || !query) { ctx.setError("标题和搜索词不能为空"); return; }
+      addingTopic.value = true;
+      try {
+        await ctx.requestApi("/api/ai-trends/preset-topics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label, query }),
+        });
+        newTopicLabel.value = "";
+        newTopicQuery.value = "";
+        await ctx.loadPresetTopicsAndSkills();
+      } catch (e) {
+        ctx.setError("添加失败：" + (e?.message || e));
+      } finally {
+        addingTopic.value = false;
+      }
+    }
+
+    return { ...ctx, expandedPlatforms, topicsEditMode, newTopicLabel, newTopicQuery, addingTopic, deleteTopic, addTopic };
   }
 };
 </script>
@@ -56,16 +94,31 @@ export default {
           </div>
         </section>
 
-        <!-- 预设主题 Chips -->
-        <div class="preset-topics-row" v-if="presetTopics.length">
+        <!-- 快速选题 Chips -->
+        <div class="preset-topics-row">
           <span class="preset-topics-label">快速选题：</span>
-          <button
-            v-for="topic in presetTopics"
-            :key="topic.id"
-            class="topic-chip"
-            :class="{ active: trendSearchQuery === topic.query }"
-            @click="trendSearchQuery = topic.query; refreshAiTrends(true)"
-          >{{ topic.label }}</button>
+          <template v-for="topic in presetTopics" :key="topic.id">
+            <span v-if="topicsEditMode" class="topic-chip topic-chip-edit">
+              {{ topic.label }}
+              <button class="topic-chip-del" @click="deleteTopic(topic)" title="删除">×</button>
+            </span>
+            <button v-else
+              class="topic-chip"
+              :class="{ active: trendSearchQuery === topic.query }"
+              @click="trendSearchQuery = topic.query; refreshAiTrends(true)"
+            >{{ topic.label }}</button>
+          </template>
+          <button class="topic-chip topic-chip-manage" @click="topicsEditMode = !topicsEditMode">
+            {{ topicsEditMode ? '完成' : '管理' }}
+          </button>
+        </div>
+        <!-- 新增选题表单（编辑态） -->
+        <div v-if="topicsEditMode" class="preset-topics-add">
+          <input v-model="newTopicLabel" class="topics-add-input" placeholder="标签名（如：Cursor实战）" maxlength="20" />
+          <input v-model="newTopicQuery" class="topics-add-input topics-add-query" placeholder="搜索词（英文+中文，越具体越好）" />
+          <button class="btn accent small" :disabled="addingTopic" @click="addTopic">
+            {{ addingTopic ? '添加中...' : '+ 添加' }}
+          </button>
         </div>
 
         <!-- 自定义搜索 -->

@@ -616,6 +616,46 @@ a {
 }
 .topic-chip:hover { border-color: var(--teal); color: var(--teal); background: rgba(0,213,232,0.08); }
 .topic-chip.active { border-color: var(--teal); background: var(--teal-soft); color: var(--teal); }
+.topic-chip-manage { border-style: dashed; opacity: 0.7; }
+.topic-chip-manage:hover { opacity: 1; }
+.topic-chip-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px 5px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(255,100,100,0.35);
+  background: rgba(255,80,80,0.06);
+  color: var(--ink);
+  font-size: 12px;
+}
+.topic-chip-del {
+  background: none;
+  border: none;
+  color: #ff6b6b;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.topic-chip-del:hover { color: #ff3333; }
+.preset-topics-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0 4px;
+  flex-wrap: wrap;
+}
+.topics-add-input {
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  width: 160px;
+}
+.topics-add-query { width: 300px; }
 
 /* ===== 实时信息工作流 ===== */
 .content-workflow-panel {
