@@ -13,19 +13,6 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 SKILLS_DIR = ROOT_DIR / "creator_skills"
 
 CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
-    "wechat_article_v1": {
-        "name": "公众号深度文章",
-        "channel": "wechat",
-        "content_kind": "wechat_article",
-        "file": "wechat/06_wechat_article.md",
-        "description": "长文结构、背景解释、个人判断和行动建议。适合深度科普和经验分享。",
-        "persona_tags": ["通用"],
-        "example": {
-            "title": "用AI帮我省掉了每天1小时的重复工作",
-            "summary": "我不是技术人，但我找到了一个普通人也能用的AI方法，每天少做1小时的重复事情。",
-            "excerpt": "## 发生了什么\n\n每天早上，我要花差不多一小时整理前一天的工作记录……\n\n## 这意味着什么\n\nAI不是要替代你的判断，而是帮你减少重复劳动……",
-        },
-    },
     "xiaohongshu_note_v1": {
         "name": "小红书知识笔记",
         "channel": "xiaohongshu",
@@ -49,19 +36,6 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
             "title": "AI省时间攻略",
             "cover": "5个让普通人每天少做1小时的AI方法",
             "pages": ["封面：5个让普通人每天少做1小时的AI方法", "01 整理笔记：把乱七八糟的记录扔给AI", "02 写回复：让AI起草，你来润色"],
-        },
-    },
-    "wechat_ai_growth_diary_v1": {
-        "name": "公众号·AI成长实录",
-        "channel": "wechat",
-        "content_kind": "growth_diary",
-        "file": "shared/13_ai_growth_diary.md",
-        "description": "职场宝妈/独立女性/AI学习者视角，记录真实使用AI工具的过程、踩坑和变化，有温度、有共鸣、有可操作性。",
-        "persona_tags": ["职场宝妈", "独立女性", "AI学习", "真实成长"],
-        "example": {
-            "title": "带娃间隙，我用30分钟学会了这件事，现在每周能省两小时",
-            "summary": "我不是技术专家，只是一个职场宝妈，找到了一个用碎片时间也能学AI的方法，分享给有类似处境的你。",
-            "excerpt": "## 我实际操作了什么\n\n孩子午睡那段时间，我打开了Claude，把上周的会议记录粘贴进去……\n\n## 卡在哪里了\n\n第一次它给我的格式完全不是我想要的，我重新描述了一遍需求……",
         },
     },
     "xiaohongshu_ai_growth_diary_v1": {
@@ -107,19 +81,6 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
                 "下一章：她要不要把青灯带走？A 带走，B 留下\n\n"
                 "#连载小说 #玄幻言情 #故事"
             ),
-        },
-    },
-    "wechat_tool_research_v1": {
-        "name": "公众号·工具研究说明书",
-        "channel": "wechat",
-        "content_kind": "tool_research",
-        "file": "shared/14_tool_research_playbook.md",
-        "description": "把一个具体工具讲清楚：它是什么、解决什么问题、适合谁、怎么安装、怎么上手、怎么进阶。",
-        "persona_tags": ["工具研究", "教程", "实操"],
-        "example": {
-            "title": "Trae 是什么？新手安装和上手指南",
-            "summary": "这不是工具新闻，而是一份给完全不了解 Trae 的新手看的说明书：先判断适不适合你，再决定要不要安装。",
-            "excerpt": "## 先说清楚：Trae 到底是干什么的\n\n## 它解决什么问题\n\n## 新手安装前先检查这几件事",
         },
     },
     "xiaohongshu_tool_research_v1": {
