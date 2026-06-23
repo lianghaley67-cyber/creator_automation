@@ -13,7 +13,6 @@ export default {
     // 快速选题编辑态
     const topicsEditMode = ref(false);
     const newTopicLabel = ref("");
-    const newTopicQuery = ref("");
     const addingTopic = ref(false);
 
     async function deleteTopic(topic) {
@@ -28,17 +27,15 @@ export default {
 
     async function addTopic() {
       const label = newTopicLabel.value.trim();
-      const query = newTopicQuery.value.trim();
-      if (!label || !query) { ctx.setError("标题和搜索词不能为空"); return; }
+      if (!label) { ctx.setError("选题名不能为空"); return; }
       addingTopic.value = true;
       try {
         await ctx.requestApi("/api/ai-trends/preset-topics", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label, query }),
+          body: JSON.stringify({ label, query: label }),
         });
         newTopicLabel.value = "";
-        newTopicQuery.value = "";
         await ctx.loadPresetTopicsAndSkills();
       } catch (e) {
         ctx.setError("添加失败：" + (e?.message || e));
@@ -47,7 +44,7 @@ export default {
       }
     }
 
-    return { ...ctx, expandedPlatforms, topicsEditMode, newTopicLabel, newTopicQuery, addingTopic, deleteTopic, addTopic };
+    return { ...ctx, expandedPlatforms, topicsEditMode, newTopicLabel, addingTopic, deleteTopic, addTopic };
   }
 };
 </script>
@@ -114,8 +111,8 @@ export default {
         </div>
         <!-- 新增选题表单（编辑态） -->
         <div v-if="topicsEditMode" class="preset-topics-add">
-          <input v-model="newTopicLabel" class="topics-add-input" placeholder="标签名（如：Cursor实战）" maxlength="20" />
-          <input v-model="newTopicQuery" class="topics-add-input topics-add-query" placeholder="搜索词（英文+中文，越具体越好）" />
+          <input v-model="newTopicLabel" class="topics-add-input" placeholder="输入选题名，如：Cursor实战" maxlength="30"
+            @keydown.enter.prevent="addTopic" />
           <button class="btn accent small" :disabled="addingTopic" @click="addTopic">
             {{ addingTopic ? '添加中...' : '+ 添加' }}
           </button>
