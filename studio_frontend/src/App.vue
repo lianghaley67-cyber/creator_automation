@@ -2203,9 +2203,9 @@ async function generateNextChapter() {
           script,
           question: "",
           title: trend.title || "",
-          wechat_skill_id: selectedWechatSkill.value || "",
-          xiaohongshu_skill_id: selectedXhsSkill.value || "",
-          hashtags: trendAiSummary.value?.suggested_hashtags || [],
+          wechat_skill_id: "wechat_ai_writing_workshop_v1",
+          xiaohongshu_skill_id: "",
+          hashtags: [],
           story_id: selectedStoryId.value,
           target_channel: "wechat",
         })

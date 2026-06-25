@@ -54,6 +54,10 @@ def _rest(method: str, table: str, body: Any = None, params: str = "") -> list[d
     except urllib.error.HTTPError as exc:
         err = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"Supabase {method} {table} error {exc.code}: {err[:300]}") from exc
+    except urllib.error.URLError as exc:
+        import logging
+        logging.getLogger(__name__).warning("Supabase %s %s network error: %s", method, table, exc.reason)
+        return []
 
 
 # ── Stories ────────────────────────────────────────────────────────────────
