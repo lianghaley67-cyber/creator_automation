@@ -1969,3 +1969,106 @@ def render_xiaohongshu_cards(
         image.save(output, format="PNG", optimize=True)
         files.append(output)
     return files
+
+
+def regenerate_fiction_chapter(
+    story_id: str,
+    chapter_number: int,
+    *,
+    api_key: str,
+    base_url: str,
+    model: str,
+) -> dict:
+    """重新生成指定章节，使用该章节之前的剧情作为上下文，替换 Supabase 中的旧章节。"""
+    import json as _json
+    import re as _re
+    import urllib.request as _req3
+    from .story_db import build_story_context_for_chapter, delete_chapter, save_chapter, get_story
+
+    story = get_story(story_id)
+    story_name = story.get("name", "连载故事")
+
+    story_context = build_story_context_for_chapter(story_id, chapter_number)
+
+    system_prompt = f"""你是一位中文言情/玄幻连载小说作者。
+目标读者：喜欢强情绪、强设定、强悬念的女性读者，读完这一章会想看下一章。
+
+【必须按此结构输出】：
+① 标题行：「{story_name} · 第{chapter_number}章 [副标题]」
+② 故事正文（1200-1800字，这是全文唯一主体）
+③ 结尾：下期暗示一句话 OR 读者投票「A [选项] 还是 B [选项]？」
+
+【连载结构硬规则】：
+- 第一段直接进入戏：异动、危险、重逢、误会、追杀、婚约等，至少出现一种
+- 本章必须有主角的具体目标，不能只是回忆或抒情
+- 本章中段有一次关系碰撞：试探、拒绝、救人、交易、靠近又退开
+- 结尾前出现新信息或反转
+- 最后一句必须是悬念句
+
+【番茄小说平台合规硬约束】：
+- 性描写：身体接触止于暧昧（吻/拥抱可以），不写性行为细节，禁止乱伦/强奸描写
+- 年龄：所有涉感情/性意味的场景，角色必须明确为成年人
+- 暴力：战斗/死亡可以，禁止大篇幅血腥细节特写
+- 价值观：主角道德底线清晰，不宣扬仇恨/极端思想
+
+【禁止】：教程结构、工具测评、AI创作手记、表格清单、故事正文少于1000字"""
+
+    user_prompt = f"""{story_context}
+
+请直接输出第 {chapter_number} 章的完整内容，从标题行开始，不要任何前言解释。"""
+
+    endpoint = base_url.rstrip("/") + "/v1/chat/completions"
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.85,
+        "max_tokens": 3000,
+    }
+    try:
+        data = _json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = _req3.Request(
+            endpoint, data=data,
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+            method="POST",
+        )
+        with _req3.urlopen(req, timeout=90) as resp:
+            ai_result = _json.loads(resp.read().decode("utf-8"))
+            content_md = str(ai_result["choices"][0]["message"]["content"]).strip()
+    except Exception as exc:
+        return {"ok": False, "error": f"AI 生成失败：{exc}"}
+
+    # 解析标题行
+    lines = content_md.splitlines()
+    first_line = lines[0].strip().lstrip("「『#").rstrip("」』") if lines else ""
+    chapter_title = first_line if first_line else f"第{chapter_number}章"
+    # 正文去掉第一行标题
+    body_md = "\n".join(lines[1:]).strip() if len(lines) > 1 else content_md
+
+    # 删除旧章节，保存新章节
+    try:
+        delete_chapter(story_id, chapter_number)
+        save_chapter(
+            story_id=story_id,
+            chapter_number=chapter_number,
+            title=chapter_title,
+            content_markdown=content_md,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"章节保存失败：{exc}"}
+
+    # 番茄内容审核
+    review = _fanqie_content_review(
+        chapter_title, body_md,
+        api_key=api_key, base_url=base_url, model=model,
+    )
+
+    return {
+        "ok": True,
+        "chapter_number": chapter_number,
+        "title": chapter_title,
+        "content_markdown": content_md,
+        "fanqie_review": review,
+    }

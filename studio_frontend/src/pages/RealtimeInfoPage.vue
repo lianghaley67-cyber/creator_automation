@@ -521,6 +521,14 @@ export default {
                         <div class="chapter-actions" @click.stop>
                           <button class="btn danger small" @click.stop="deleteChapterConfirm(ch)">删除</button>
                           <button
+                            class="btn secondary small"
+                            :disabled="storyManageModal.regenChapter !== null"
+                            @click.stop="regenerateChapter(ch)"
+                            title="重新生成本章（保留前后剧情衔接）"
+                          >
+                            {{ storyManageModal.regenChapter === ch.chapter_number ? '生成中…' : '重新生成' }}
+                          </button>
+                          <button
                             class="btn fanqie small"
                             :disabled="fanqie.pushingChapter === ch.chapter_number"
                             @click.stop="fanqiePushChapter(ch)"

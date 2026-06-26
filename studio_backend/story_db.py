@@ -241,6 +241,61 @@ def next_chapter_number(story_id: str) -> int:
     return (bible.get("last_chapter_number") or 0) + 1
 
 
+def build_story_context_for_chapter(story_id: str, target_chapter: int) -> str:
+    """为重新生成指定章节构建上下文，只使用 target_chapter 之前的章节作为背景。"""
+    if not story_id or not _enabled():
+        return ""
+    bible = get_story_bible(story_id)
+    if not bible:
+        return ""
+
+    parts: list[str] = ["【故事档案 · 重写上下文】"]
+
+    chars = bible.get("characters") or []
+    if chars:
+        char_lines = [
+            f"- {c.get('name','')}（{c.get('role','')}）：{c.get('status','')}"
+            for c in chars if c.get("name")
+        ]
+        if char_lines:
+            parts.append("人物：\n" + "\n".join(char_lines))
+
+    world = (bible.get("world_notes") or "").strip()
+    if world:
+        parts.append(f"世界观：{world}")
+
+    threads = bible.get("ongoing_threads") or []
+    open_threads = [t for t in threads if t.get("status") != "resolved"]
+    if open_threads:
+        thread_lines = [f"- {t.get('thread','')}" for t in open_threads if t.get("thread")]
+        if thread_lines:
+            parts.append("未解悬念：\n" + "\n".join(thread_lines))
+
+    chapters = list_chapters(story_id)
+    prev_chapters = [c for c in chapters if c["chapter_number"] < target_chapter]
+
+    if len(prev_chapters) > 1:
+        old = prev_chapters[:-1]
+        summaries = [
+            f"第{c['chapter_number']}章《{c['title']}》：{c['context_summary']}"
+            for c in old
+        ]
+        parts.append("前情摘要：\n" + "\n".join(summaries))
+
+    if prev_chapters:
+        last = prev_chapters[-1]
+        md = (last.get("content_markdown") or "")[:3000]
+        parts.append(
+            f"【上一章完整内容 · 第{last['chapter_number']}章《{last['title']}》】\n{md}"
+        )
+
+    parts.append(
+        f"当前任务：重新创作第 {target_chapter} 章（原版审核不通过，需完整重写；"
+        f"剧情必须与第 {target_chapter - 1} 章无缝衔接，不能出现剧情断裂）"
+    )
+    return "\n\n".join(parts)
+
+
 # ── AI Context Extraction ──────────────────────────────────────────────────
 
 def extract_and_update_bible(

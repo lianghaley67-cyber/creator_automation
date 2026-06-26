@@ -123,7 +123,7 @@ const skillSelectorVisible = ref(false); // 是否展开 skill 选择面板
 // 连载故事档案
 const stories = ref([]);
 const selectedStoryId = ref(localStorage.getItem("selectedStoryId") || "");
-const storyManageModal = reactive({ visible: false, chapters: [], bible: null, loading: false, storyId: "", expandedChapterId: null });
+const storyManageModal = reactive({ visible: false, chapters: [], bible: null, loading: false, storyId: "", expandedChapterId: null, regenChapter: null });
 const fanqie = reactive({
   status: "not_started",
   logged_in: false,
@@ -2187,6 +2187,32 @@ async function deleteChapterConfirm(chapter) {
   }
 }
 
+async function regenerateChapter(chapter) {
+  if (!confirm(`重新生成第 ${chapter.chapter_number} 章「${chapter.title}」？原版将被替换，剧情将根据前面章节重新续写。`)) return;
+  storyManageModal.regenChapter = chapter.chapter_number;
+  try {
+    const base = verifiedApiBase.value || configuredApiBase.value || "";
+    const res = await fetch(
+      `${base}/api/stories/${storyManageModal.storyId}/chapters/${chapter.chapter_number}/regenerate`,
+      { method: "POST" }
+    );
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.detail || "重新生成失败");
+    const review = result.fanqie_review;
+    if (review && !review.pass) {
+      const issues = (review.issues || []).join("；");
+      setError(`第 ${chapter.chapter_number} 章已重新生成，但仍有审核风险（${review.risk_level}）：${issues}。请再次重写或手动修改。`);
+    } else {
+      setNotice(`第 ${chapter.chapter_number} 章已重新生成，番茄审核通过 ✓`);
+    }
+    await openStoryManage({ id: storyManageModal.storyId });
+  } catch (err) {
+    setError(`重新生成失败：${err.message}`);
+  } finally {
+    storyManageModal.regenChapter = null;
+  }
+}
+
 async function generateNextChapter() {
   const trend = aiTrends.value[0];
   if (!trend?.id) { setError("请先获取实时资讯，章节生成需要以资讯为创作背景。"); return; }
@@ -2721,6 +2747,7 @@ const studioContext = {
   openStoryManage,
   generateNextChapter,
   deleteChapterConfirm,
+  regenerateChapter,
   // 番茄小说
   fanqie,
   fanqieCheckStatus,

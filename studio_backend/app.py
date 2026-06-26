@@ -2043,6 +2043,21 @@ def api_delete_chapter(story_id: str, chapter_number: int) -> dict[str, Any]:
     return {"ok": True, "story_id": story_id, "chapter_number": chapter_number}
 
 
+@app.post("/api/stories/{story_id}/chapters/{chapter_number}/regenerate")
+def api_regenerate_chapter(story_id: str, chapter_number: int) -> dict[str, Any]:
+    from .channel_skills import regenerate_fiction_chapter
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or ""
+    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("API_BASE_URL") or "https://api.anthropic.com"
+    model = os.getenv("OPENAI_MODEL") or os.getenv("AI_MODEL") or "claude-sonnet-4-6"
+    result = regenerate_fiction_chapter(
+        story_id, chapter_number,
+        api_key=api_key, base_url=base_url, model=model,
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=500, detail=result.get("error", "生成失败"))
+    return result
+
+
 # ── 番茄小说 ──────────────────────────────────────────────────────────
 
 @app.get("/api/novel/fanqie/status")
