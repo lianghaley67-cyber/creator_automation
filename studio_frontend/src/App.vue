@@ -2213,8 +2213,16 @@ async function generateNextChapter() {
       60000
     );
     const chNum = result?.story_chapter_saved;
+    const review = result?.fanqie_review;
     if (chNum) {
-      setNotice(`第 ${chNum} 章已生成并保存到故事档案，可在「查看章节」中推送到番茄小说。`);
+      if (review && !review.pass) {
+        const issues = (review.issues || []).join("；");
+        setError(`第 ${chNum} 章已保存，但番茄审核可能不通过（${review.risk_level}）：${issues}`);
+      } else if (review && review.risk_level === "unknown") {
+        setNotice(`第 ${chNum} 章已生成并保存，审核服务超时，建议手动检查后再推送番茄。`);
+      } else {
+        setNotice(`第 ${chNum} 章已生成并保存，番茄审核通过 ✓ 可在「查看章节」中推送。`);
+      }
     } else {
       setNotice("章节已生成，请在「查看章节」中查看。");
     }

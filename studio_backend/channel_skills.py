@@ -362,7 +362,12 @@ def _skill_type_contract(skill_id: str, channel: str) -> str:
             f"【{channel} 当前 Skill 类型：连载小说】\n"
             "- 只能写小说正文或连载预告，禁止写AI创作教程、提示词拆解、工具测评、表格清单。\n"
             "- 必须有具体人物、目标、阻碍、关系张力和结尾悬念。\n"
-            "- 如果原始素材是工具/资讯，只把它当灵感，不要照着写成工具文章。"
+            "- 如果原始素材是工具/资讯，只把它当灵感，不要照着写成工具文章。\n"
+            "【番茄小说平台合规硬约束 · 违反将被驳回】\n"
+            "- 性描写：身体接触止于暧昧（吻/拥抱可以），床戏不写性行为细节；禁止乱伦、强奸详细描写\n"
+            "- 年龄：所有带感情/性意味的场景，角色必须明确为成年人（18+）\n"
+            "- 暴力：战斗/死亡场景可以，禁止大篇幅血腥细节特写（不写'肠子外露''眼球崩裂'类描写）\n"
+            "- 价值观：主角道德底线清晰，不宣扬仇恨/极端思想，不恶意挑拨性别/阶级对立"
         )
     if kind == "ai_tips_discovery":
         return (
@@ -959,6 +964,60 @@ def build_channel_drafts_with_ai(
     return fallback
 
 
+def _fanqie_content_review(
+    title: str,
+    content: str,
+    *,
+    api_key: str,
+    base_url: str,
+    model: str,
+) -> dict:
+    """根据番茄小说平台规范审核章节内容，返回审核结果。"""
+    prompt = f"""你是番茄小说内容审核员。审核以下小说章节是否符合平台规范，直接输出JSON，不加任何说明。
+
+【审核规范 · 言情玄幻类重点条目】
+1. 色情/低俗：禁止大篇幅性行为细节描写；禁止乱伦、未成年性行为、强奸详细描述；禁止对角色低俗意淫
+2. 未成年负面导向：禁止未成年人性行为/性暗示；禁止宣扬霸凌、早恋（未成年）、吸烟斗殴
+3. 血腥引人不适：禁止大篇幅血腥细节特写（如眼球崩裂、肠子外露等极端描写）
+4. 违背公序良俗：主角/主线不得宣扬错误价值观；不得恶意挑拨性别/阶级对立
+5. 标题：不含敏感词，与正文内容相符
+6. 格式：段落正常分隔，无全繁体/乱码/重复内容
+
+章节标题：{title}
+章节正文（前2000字）：
+{content[:2000]}
+
+输出格式（二选一）：
+{{"pass": true, "risk_level": "safe", "issues": [], "suggestions": []}}
+{{"pass": false, "risk_level": "low|medium|high", "issues": ["具体问题描述"], "suggestions": ["修改建议"]}}"""
+
+    import json as _json
+    import re as _re
+    import urllib.request as _req2
+    try:
+        endpoint = base_url.rstrip("/") + "/v1/chat/completions"
+        data = _json.dumps({
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+            "max_tokens": 400,
+        }, ensure_ascii=False).encode("utf-8")
+        req = _req2.Request(
+            endpoint, data=data,
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+            method="POST",
+        )
+        with _req2.urlopen(req, timeout=20) as resp:
+            raw_result = _json.loads(resp.read().decode("utf-8"))
+            raw_text = str(raw_result["choices"][0]["message"]["content"]).strip()
+        m = _re.search(r"\{[\s\S]*\}", raw_text)
+        if m:
+            return _json.loads(m.group())
+    except Exception:
+        pass
+    return {"pass": True, "risk_level": "unknown", "issues": [], "suggestions": []}
+
+
 def _ai_generate_channel_drafts(
     *,
     source_text: str,
@@ -1475,6 +1534,11 @@ def _ai_generate_channel_drafts(
             )
             t.start()
             result["story_chapter_saved"] = ch_num
+            # 番茄内容规范审核（同步，超时20s自动降级为unknown）
+            result["fanqie_review"] = _fanqie_content_review(
+                final_title, wechat_markdown,
+                api_key=api_key, base_url=base_url, model=model,
+            )
         except Exception as _save_exc:
             _log.warning("story chapter save failed: %s", _save_exc, exc_info=True)
             result["story_chapter_error"] = str(_save_exc)
