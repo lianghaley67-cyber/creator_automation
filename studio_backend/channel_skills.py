@@ -885,7 +885,7 @@ def build_channel_drafts_with_ai(
     # tool_deep_review and ai_tips_discovery must always go through the AI narrative path.
     # Only redirect to the product-manual template fallback for pure tool_research skills.
     _any_narrative_skill = any(
-        _skill_content_kind(skill_id) in {"tool_deep_review", "ai_tips_discovery"}
+        _skill_content_kind(skill_id) in {"tool_deep_review", "ai_tips_discovery", "fiction_serial"}
         for skill_id in (wechat_skill_id, xiaohongshu_skill_id)
     )
     if not _any_narrative_skill and _is_tool_research_request(title, source_text, source_type):
