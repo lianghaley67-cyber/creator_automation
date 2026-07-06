@@ -17,6 +17,7 @@ import {
   reviewDistributionDraft,
 } from "./pages/RealtimeInfoPage.logic.js";
 import RealtimeInfoPage from "./pages/RealtimeInfoPage.vue";
+import NovelStudioPage from "./pages/NovelStudioPage.vue";
 import {
   formatStockNumber,
   stockChangeClass,
@@ -2070,6 +2071,12 @@ function openStudioModule(tab, targetId = "") {
       refreshStockSkills()
     ]);
   }
+  if (tab === "novels") {
+    Promise.allSettled([
+      loadStories(),
+      fanqieLoadSettings(),
+    ]);
+  }
   if (!targetId) return;
   nextTick(() => {
     const target = document.getElementById(targetId);
@@ -2386,6 +2393,7 @@ async function fanqiePushChapter(chapter) {
 const uploadSkillModal = ref({
   visible: false,
   channel: "wechat",
+  contentKind: "",
   name: "",
   description: "",
   tags: "",
@@ -2402,8 +2410,18 @@ const coverModal = ref({
   usingUrl: "",
 });
 
-function openUploadSkill(channel) {
-  uploadSkillModal.value = { visible: true, channel, name: "", description: "", tags: "", file: null, uploading: false, error: "" };
+function openUploadSkill(channel, options = {}) {
+  uploadSkillModal.value = {
+    visible: true,
+    channel,
+    contentKind: options.contentKind || "",
+    name: options.name || "",
+    description: options.description || "",
+    tags: options.tags || "",
+    file: null,
+    uploading: false,
+    error: "",
+  };
 }
 
 async function submitUploadSkill() {
@@ -2419,6 +2437,7 @@ async function submitUploadSkill() {
     fd.append("channel", m.channel);
     fd.append("description", m.description.trim());
     fd.append("persona_tags", JSON.stringify(m.tags.split(",").map(t => t.trim()).filter(Boolean)));
+    if (m.contentKind) fd.append("content_kind", m.contentKind);
     const base = verifiedApiBase.value || configuredApiBase.value || "";
     const res = await fetch(`${base}/api/channel-skills/upload`, { method: "POST", body: fd });
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || res.statusText); }
@@ -2868,6 +2887,9 @@ onBeforeUnmount(() => {
         <button class="tab-btn" :class="{ active: activeTab === 'stocks' }" @click="openStudioModule('stocks', 'stock-panel')">
           股票分析
         </button>
+        <button class="tab-btn" :class="{ active: activeTab === 'novels' }" @click="openStudioModule('novels', 'novel-panel')">
+          小说工程台
+        </button>
       </div>
 
       <div v-if="notice" class="notice">{{ notice }}</div>
@@ -2878,6 +2900,8 @@ onBeforeUnmount(() => {
     <MaterialStudioPage v-if="activeTab === 'materials'" />
 
     <StockAnalysisPage v-if="activeTab === 'stocks'" />
+
+    <NovelStudioPage v-if="activeTab === 'novels'" />
       <footer class="studio-footer">
         <span><img class="brand-logo-img small" :src="brandIconDataUrl" alt="" aria-hidden="true" /> 灵感工坊 AI Studio · inspwk.site</span>
         <span>© 2026 · AI 洞察 · 软件开发 · 职场成长 · 内容创作</span>
@@ -6643,5 +6667,304 @@ textarea {
   padding: 2px 7px;
   color: #c8b8f5;
   font-size: 11px;
+}
+
+/* ── 小说工程台 ── */
+.novel-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.novel-workflow-panel,
+.novel-skill-panel,
+.novel-planner-panel,
+.novel-story-panel,
+.novel-chapter-panel {
+  scroll-margin-top: 96px;
+}
+
+.novel-empty {
+  color: var(--muted);
+  padding: 14px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.novel-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.novel-skill-card {
+  cursor: pointer;
+  min-height: 180px;
+}
+
+.novel-skill-card .skill-example-summary {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.novel-current-skill {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(0, 207, 222, 0.25);
+  border-radius: 8px;
+  background: rgba(0, 207, 222, 0.08);
+  color: var(--muted);
+}
+
+.novel-current-skill strong {
+  color: var(--text);
+}
+
+.novel-current-skill span {
+  flex: 1 1 320px;
+}
+
+.novel-actions.compact {
+  margin-top: 0;
+}
+
+.novel-next-action {
+  background: rgba(0, 213, 232, 0.08);
+  border: 1px solid rgba(0, 213, 232, 0.2);
+  color: #c8f7ff;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-weight: 700;
+}
+
+.novel-step-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.novel-step {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(142, 171, 205, 0.14);
+  border-radius: 8px;
+  padding: 12px;
+  min-height: 116px;
+}
+
+.novel-step span {
+  color: #00d5e8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.novel-step strong {
+  display: block;
+  margin: 6px 0;
+}
+
+.novel-step p,
+.blueprint-card p,
+.metric-card p,
+.brief-card p {
+  margin: 0;
+  color: #a9bfda;
+  line-height: 1.7;
+}
+
+.novel-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.novel-form-grid .wide {
+  grid-column: 1 / -1;
+}
+
+.blueprint-card,
+.diagnosis-card,
+.brief-card {
+  margin-top: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(142, 171, 205, 0.16);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.blueprint-card > strong,
+.brief-card > strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #f7fbff;
+  font-size: 16px;
+}
+
+.blueprint-questions,
+.next-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.blueprint-questions span,
+.next-actions span {
+  background: rgba(13, 31, 51, 0.85);
+  border: 1px solid rgba(142, 171, 205, 0.12);
+  border-radius: 7px;
+  padding: 8px 10px;
+  color: #c8dff5;
+}
+
+.chapter-outline {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.chapter-outline div {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 8px;
+  align-items: start;
+  background: rgba(100, 200, 180, 0.06);
+  border: 1px solid rgba(100, 200, 180, 0.14);
+  border-radius: 7px;
+  padding: 8px 10px;
+}
+
+.chapter-outline b {
+  color: #7ee8a2;
+}
+
+.novel-selector {
+  margin-top: 0;
+}
+
+.diagnosis-score {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.diagnosis-score strong {
+  font-size: 28px;
+  color: #00d5e8;
+}
+
+.diagnosis-score span {
+  font-weight: 800;
+  color: #f7fbff;
+}
+
+.diagnosis-score em {
+  color: #6a8aaa;
+  font-style: normal;
+}
+
+.diagnosis-issues {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  background: rgba(255, 117, 64, 0.08);
+  border: 1px solid rgba(255, 117, 64, 0.24);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.diagnosis-issues b {
+  color: #ffb089;
+}
+
+.diagnosis-issues span {
+  color: #ffd2c0;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.metric-card {
+  border-radius: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(142, 171, 205, 0.14);
+  background: rgba(13, 31, 51, 0.8);
+}
+
+.metric-card strong,
+.metric-card span {
+  display: block;
+}
+
+.metric-card span {
+  margin: 4px 0 8px;
+  color: #a9bfda;
+}
+
+.metric-card.ok {
+  border-color: rgba(80, 220, 150, 0.22);
+}
+
+.metric-card.warn {
+  border-color: rgba(255, 190, 80, 0.3);
+}
+
+.metric-card.danger {
+  border-color: rgba(255, 90, 90, 0.36);
+}
+
+.brief-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.brief-columns div {
+  background: rgba(13, 31, 51, 0.85);
+  border: 1px solid rgba(142, 171, 205, 0.12);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.brief-columns b,
+.next-actions b {
+  display: block;
+  margin-bottom: 8px;
+  color: #f7fbff;
+}
+
+.brief-columns span {
+  display: block;
+  color: #c8dff5;
+  line-height: 1.7;
+  margin: 4px 0;
+}
+
+.novel-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.fanqie-panel.standalone {
+  padding: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 760px) {
+  .novel-form-grid,
+  .brief-columns {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .analysis import analyze_media_file, detect_media_kind, transcribe_audio
+from .ai_coding import router as ai_coding_router
 from .channel_skills import list_channel_skills, add_user_skill, delete_user_skill, SKILLS_DIR
 from .ai_trends import (
     archive_markdown_to_obsidian,
@@ -199,6 +200,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(ai_coding_router)
 app.mount("/studio-files", StaticFiles(directory=str(STUDIO_DIR)), name="studio-files")
 if (FRONTEND_DIST_DIR / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST_DIR / "assets")), name="frontend-assets")
@@ -2034,6 +2036,102 @@ def api_list_chapters(story_id: str) -> dict[str, Any]:
     chapters = list_chapters(story_id)
     bible = get_story_bible(story_id)
     return {"chapters": chapters, "bible": bible}
+
+
+@app.get("/api/stories/workflow")
+def api_story_workflow() -> dict[str, Any]:
+    from .story_workflow import summarize_workflow
+    return summarize_workflow()
+
+
+@app.post("/api/stories/planning/blueprint")
+async def api_story_blueprint(request: Request) -> dict[str, Any]:
+    from .story_workflow import build_story_blueprint
+    body = await request.json()
+    return build_story_blueprint(body if isinstance(body, dict) else {})
+
+
+@app.get("/api/stories/{story_id}/diagnose")
+def api_story_diagnose(story_id: str) -> dict[str, Any]:
+    from .story_db import list_chapters, get_story_bible
+    from .story_workflow import diagnose_story_archive
+    chapters = list_chapters(story_id)
+    bible = get_story_bible(story_id)
+    return diagnose_story_archive(chapters, bible)
+
+
+@app.post("/api/stories/{story_id}/chapter-brief")
+async def api_story_chapter_brief(story_id: str, request: Request) -> dict[str, Any]:
+    from .story_db import get_story, list_chapters, get_story_bible
+    from .story_workflow import build_chapter_brief
+    body = await request.json()
+    story = get_story(story_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="故事不存在")
+    chapter_number = body.get("chapter_number")
+    try:
+        chapter_number = int(chapter_number) if chapter_number else None
+    except Exception:
+        chapter_number = None
+    return build_chapter_brief(
+        story,
+        get_story_bible(story_id),
+        list_chapters(story_id),
+        chapter_number=chapter_number,
+        user_note=str(body.get("user_note") or ""),
+    )
+
+
+@app.post("/api/stories/{story_id}/chapters/generate")
+async def api_generate_story_chapter(story_id: str, request: Request) -> dict[str, Any]:
+    from .channel_skills import _ai_generate_channel_drafts
+    from .story_db import get_story, list_chapters, get_story_bible
+    from .story_workflow import build_chapter_brief
+
+    story = get_story(story_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="故事不存在")
+
+    body = await request.json()
+    wechat_skill_id = str(body.get("wechat_skill_id") or "wechat_ai_writing_workshop_v1").strip()
+    if not wechat_skill_id:
+        wechat_skill_id = "wechat_ai_writing_workshop_v1"
+    user_note = str(body.get("user_note") or "")
+    brief = body.get("brief") if isinstance(body.get("brief"), dict) else None
+    if not brief:
+        brief = build_chapter_brief(
+            story,
+            get_story_bible(story_id),
+            list_chapters(story_id),
+            user_note=user_note,
+        )
+
+    source_text = json.dumps(
+        {
+            "task": "按本章Brief生成连载小说正文，不要写教程、复盘或提示词。",
+            "brief": brief,
+            "user_note": user_note,
+        },
+        ensure_ascii=False,
+    )
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("ANTHROPIC_API_KEY") or ""
+    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("API_BASE_URL") or "https://api.anthropic.com"
+    model = os.getenv("OPENAI_MODEL") or os.getenv("AI_MODEL") or "claude-sonnet-4-6"
+    result = _ai_generate_channel_drafts(
+        source_text=source_text,
+        title=str(story.get("name") or "连载故事"),
+        summary=source_text,
+        hashtags=["连载小说", "玄幻言情"],
+        wechat_skill_id=wechat_skill_id,
+        xiaohongshu_skill_id="",
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        story_id=story_id,
+        target_channel="wechat",
+    )
+    result["chapter_brief"] = brief
+    return result
 
 
 @app.delete("/api/stories/{story_id}/chapters/{chapter_number}")

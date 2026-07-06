@@ -82,13 +82,26 @@ export const coreModules = [
     tab: "stocks",
     target: "stock-panel",
     bullets: ["A/HK/US 行情分析", "个人持仓与预警", "AI 辅助复盘报告"]
+  },
+  {
+    key: "novels",
+    number: "04",
+    title: "小说工程台",
+    desc: "把连载小说从内容分发里单独拆出来：开书策划、章节脉络、逐章生成、审核诊断和番茄草稿箱推送。每一步只看下一步该点什么。",
+    icon: "book",
+    status: "1.0",
+    action: "进入模块",
+    tab: "novels",
+    target: "novel-panel",
+    bullets: ["开书蓝图先确认", "章节 Brief 再生成", "番茄风险诊断"]
   }
 ];
 
 export const sidebarModules = [
   { key: "trends", label: "实时信息获取", icon: "01", tab: "trends", target: "trends-panel" },
   { key: "materials", label: "素材生成视频", icon: "02", tab: "materials", target: "wechat-inbox" },
-  { key: "stocks", label: "股票分析", icon: "03", tab: "stocks", target: "stock-panel" }
+  { key: "stocks", label: "股票分析", icon: "03", tab: "stocks", target: "stock-panel" },
+  { key: "novels", label: "小说工程台", icon: "04", tab: "novels", target: "novel-panel" }
 ];
 
 export function modulePageMeta(tab) {
@@ -107,6 +120,11 @@ export function modulePageMeta(tab) {
       kicker: "DECISION ASSISTANT",
       title: "股票分析",
       desc: "沉淀行情、舆情、个人持仓与复盘卡片，为后续决策辅助模块预留完整入口。"
+    },
+    novels: {
+      kicker: "SERIAL FICTION OPS",
+      title: "小说工程台",
+      desc: "先确认一本书，再确认章节脉络，最后逐章生成、审核并推送番茄草稿箱。"
     }
   };
   return meta[tab] || meta.trends;
