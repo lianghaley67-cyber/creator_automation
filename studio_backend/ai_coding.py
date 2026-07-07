@@ -9,18 +9,23 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-import anthropic
 
 router = APIRouter(prefix="/api/ai-coding", tags=["AI Coding"])
 
-# 初始化 Anthropic 客户端
-# 注意：需要从环境变量或配置中读取 API Key
-client = anthropic.Anthropic(
-    api_key=os.getenv("ANTHROPIC_API_KEY", "")
-)
-
 # 项目根目录（限制文件访问范围）
 PROJECT_ROOT = Path(__file__).parent.parent
+
+
+def _anthropic_client():
+    """Create the Anthropic client only when the AI coding chat endpoint is used."""
+    try:
+        import anthropic
+    except ImportError as exc:
+        raise RuntimeError("Anthropic SDK 未安装，请先安装依赖：pip install anthropic") from exc
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY 未配置，无法使用 AI Coding 对话。")
+    return anthropic.Anthropic(api_key=api_key)
 
 
 # ============ 数据模型 ============
@@ -154,6 +159,7 @@ async def chat_with_ai(request: ChatRequest):
                     messages.append({"role": msg.role, "content": msg.content})
 
             # 调用 Anthropic API（流式）
+            client = _anthropic_client()
             with client.messages.stream(
                 model=request.model,
                 max_tokens=request.max_tokens,
