@@ -50,6 +50,13 @@ export default {
       hasBrief: Boolean(chapterBrief.value),
     }));
 
+    function normalizeStoryGenre(raw) {
+      const value = String(raw || "").trim();
+      if (["romance_fantasy", "fantasy", "romance"].includes(value)) return value;
+      if (["言情玄幻", "言情玄幻连载", "玄幻言情"].includes(value)) return "romance_fantasy";
+      return "romance_fantasy";
+    }
+
     function ensureNovelSkillSelected() {
       if (selectedNovelSkillId.value && novelSkills.value.some((skill) => skill.id === selectedNovelSkillId.value)) return;
       selectedNovelSkillId.value =
@@ -88,7 +95,7 @@ export default {
         if (!storyDraft.name && blueprint.value?.book_profile?.title) {
           storyDraft.name = blueprint.value.book_profile.title;
         }
-        storyDraft.genre = blueprint.value?.book_profile?.genre || blueprintForm.genre || storyDraft.genre;
+        storyDraft.genre = normalizeStoryGenre(blueprint.value?.book_profile?.genre || blueprintForm.genre || storyDraft.genre);
         ctx.setNotice("开书蓝图已生成，先确认方向，再进入章节。");
       } catch (err) {
         ctx.setError(`开书策划失败：${err.message}`);
@@ -103,7 +110,7 @@ export default {
       if (!storyDraft.name) {
         storyDraft.name = blueprint.value?.book_profile?.title || blueprintForm.title || "";
       }
-      storyDraft.genre = blueprint.value?.book_profile?.genre || blueprintForm.genre || storyDraft.genre;
+      storyDraft.genre = normalizeStoryGenre(blueprint.value?.book_profile?.genre || blueprintForm.genre || storyDraft.genre);
     }
 
     async function createStoryInline() {
@@ -120,7 +127,7 @@ export default {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name,
-            genre: storyDraft.genre || "romance_fantasy",
+            genre: normalizeStoryGenre(storyDraft.genre),
             style_notes: blueprintPromise.value || blueprint.value?.book_profile?.promise || "",
           }),
         }, 15000);
@@ -147,7 +154,7 @@ export default {
         let storyId = ctx.selectedStoryId.value;
         if (!storyId) {
           storyDraft.name = storyDraft.name || blueprint.value?.book_profile?.title || blueprintForm.title;
-          storyDraft.genre = storyDraft.genre || blueprint.value?.book_profile?.genre || blueprintForm.genre;
+          storyDraft.genre = normalizeStoryGenre(storyDraft.genre || blueprint.value?.book_profile?.genre || blueprintForm.genre);
           const story = await createStoryInline();
           storyId = story?.id;
         }

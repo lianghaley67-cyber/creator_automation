@@ -2002,6 +2002,16 @@ def get_channel_skills() -> dict[str, Any]:
 
 # ── 连载故事档案 API ──────────────────────────────────────────────────────
 
+def _normalize_story_genre_for_db(raw: str) -> str:
+    """Map UI/planning genre labels to the values accepted by the current story table."""
+    value = str(raw or "").strip().lower()
+    if value in {"fantasy", "romance", "urban", "sci_fi", "historical"}:
+        return value
+    if value in {"romance_fantasy", "言情玄幻", "言情玄幻连载", "玄幻言情"}:
+        return "fantasy"
+    return "fantasy"
+
+
 @app.get("/api/stories")
 def api_list_stories() -> dict[str, Any]:
     from .story_db import list_stories
@@ -2013,11 +2023,14 @@ async def api_create_story(request: Request) -> dict[str, Any]:
     from .story_db import create_story
     body = await request.json()
     name = str(body.get("name") or "").strip()
-    genre = str(body.get("genre") or "fantasy").strip()
+    genre = _normalize_story_genre_for_db(str(body.get("genre") or "fantasy"))
     style_notes = str(body.get("style_notes") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="故事名称不能为空")
-    story = create_story(name=name, genre=genre, style_notes=style_notes)
+    try:
+        story = create_story(name=name, genre=genre, style_notes=style_notes)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"创建故事失败：{exc}") from exc
     if not story:
         raise HTTPException(status_code=500, detail="创建故事失败，请检查 Supabase 配置")
     return story
