@@ -2915,10 +2915,48 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
 }
 
+:root {
+  --app-bg: #06111c;
+  --app-surface: #0d1d2f;
+  --app-surface-strong: #10283a;
+  --app-surface-soft: rgba(15, 34, 52, 0.72);
+  --app-border: rgba(143, 174, 210, 0.22);
+  --app-border-strong: rgba(143, 174, 210, 0.36);
+  --app-text: #f3f8ff;
+  --app-text-strong: #ffffff;
+  --app-muted: #a9bfd8;
+  --app-muted-strong: #c7d8eb;
+  --app-input: #071625;
+  --app-input-hover: #0a1b2e;
+  --app-accent: #00d5e8;
+  --app-accent-soft: rgba(0, 213, 232, 0.14);
+  --app-orange: #ff7a3d;
+  --text: var(--app-text);
+  --muted: var(--app-muted);
+  --border: var(--app-border);
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--app-bg);
+  color: var(--app-text);
+  font-family: "Inter", "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
 .studio-page {
   min-height: 100vh;
-  background: #06111c;
-  color: #f7fbff;
+  background: var(--app-bg);
+  color: var(--app-text);
 }
 
 .studio-page.module-mode {
@@ -6990,10 +7028,208 @@ textarea {
   overflow: hidden;
 }
 
+/* ── 全站可读性优化：统一暗色表单、按钮和面板层级 ── */
+.studio-page,
+.studio-page * {
+  letter-spacing: 0;
+}
+
+.studio-page h1,
+.studio-page h2,
+.studio-page h3,
+.studio-page h4,
+.studio-page strong,
+.studio-page label,
+.studio-page .field span,
+.studio-page .panel-header h2 {
+  color: var(--app-text-strong);
+}
+
+.studio-page p,
+.studio-page .meta,
+.studio-page .rules,
+.studio-page small,
+.studio-page .field > span,
+.studio-page .modal-field > span,
+.studio-page .fanqie-field > span {
+  color: var(--app-muted);
+}
+
+.studio-page .panel,
+.studio-page .skill-card,
+.studio-page .novel-step,
+.studio-page .blueprint-card,
+.studio-page .diagnosis-card,
+.studio-page .brief-card,
+.studio-page .story-selector-block,
+.studio-page .inline-story-form,
+.studio-page .modal-content {
+  border-color: var(--app-border);
+  background: linear-gradient(180deg, rgba(14, 31, 49, 0.96), rgba(9, 22, 36, 0.96));
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.18);
+}
+
+.studio-page input:not([type="checkbox"]):not([type="radio"]),
+.studio-page select,
+.studio-page textarea,
+.studio-page .story-select,
+.studio-page .pgb-skill-pick,
+.studio-page .pgb-story-select,
+.studio-page .fanqie-cookie-input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--app-border-strong) !important;
+  border-radius: 10px !important;
+  padding: 11px 14px !important;
+  background: var(--app-input) !important;
+  color: var(--app-text) !important;
+  caret-color: var(--app-accent);
+  font: inherit;
+  font-size: 15px !important;
+  font-weight: 650;
+  line-height: 1.45;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.studio-page textarea {
+  min-height: 128px;
+  resize: vertical;
+  font-weight: 600;
+}
+
+.studio-page input:not([type="checkbox"]):not([type="radio"]):hover,
+.studio-page select:hover,
+.studio-page textarea:hover {
+  background: var(--app-input-hover) !important;
+  border-color: rgba(0, 213, 232, 0.42) !important;
+}
+
+.studio-page input:not([type="checkbox"]):not([type="radio"]):focus,
+.studio-page select:focus,
+.studio-page textarea:focus {
+  outline: none;
+  background: var(--app-input-hover) !important;
+  border-color: var(--app-accent) !important;
+  box-shadow: 0 0 0 3px rgba(0, 213, 232, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.studio-page input::placeholder,
+.studio-page textarea::placeholder {
+  color: #7f96b3 !important;
+  opacity: 1 !important;
+  font-weight: 600;
+}
+
+.studio-page select option {
+  background: #071625;
+  color: var(--app-text);
+}
+
+.studio-page input:disabled,
+.studio-page select:disabled,
+.studio-page textarea:disabled,
+.studio-page input[readonly],
+.studio-page textarea[readonly] {
+  border-color: rgba(143, 174, 210, 0.18) !important;
+  background: rgba(7, 22, 37, 0.72) !important;
+  color: #b8cbe0 !important;
+  opacity: 1;
+}
+
+.studio-page .field {
+  gap: 7px;
+}
+
+.studio-page .field > span,
+.studio-page .modal-field > span,
+.studio-page .fanqie-field > span {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.studio-page .btn,
+.studio-page .btn-upload-skill,
+.studio-page .tab-btn {
+  min-height: 40px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.studio-page .btn.secondary {
+  border: 1px solid rgba(143, 174, 210, 0.28);
+  background: rgba(18, 37, 58, 0.92);
+  color: var(--app-muted-strong);
+}
+
+.studio-page .btn.secondary:hover:not(:disabled) {
+  border-color: rgba(0, 213, 232, 0.4);
+  background: rgba(0, 213, 232, 0.1);
+  color: var(--app-text-strong);
+}
+
+.studio-page .btn.primary {
+  color: #ffffff;
+  font-weight: 900;
+}
+
+.studio-page .btn.accent {
+  color: #06111c;
+  font-weight: 900;
+}
+
+.studio-page .btn:focus-visible,
+.studio-page .btn-upload-skill:focus-visible,
+.studio-page .tab-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 213, 232, 0.18);
+}
+
+.studio-page .notice {
+  border-color: rgba(0, 213, 232, 0.24);
+  background: rgba(0, 213, 232, 0.1);
+  color: #d7fbff;
+}
+
+.studio-page .error,
+.studio-page .error-text,
+.studio-page .inline-error {
+  color: #ff9b6b;
+}
+
+.studio-page .novel-form-grid,
+.studio-page .inline-story-form {
+  align-items: start;
+}
+
+.studio-page .story-selector-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.studio-page .novel-planner-panel textarea,
+.studio-page .novel-story-panel textarea,
+.studio-page .novel-chapter-panel textarea {
+  min-height: 118px;
+}
+
 @media (max-width: 760px) {
   .novel-form-grid,
-  .brief-columns {
+  .brief-columns,
+  .studio-page .story-selector-row,
+  .studio-page .inline-story-form {
     grid-template-columns: 1fr;
+  }
+
+  .studio-page .btn,
+  .studio-page .btn-upload-skill,
+  .studio-page .tab-btn {
+    width: 100%;
+    justify-content: center;
   }
 }
 </style>
