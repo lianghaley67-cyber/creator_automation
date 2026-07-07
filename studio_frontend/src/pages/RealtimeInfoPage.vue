@@ -6,7 +6,7 @@ export default {
   name: "RealtimeInfoPage",
   setup() {
     const ctx = useStudioContext("RealtimeInfoPage");
-    const expandedPlatforms = reactive({ fanqie: false, wechat: false, xiaohongshu: false });
+    const expandedPlatforms = reactive({ wechat: false, xiaohongshu: false });
     watch(() => ctx.trendDistributionDraft.value?.wechat,      (v) => { if (v) expandedPlatforms.wechat = true; });
     watch(() => ctx.trendDistributionDraft.value?.xiaohongshu, (v) => { if (v) expandedPlatforms.xiaohongshu = true; });
 
@@ -247,34 +247,7 @@ export default {
 
             <!-- 平台分发手风琴：选 Skill → 展开 → 生成 → 推送 -->
             <div class="platform-generate-bar">
-
-              <!-- ① 番茄小说（置顶，始终可见） -->
-              <div class="pgb-section" :class="{ 'pgb-expanded': expandedPlatforms.fanqie }">
-                <div class="pgb-row pgb-fanqie-row">
-                  <span class="pgb-label pgb-label-fanqie">番茄小说</span>
-                  <!-- 故事选择（始终可见） -->
-                  <select class="story-select pgb-story-select" v-model="selectedStoryId">
-                    <option value="">— 选故事 —</option>
-                    <option v-for="s in stories" :key="s.id" :value="s.id">《{{ s.name }}》</option>
-                  </select>
-                  <button class="btn secondary small" @click="newStoryForm.visible = true">+ 新建故事</button>
-                  <span v-if="selectedStory" class="pgb-chapter-hint">第 {{ (selectedStory.last_chapter_number ?? 0) + 1 }} 章待写</span>
-                  <button class="btn accent small" :disabled="busy.generatingChapter || !selectedStoryId" @click="generateNextChapter()">
-                    {{ busy.generatingChapter ? '生成中...' : '生成下一章' }}
-                  </button>
-                  <button v-if="selectedStory" class="btn secondary small" @click="openStoryManage(selectedStory)">查看章节</button>
-                  <!-- 折叠触发（只控制"删除故事"等低频操作） -->
-                  <span class="pgb-chevron" @click="expandedPlatforms.fanqie = !expandedPlatforms.fanqie" title="更多操作">{{ expandedPlatforms.fanqie ? '▲' : '▼' }}</span>
-                </div>
-                <div v-if="expandedPlatforms.fanqie" class="pgb-detail">
-                  <div class="pgb-detail-row">
-                    <button v-if="selectedStory" class="btn danger small" @click="deleteStoryConfirm(selectedStory)">删除故事</button>
-                    <span class="pgb-detail-hint">删除后不可恢复，章节数据将一并移除。</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- ② 公众号 -->
+              <!-- 公众号 -->
               <div class="pgb-section" :class="{ 'pgb-expanded': expandedPlatforms.wechat }">
                 <div class="pgb-row pgb-row-toggle" @click="expandedPlatforms.wechat = !expandedPlatforms.wechat">
                   <span class="pgb-label">公众号</span>
@@ -314,7 +287,7 @@ export default {
                 </div>
               </div>
 
-              <!-- ③ 小红书 -->
+              <!-- 小红书 -->
               <div class="pgb-section" :class="{ 'pgb-expanded': expandedPlatforms.xiaohongshu }">
                 <div class="pgb-row pgb-row-toggle" @click="expandedPlatforms.xiaohongshu = !expandedPlatforms.xiaohongshu">
                   <span class="pgb-label">小红书</span>
@@ -452,176 +425,6 @@ export default {
                 </div>
               </div>
             </div>
-
-          <!-- 连载故事弹窗（Teleport 到 body，不需要可视容器） -->
-          <template>
-
-            <!-- 新建故事弹窗 -->
-            <Teleport to="body">
-              <div v-if="newStoryForm.visible" class="story-modal-overlay" @click.self="newStoryForm.visible = false">
-                <div class="story-modal">
-                  <div class="modal-head">
-                    <strong>新建故事</strong>
-                    <button class="modal-close" @click="newStoryForm.visible = false">✕</button>
-                  </div>
-                  <div class="modal-body">
-                    <label class="modal-field">
-                      <span>故事名称</span>
-                      <input v-model="newStoryForm.name" type="text" placeholder="例：烬月灯" @keydown.enter="createStorySubmit" />
-                    </label>
-                    <label class="modal-field">
-                      <span>类型</span>
-                      <select v-model="newStoryForm.genre">
-                        <option value="fantasy">玄幻</option>
-                        <option value="emotional">情感</option>
-                      </select>
-                    </label>
-                    <div v-if="newStoryForm.error" class="modal-error">{{ newStoryForm.error }}</div>
-                  </div>
-                  <div class="modal-foot">
-                    <button class="btn secondary" @click="newStoryForm.visible = false">取消</button>
-                    <button class="btn primary" :disabled="newStoryForm.creating" @click="createStorySubmit">
-                      {{ newStoryForm.creating ? '创建中...' : '确认创建' }}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </Teleport>
-
-            <!-- 章节管理弹窗 -->
-            <Teleport to="body">
-              <div v-if="storyManageModal.visible" class="story-modal-overlay" @click.self="storyManageModal.visible = false">
-                <div class="story-modal story-manage-modal">
-                  <div class="modal-head">
-                    <strong>{{ stories.find(s=>s.id===storyManageModal.storyId)?.name }} · 章节管理</strong>
-                    <button class="modal-close" @click="storyManageModal.visible = false">✕</button>
-                  </div>
-                  <div class="modal-body">
-                    <div v-if="storyManageModal.loading" class="story-loading">加载中...</div>
-                    <div v-else-if="!storyManageModal.chapters.length" class="story-empty">
-                      还没有章节，生成内容后会自动保存。
-                    </div>
-                    <div v-else class="chapter-list">
-                      <div v-for="ch in storyManageModal.chapters" :key="ch.id"
-                           class="chapter-item"
-                           :class="{ expanded: storyManageModal.expandedChapterId === ch.id }"
-                           @click="storyManageModal.expandedChapterId = storyManageModal.expandedChapterId === ch.id ? null : ch.id">
-                        <div class="chapter-info">
-                          <span class="chapter-num">第 {{ ch.chapter_number }} 章</span>
-                          <span class="chapter-title">{{ ch.title }}</span>
-                          <span class="chapter-date">{{ new Date(ch.created_at).toLocaleDateString('zh-CN') }}</span>
-                          <span class="chapter-toggle">{{ storyManageModal.expandedChapterId === ch.id ? '▲' : '▼' }}</span>
-                        </div>
-                        <div class="chapter-summary" v-if="ch.context_summary && storyManageModal.expandedChapterId !== ch.id">
-                          {{ ch.context_summary.slice(0, 80) }}...
-                        </div>
-                        <div v-if="storyManageModal.expandedChapterId === ch.id" class="chapter-content" @click.stop>
-                          <pre>{{ ch.content_markdown }}</pre>
-                        </div>
-                        <div class="chapter-actions" @click.stop>
-                          <button class="btn danger small" @click.stop="deleteChapterConfirm(ch)">删除</button>
-                          <button
-                            class="btn secondary small"
-                            :disabled="storyManageModal.regenChapter !== null"
-                            @click.stop="regenerateChapter(ch)"
-                            title="重新生成本章（保留前后剧情衔接）"
-                          >
-                            {{ storyManageModal.regenChapter === ch.chapter_number ? '生成中…' : '重新生成' }}
-                          </button>
-                          <button
-                            class="btn fanqie small"
-                            :disabled="fanqie.pushingChapter === ch.chapter_number"
-                            @click.stop="fanqiePushChapter(ch)"
-                            title="推送到番茄小说草稿箱"
-                          >
-                            {{ fanqie.pushingChapter === ch.chapter_number ? '推送中…' : '→ 番茄' }}
-                          </button>
-                        </div>
-                        <div v-if="fanqie.pushResult[ch.chapter_number]" class="chapter-push-result" @click.stop
-                             :class="{ ok: fanqie.pushResult[ch.chapter_number].ok, err: !fanqie.pushResult[ch.chapter_number].ok }">
-                          {{ fanqie.pushResult[ch.chapter_number].message || fanqie.pushResult[ch.chapter_number].error }}
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- 番茄小说推稿配置 & 登录 -->
-                    <div class="fanqie-panel">
-                      <div class="fanqie-panel-head" @click="fanqieLoadSettings(); fanqie.loginVisible = !fanqie.loginVisible">
-                        <span class="fanqie-logo">🍅 番茄小说</span>
-                        <span class="fanqie-status-dot" :class="fanqie.logged_in ? 'online' : 'offline'"></span>
-                        <span class="fanqie-status-text">{{ fanqie.logged_in ? `已登录：${fanqie.username || '创作者'}` : '未登录' }}</span>
-                        <span style="margin-left:auto;font-size:11px;color:#6a8aaa;">{{ fanqie.loginVisible ? '▲' : '▼' }}</span>
-                      </div>
-                      <div v-if="fanqie.loginVisible" class="fanqie-panel-body">
-                        <label class="fanqie-field">
-                          <span>番茄作品名（按名查找，可留空）</span>
-                          <input v-model="fanqie.workName" placeholder="和番茄小说创作中心的作品名一致"
-                                 @blur="fanqieSaveSettings" />
-                        </label>
-                        <label class="fanqie-field">
-                          <span>Book ID（推荐，从章节管理 URL 获取）</span>
-                          <input v-model="fanqie.bookId" placeholder="如 7653982168372235326"
-                                 @blur="fanqieSaveSettings" />
-                        </label>
-                        <p class="fanqie-tip">Book ID 在章节管理页 URL 中：<code>/chapter-manage/<strong>7653982168…</strong>&amp;书名</code></p>
-
-                        <!-- Cookie 已有效：只显示状态 + 重新导入按钮 -->
-                        <div v-if="fanqie.logged_in && !fanqie.showCookieImport" class="fanqie-logged">
-                          <span class="fanqie-status-dot online" style="display:inline-block;margin-right:6px;"></span>
-                          <span class="fanqie-status-text">Cookie 有效{{ fanqie.cookieImportedAt ? `，导入于 ${fanqie.cookieImportedAt}` : '' }}</span>
-                          <button class="btn secondary small" style="margin-left:10px"
-                                  @click="fanqie.showCookieImport = true; fanqie.message = ''">
-                            重新导入 Cookie
-                          </button>
-                        </div>
-
-                        <!-- Cookie 未导入 或 用户点了「重新导入」-->
-                        <div v-if="!fanqie.logged_in || fanqie.showCookieImport" class="fanqie-login-area">
-                          <p class="fanqie-msg">Cookie 授权（无需扫码）：</p>
-                          <ol class="fanqie-steps">
-                            <li>安装浏览器扩展 <strong>Cookie-Editor</strong>（Chrome/Edge 均可）</li>
-                            <li>打开 <strong>fanqienovel.com</strong>（保持登录状态）</li>
-                            <li>点击 Cookie-Editor → Export → <strong>Export as JSON</strong></li>
-                            <li>把复制的内容粘贴到下方文本框</li>
-                          </ol>
-                          <textarea
-                            v-model="fanqie.cookieInput"
-                            class="fanqie-cookie-input"
-                            placeholder='粘贴 Cookie JSON，格式：[{"name":"...","value":"...",...}, ...]'
-                            rows="4"
-                          ></textarea>
-                          <button
-                            class="btn accent small"
-                            :disabled="fanqie.importingCookies || !fanqie.cookieInput?.trim()"
-                            @click="fanqieImportCookies"
-                          >{{ fanqie.importingCookies ? '导入中…' : '导入 Cookie 并验证' }}</button>
-                          <p v-if="fanqie.message" class="fanqie-msg" :class="{ err: fanqie.status === 'failed' }">{{ fanqie.message }}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div v-if="storyManageModal.bible" class="bible-block">
-                      <strong>故事档案（Story Bible）</strong>
-                      <div v-if="storyManageModal.bible.characters?.length" class="bible-section">
-                        <span class="bible-label">人物</span>
-                        <span v-for="c in storyManageModal.bible.characters" :key="c.name" class="bible-chip">
-                          {{ c.name }}（{{ c.role }}）
-                        </span>
-                      </div>
-                      <div v-if="storyManageModal.bible.world_notes" class="bible-section">
-                        <span class="bible-label">世界观</span>
-                        <span>{{ storyManageModal.bible.world_notes }}</span>
-                      </div>
-                      <div v-if="storyManageModal.bible.ongoing_threads?.filter(t=>t.status!=='resolved').length" class="bible-section">
-                        <span class="bible-label">未解悬念</span>
-                        <span v-for="t in storyManageModal.bible.ongoing_threads.filter(t=>t.status!=='resolved')" :key="t.thread" class="bible-chip">{{ t.thread }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Teleport>
-          </template>
 
             <!-- 上传 Skill 弹窗 -->
             <div v-if="uploadSkillModal.visible" class="skill-upload-modal-overlay" @click.self="uploadSkillModal.visible = false">
