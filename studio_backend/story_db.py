@@ -175,6 +175,82 @@ def update_story_bible(
     _rest("PATCH", "story_bible", body, f"story_id=eq.{story_id}")
 
 
+def save_story_blueprint(
+    story_id: str,
+    *,
+    book_profile: dict | None = None,
+    questions: list | None = None,
+    chapter_outline: list | None = None,
+) -> dict:
+    """Persist planning output into the story bible without requiring new DB columns."""
+    bible = get_story_bible(story_id)
+    if not bible:
+        _rest("POST", "story_bible", {
+            "story_id": story_id,
+            "characters": [],
+            "world_notes": "",
+            "ongoing_threads": [],
+            "last_chapter_number": 0,
+        })
+        bible = get_story_bible(story_id)
+
+    profile = book_profile or {}
+    promise = str(profile.get("promise") or "").strip()
+    one_sentence = str(profile.get("one_sentence") or "").strip()
+    genre = str(profile.get("genre") or "").strip()
+    title = str(profile.get("title") or "").strip()
+
+    outline_lines: list[str] = []
+    for item in chapter_outline or []:
+        if not isinstance(item, dict):
+            continue
+        chapter = item.get("chapter")
+        goal = str(item.get("goal") or "").strip()
+        if chapter and goal:
+            outline_lines.append(f"- 第{chapter}章：{goal}")
+
+    question_lines = [f"- {str(q).strip()}" for q in (questions or []) if str(q).strip()]
+    block_parts = ["【开书策划】"]
+    if title:
+        block_parts.append(f"书名：{title}")
+    if genre:
+        block_parts.append(f"类型：{genre}")
+    if one_sentence:
+        block_parts.append(f"一句话想法：{one_sentence}")
+    if promise:
+        block_parts.append(f"故事承诺：{promise}")
+    if question_lines:
+        block_parts.append("必须先确认的问题：\n" + "\n".join(question_lines))
+    if outline_lines:
+        block_parts.append("前期章节脉络：\n" + "\n".join(outline_lines))
+    block = "\n".join(block_parts)
+
+    old_world = str(bible.get("world_notes") or "").strip()
+    old_world = re.sub(
+        r"\n*【开书策划】[\s\S]*?(?=\n【|$)",
+        "",
+        old_world,
+    ).strip()
+    world_notes = f"{old_world}\n\n{block}".strip() if old_world else block
+
+    existing_threads = bible.get("ongoing_threads") or []
+    preserved_threads = [
+        t for t in existing_threads
+        if not (isinstance(t, dict) and t.get("source") == "story_blueprint")
+    ]
+    blueprint_threads = [
+        {"thread": str(q).strip(), "status": "open", "source": "story_blueprint"}
+        for q in (questions or [])
+        if str(q).strip()
+    ]
+    update_story_bible(
+        story_id,
+        world_notes=world_notes,
+        ongoing_threads=preserved_threads + blueprint_threads,
+    )
+    return get_story_bible(story_id)
+
+
 # ── Context Builder ────────────────────────────────────────────────────────
 
 def build_story_context(story_id: str) -> str:

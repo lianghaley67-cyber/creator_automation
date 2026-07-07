@@ -2051,6 +2051,26 @@ async def api_story_blueprint(request: Request) -> dict[str, Any]:
     return build_story_blueprint(body if isinstance(body, dict) else {})
 
 
+@app.post("/api/stories/{story_id}/bible/blueprint")
+async def api_save_story_blueprint(story_id: str, request: Request) -> dict[str, Any]:
+    from .story_db import get_story, save_story_blueprint, update_story
+    story = get_story(story_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="故事不存在")
+    body = await request.json()
+    book_profile = body.get("book_profile") if isinstance(body.get("book_profile"), dict) else {}
+    promise = str(book_profile.get("promise") or "").strip()
+    if promise:
+        update_story(story_id, style_notes=promise)
+    bible = save_story_blueprint(
+        story_id,
+        book_profile=book_profile,
+        questions=body.get("questions") if isinstance(body.get("questions"), list) else [],
+        chapter_outline=body.get("chapter_outline") if isinstance(body.get("chapter_outline"), list) else [],
+    )
+    return {"ok": True, "story_id": story_id, "bible": bible}
+
+
 @app.get("/api/stories/{story_id}/diagnose")
 def api_story_diagnose(story_id: str) -> dict[str, Any]:
     from .story_db import list_chapters, get_story_bible

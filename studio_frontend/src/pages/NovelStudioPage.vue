@@ -10,7 +10,15 @@ export default {
     const workflow = ref(null);
     const diagnosis = ref(null);
     const chapterBrief = ref(null);
-    const loading = reactive({ workflow: false, diagnosis: false, blueprint: false, brief: false, chapter: false });
+    const loading = reactive({
+      workflow: false,
+      diagnosis: false,
+      blueprint: false,
+      saveBlueprint: false,
+      createStory: false,
+      brief: false,
+      chapter: false,
+    });
     const blueprintForm = reactive({
       title: "",
       genre: "romance_fantasy",
@@ -21,8 +29,15 @@ export default {
       first_volume_count: 10,
     });
     const blueprint = ref(null);
+    const blueprintPromise = ref("");
     const chapterNote = ref("");
     const selectedNovelSkillId = ref("");
+    const storyDraft = reactive({
+      visible: false,
+      name: "",
+      genre: "romance_fantasy",
+      error: "",
+    });
 
     const selectedStoryName = computed(() => ctx.selectedStory.value?.name || "");
     const novelSkills = computed(() => (
@@ -69,11 +84,98 @@ export default {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(blueprintForm),
         }, 15000);
+        blueprintPromise.value = blueprint.value?.book_profile?.promise || "";
+        if (!storyDraft.name && blueprint.value?.book_profile?.title) {
+          storyDraft.name = blueprint.value.book_profile.title;
+        }
+        storyDraft.genre = blueprint.value?.book_profile?.genre || blueprintForm.genre || storyDraft.genre;
         ctx.setNotice("开书蓝图已生成，先确认方向，再进入章节。");
       } catch (err) {
         ctx.setError(`开书策划失败：${err.message}`);
       } finally {
         loading.blueprint = false;
+      }
+    }
+
+    function openStoryDraft() {
+      storyDraft.visible = true;
+      storyDraft.error = "";
+      if (!storyDraft.name) {
+        storyDraft.name = blueprint.value?.book_profile?.title || blueprintForm.title || "";
+      }
+      storyDraft.genre = blueprint.value?.book_profile?.genre || blueprintForm.genre || storyDraft.genre;
+    }
+
+    async function createStoryInline() {
+      const name = storyDraft.name.trim();
+      if (!name) {
+        storyDraft.error = "先填写故事名称。";
+        return null;
+      }
+      loading.createStory = true;
+      storyDraft.error = "";
+      try {
+        const story = await ctx.requestApi("/api/stories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            genre: storyDraft.genre || "romance_fantasy",
+            style_notes: blueprintPromise.value || blueprint.value?.book_profile?.promise || "",
+          }),
+        }, 15000);
+        await ctx.loadStories();
+        ctx.selectedStoryId.value = story.id;
+        storyDraft.visible = false;
+        ctx.setNotice(`故事「${story.name || name}」已创建。`);
+        return story;
+      } catch (err) {
+        storyDraft.error = err.message || "创建故事失败";
+        return null;
+      } finally {
+        loading.createStory = false;
+      }
+    }
+
+    async function saveBlueprintToStory() {
+      if (!blueprint.value) {
+        ctx.setError("请先生成开书蓝图。");
+        return;
+      }
+      loading.saveBlueprint = true;
+      try {
+        let storyId = ctx.selectedStoryId.value;
+        if (!storyId) {
+          storyDraft.name = storyDraft.name || blueprint.value?.book_profile?.title || blueprintForm.title;
+          storyDraft.genre = storyDraft.genre || blueprint.value?.book_profile?.genre || blueprintForm.genre;
+          const story = await createStoryInline();
+          storyId = story?.id;
+        }
+        if (!storyId) {
+          ctx.setError("请先选择或创建一个故事档案。");
+          return;
+        }
+        const bookProfile = {
+          ...(blueprint.value.book_profile || {}),
+          title: blueprint.value?.book_profile?.title || blueprintForm.title,
+          genre: blueprint.value?.book_profile?.genre || blueprintForm.genre,
+          promise: blueprintPromise.value.trim(),
+        };
+        await ctx.requestApi(`/api/stories/${storyId}/bible/blueprint`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            book_profile: bookProfile,
+            questions: blueprint.value.questions || [],
+            chapter_outline: blueprint.value.chapter_outline || [],
+          }),
+        }, 15000);
+        await ctx.loadStories();
+        ctx.setNotice("故事承诺和开书蓝图已录入故事档案，下一步可以诊断或生成章节 Brief。");
+      } catch (err) {
+        ctx.setError(`保存故事承诺失败：${err.message}`);
+      } finally {
+        loading.saveBlueprint = false;
       }
     }
 
@@ -166,14 +268,19 @@ export default {
       loading,
       blueprintForm,
       blueprint,
+      blueprintPromise,
       chapterNote,
       selectedNovelSkillId,
+      storyDraft,
       novelSkills,
       selectedNovelSkill,
       selectedStoryName,
       storyNextAction,
       uploadNovelSkill,
       ensureNovelSkillSelected,
+      openStoryDraft,
+      createStoryInline,
+      saveBlueprintToStory,
       loadWorkflow,
       createBlueprint,
       diagnoseStory,
@@ -235,9 +342,8 @@ export default {
             <strong>{{ skill.name }}</strong>
             <span v-if="selectedNovelSkillId === skill.id" class="skill-selected-badge">✓ 已选</span>
             <button
-              v-if="!skill.builtin"
               class="skill-delete-btn"
-              title="删除此 Skill"
+              :title="skill.builtin ? '隐藏这个内置 Skill' : '删除此 Skill'"
               @click.stop="deleteSkill(skill.id, skill.name).then(ensureNovelSkillSelected)"
             >×</button>
           </div>
@@ -294,7 +400,14 @@ export default {
       <div v-if="blueprint" class="blueprint-card">
         <strong>{{ blueprint.book_profile.title }} · {{ blueprint.book_profile.genre }}</strong>
         <p>{{ blueprint.book_profile.one_sentence }}</p>
-        <p><b>故事承诺：</b>{{ blueprint.book_profile.promise }}</p>
+        <label class="field wide blueprint-promise-field">
+          <span>故事承诺（会写入故事档案，后面每章都按它校准）</span>
+          <textarea
+            v-model="blueprintPromise"
+            rows="3"
+            placeholder="例：女主每一卷都要在爱情、命运和自我选择之间付出代价，并逐步夺回主动权。"
+          ></textarea>
+        </label>
         <div class="blueprint-questions">
           <span v-for="q in blueprint.questions" :key="q">{{ q }}</span>
         </div>
@@ -303,6 +416,12 @@ export default {
             <b>第 {{ item.chapter }} 章</b>
             <span>{{ item.goal }}</span>
           </div>
+        </div>
+        <div class="novel-actions compact">
+          <button class="btn primary small" :disabled="loading.saveBlueprint" @click="saveBlueprintToStory">
+            {{ loading.saveBlueprint ? "保存中..." : selectedStoryId ? "保存承诺到当前故事" : "创建故事并保存承诺" }}
+          </button>
+          <button class="btn secondary small" @click="openStoryDraft">新建为另一本文档</button>
         </div>
       </div>
     </section>
@@ -324,11 +443,32 @@ export default {
               {{ s.name }} · 已写 {{ s.last_chapter_number || 0 }} 章
             </option>
           </select>
-          <button class="btn secondary small" @click="newStoryForm.visible = true">+ 新建故事</button>
+          <button class="btn secondary small" @click="openStoryDraft">+ 新建故事</button>
           <button v-if="selectedStory" class="btn secondary small" @click="openStoryManage(selectedStory)">查看章节</button>
           <button class="btn primary small" :disabled="!selectedStoryId || loading.diagnosis" @click="diagnoseStory">
             {{ loading.diagnosis ? "诊断中..." : "诊断当前故事" }}
           </button>
+        </div>
+        <div v-if="storyDraft.visible" class="inline-story-form">
+          <label class="field">
+            <span>故事名称</span>
+            <input v-model="storyDraft.name" placeholder="例：烬月灯" />
+          </label>
+          <label class="field">
+            <span>类型</span>
+            <select v-model="storyDraft.genre">
+              <option value="romance_fantasy">言情玄幻</option>
+              <option value="fantasy">玄幻</option>
+              <option value="romance">言情</option>
+            </select>
+          </label>
+          <div class="inline-story-actions">
+            <button class="btn accent small" :disabled="loading.createStory" @click="createStoryInline">
+              {{ loading.createStory ? "创建中..." : "确认创建" }}
+            </button>
+            <button class="btn secondary small" @click="storyDraft.visible = false">取消</button>
+            <span v-if="storyDraft.error" class="inline-error">{{ storyDraft.error }}</span>
+          </div>
         </div>
       </div>
 

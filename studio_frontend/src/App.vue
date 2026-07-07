@@ -6804,6 +6804,35 @@ textarea {
   font-size: 16px;
 }
 
+.blueprint-promise-field {
+  margin-top: 10px;
+}
+
+.inline-story-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px);
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(0, 213, 232, 0.18);
+  border-radius: 8px;
+  background: rgba(0, 213, 232, 0.05);
+}
+
+.inline-story-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.inline-error {
+  color: #ff9b6b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .blueprint-questions,
 .next-actions {
   display: grid;
