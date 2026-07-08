@@ -1,5 +1,5 @@
 <script>
-import { computed, reactive, ref, onMounted } from "vue";
+import { computed, reactive, ref, onMounted, watch } from "vue";
 import { useStudioContext } from "./useStudioContext.js";
 import { nextStoryAction, storyMetricClass, storyScoreLabel, formatStoryStep } from "./NovelStudioPage.logic.js";
 
@@ -42,7 +42,7 @@ export default {
     const selectedStoryName = computed(() => ctx.selectedStory.value?.name || "");
     const novelSkills = computed(() => (
       ctx.channelSkillsList.value || []
-    ).filter((skill) => skill.content_kind === "fiction_serial"));
+    ).filter((skill) => skill.channel === "wechat" && skill.content_kind === "fiction_serial"));
     const selectedNovelSkill = computed(() => novelSkills.value.find((skill) => skill.id === selectedNovelSkillId.value) || null);
     const storyNextAction = computed(() => nextStoryAction({
       hasStory: Boolean(ctx.selectedStoryId.value),
@@ -52,17 +52,48 @@ export default {
 
     function normalizeStoryGenre(raw) {
       const value = String(raw || "").trim();
-      if (["romance_fantasy", "fantasy", "romance"].includes(value)) return value;
+      if (["romance_fantasy", "fantasy", "fantasy_upgrade", "xianxia", "romance", "modern_romance"].includes(value)) return value;
       if (["言情玄幻", "言情玄幻连载", "玄幻言情"].includes(value)) return "romance_fantasy";
+      if (["修仙", "修仙升级", "仙侠"].includes(value)) return "xianxia";
+      if (["玄幻升级"].includes(value)) return "fantasy_upgrade";
+      if (["现代言情", "现代言情连载"].includes(value)) return "modern_romance";
       return "romance_fantasy";
+    }
+
+    function skillMatchesGenre(skill, genre) {
+      const haystack = `${skill.id || ""} ${skill.name || ""} ${(skill.persona_tags || []).join(" ")}`;
+      const matchers = {
+        romance_fantasy: ["言情玄幻", "romance_fantasy", "ai_writing_workshop"],
+        xianxia: ["修仙", "仙侠", "xianxia", "cultivation"],
+        fantasy_upgrade: ["玄幻升级", "fantasy_upgrade"],
+        fantasy: ["玄幻升级", "玄幻", "fantasy_upgrade", "fantasy"],
+        romance: ["现代言情", "言情", "modern_romance"],
+        modern_romance: ["现代言情", "modern_romance"],
+      };
+      return (matchers[genre] || []).some((needle) => haystack.includes(needle));
+    }
+
+    function syncSkillWithGenre({ force = false } = {}) {
+      const genre = normalizeStoryGenre(blueprintForm.genre);
+      if (!force && selectedNovelSkillId.value && novelSkills.value.some((skill) => skill.id === selectedNovelSkillId.value)) return;
+      const preferredIds = {
+        romance_fantasy: ["wechat_ai_writing_workshop_v1"],
+        xianxia: ["wechat_xianxia_cultivation_serial_v1"],
+        fantasy_upgrade: ["wechat_fantasy_upgrade_serial_v1"],
+        fantasy: ["wechat_fantasy_upgrade_serial_v1", "wechat_ai_writing_workshop_v1"],
+        romance: ["wechat_modern_romance_serial_v1", "wechat_ai_writing_workshop_v1"],
+        modern_romance: ["wechat_modern_romance_serial_v1"],
+      };
+      const preferred = (preferredIds[genre] || [])
+        .map((id) => novelSkills.value.find((skill) => skill.id === id))
+        .find(Boolean);
+      const matched = preferred || novelSkills.value.find((skill) => skillMatchesGenre(skill, genre));
+      selectedNovelSkillId.value = matched?.id || novelSkills.value[0]?.id || "";
     }
 
     function ensureNovelSkillSelected() {
       if (selectedNovelSkillId.value && novelSkills.value.some((skill) => skill.id === selectedNovelSkillId.value)) return;
-      selectedNovelSkillId.value =
-        novelSkills.value.find((skill) => skill.channel === "wechat")?.id ||
-        novelSkills.value[0]?.id ||
-        "";
+      syncSkillWithGenre({ force: true });
     }
 
     function uploadNovelSkill() {
@@ -267,6 +298,11 @@ export default {
       syncBlueprintTitleFromStory();
     });
 
+    watch(
+      () => blueprintForm.genre,
+      () => syncSkillWithGenre({ force: true }),
+    );
+
     return {
       ...ctx,
       workflow,
@@ -327,7 +363,7 @@ export default {
       <div class="panel-header">
         <div>
           <h2>0. 小说 Skill</h2>
-          <div class="meta">先选这本书要用哪套写法。这里的 Skill 只约束小说，不会套公众号工具测评或小红书知识笔记。</div>
+          <div class="meta">小说基础规范会自动叠加。这里选的是题材写法：言情玄幻、修仙升级、玄幻升级或现代言情。</div>
         </div>
         <div class="novel-actions compact">
           <button class="btn secondary small" @click="loadPresetTopicsAndSkills().then(ensureNovelSkillSelected)">刷新 Skill</button>
@@ -335,7 +371,7 @@ export default {
         </div>
       </div>
       <div v-if="!novelSkills.length" class="novel-empty">
-        还没有小说 Skill。可以先上传一个 .md 文件，或保留默认的“公众号·言情玄幻连载”。
+        还没有小说 Skill。可以先上传一个 .md 文件，或使用默认的小说类型 Skill。
       </div>
       <div v-else class="novel-skill-grid">
         <article
@@ -387,8 +423,11 @@ export default {
           <span>类型</span>
           <select v-model="blueprintForm.genre">
             <option value="romance_fantasy">言情玄幻</option>
+            <option value="xianxia">修仙升级</option>
+            <option value="fantasy_upgrade">玄幻升级</option>
             <option value="fantasy">玄幻</option>
             <option value="romance">言情</option>
+            <option value="modern_romance">现代言情</option>
           </select>
         </label>
         <label class="field wide">
@@ -465,8 +504,11 @@ export default {
             <span>类型</span>
             <select v-model="storyDraft.genre">
               <option value="romance_fantasy">言情玄幻</option>
+              <option value="xianxia">修仙升级</option>
+              <option value="fantasy_upgrade">玄幻升级</option>
               <option value="fantasy">玄幻</option>
               <option value="romance">言情</option>
+              <option value="modern_romance">现代言情</option>
             </select>
           </label>
           <div class="inline-story-actions">

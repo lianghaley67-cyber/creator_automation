@@ -2007,8 +2007,10 @@ def _normalize_story_genre_for_db(raw: str) -> str:
     value = str(raw or "").strip().lower()
     if value in {"fantasy", "romance", "urban", "sci_fi", "historical"}:
         return value
-    if value in {"romance_fantasy", "言情玄幻", "言情玄幻连载", "玄幻言情"}:
+    if value in {"romance_fantasy", "fantasy_upgrade", "xianxia", "言情玄幻", "言情玄幻连载", "玄幻言情", "修仙", "修仙升级", "玄幻升级"}:
         return "fantasy"
+    if value in {"modern_romance", "现代言情", "现代言情连载"}:
+        return "romance"
     return "fantasy"
 
 

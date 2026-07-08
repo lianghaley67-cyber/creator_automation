@@ -54,13 +54,52 @@ CHANNEL_SKILLS: dict[str, dict[str, Any]] = {
         "name": "公众号·言情玄幻连载",
         "channel": "wechat",
         "content_kind": "fiction_serial",
-        "file": "shared/16_ai_writing_workshop.md",
-        "description": "直接生成言情/玄幻连载小说章节：有故事名、章节名、人物欲望、冲突推进、情绪张力和结尾悬念。不输出AI写作教程、提示词拆解或创作手记。",
+        "file": "novel/01_romance_fantasy.md",
+        "description": "言情玄幻类型规则：情感关系推动玄幻危机，叠加小说基础规范后生成连载章节。",
         "persona_tags": ["连载小说", "言情", "玄幻", "悬念", "故事结构"],
         "example": {
             "title": "烬月灯 · 第一章 她听见神骨在说话",
             "summary": "一个被逐出师门的少女，在满城灯会那夜听见了禁地神骨的声音。她以为那是救命，后来才知道那是债。",
             "excerpt": "## 第一章 她听见神骨在说话\n\n子时的灯一盏接一盏灭下去，唯独禁地深处那盏青灯亮了。\n\n沈照雪站在雨里，掌心的伤口还在渗血……",
+        },
+    },
+    "wechat_xianxia_cultivation_serial_v1": {
+        "name": "公众号·修仙升级连载",
+        "channel": "wechat",
+        "content_kind": "fiction_serial",
+        "file": "novel/02_xianxia_cultivation.md",
+        "description": "修仙类型规则：修炼体系、宗门规则、资源争夺和因果代价，叠加小说基础规范后生成连载章节。",
+        "persona_tags": ["连载小说", "修仙", "升级", "宗门", "秘境"],
+        "example": {
+            "title": "第1章 测灵台上没有她的命格",
+            "summary": "被判定没有灵根的少女，在测灵石碎裂后看见了只有自己能读懂的旧宗门碑文。",
+            "excerpt": "测灵台上的光灭了三次。\n\n台下有人笑出声，负责记录的弟子已经准备把她的名字划掉。直到那块测灵石从中间裂开，露出一行早该被抹去的字。",
+        },
+    },
+    "wechat_fantasy_upgrade_serial_v1": {
+        "name": "公众号·玄幻升级连载",
+        "channel": "wechat",
+        "content_kind": "fiction_serial",
+        "file": "novel/03_fantasy_upgrade.md",
+        "description": "玄幻升级类型规则：等级压迫、资源争夺和世界秘密，叠加小说基础规范后生成连载章节。",
+        "persona_tags": ["连载小说", "玄幻", "升级", "血脉", "试炼"],
+        "example": {
+            "title": "第1章 试炼塔承认了废脉",
+            "summary": "所有人都以为他会被试炼塔弹出，只有塔底沉睡的旧王骨回应了他的血。",
+            "excerpt": "钟声响到第七下时，试炼塔没有亮。\n\n族老冷着脸让他退下。可就在他转身那一刻，塔底传来一声像骨头醒来的轻响。",
+        },
+    },
+    "wechat_modern_romance_serial_v1": {
+        "name": "公众号·现代言情连载",
+        "channel": "wechat",
+        "content_kind": "fiction_serial",
+        "file": "novel/04_modern_romance.md",
+        "description": "现代言情类型规则：现实处境、关系拉扯、职业压力和自我成长，叠加小说基础规范后生成连载章节。",
+        "persona_tags": ["连载小说", "现代言情", "职场", "关系拉扯", "成长"],
+        "example": {
+            "title": "第1章 她在离职当天接到旧人的电话",
+            "summary": "深夜项目事故把她困在会议室，也把三年前不告而别的人重新推回她面前。",
+            "excerpt": "凌晨一点，会议室只剩她电脑屏幕还亮着。\n\n离职申请已经发出去了，可客户的电话先一步打进来。来电显示上，是她三年没敢点开的名字。",
         },
     },
     "xiaohongshu_ai_writing_workshop_v1": {
@@ -311,6 +350,13 @@ def load_skill_content(skill_id: str) -> str:
     return skill_path.read_text(encoding="utf-8", errors="replace").strip()
 
 
+def load_novel_base_skill_content() -> str:
+    skill_path = SKILLS_DIR / "novel/00_serial_base.md"
+    if not skill_path.exists():
+        return ""
+    return skill_path.read_text(encoding="utf-8", errors="replace").strip()
+
+
 def _skill_content_kind(skill_id: str) -> str:
     """Return the content family a channel skill is allowed to generate."""
     normalized = str(skill_id or "").strip()
@@ -337,6 +383,24 @@ def _skill_content_kind(skill_id: str) -> str:
     if normalized.startswith("wechat_"):
         return "wechat_article"
     return "custom"
+
+
+def load_effective_skill_content(skill_id: str, fallback_id: str = "") -> str:
+    """Load a skill and, for serial fiction, prepend the mandatory base rules."""
+    raw = load_skill_content(skill_id)
+    effective_id = skill_id
+    if not raw and fallback_id:
+        raw = load_skill_content(fallback_id)
+        effective_id = fallback_id
+    if _skill_content_kind(effective_id) != "fiction_serial":
+        return raw
+    base = load_novel_base_skill_content()
+    parts = []
+    if base:
+        parts.append(f"【小说基础规范：所有小说类型都必须遵守】\n{base}")
+    if raw:
+        parts.append(f"【当前类型 Skill：按用户选择的题材叠加】\n{raw}")
+    return "\n\n---\n\n".join(parts)
 
 
 def _skill_family(kind: str) -> str:
@@ -1061,10 +1125,12 @@ def _ai_generate_channel_drafts(
         return cleaned[:max_chars]
 
     wechat_skill_content = _sanitize_skill(
-        load_skill_content(wechat_skill_id) or load_skill_content("wechat_article_v1")
+        load_effective_skill_content(wechat_skill_id, "wechat_article_v1"),
+        5200 if _skill_content_kind(wechat_skill_id) == "fiction_serial" else 2500,
     )
     xhs_skill_content = _sanitize_skill(
-        load_skill_content(xiaohongshu_skill_id) or load_skill_content("xiaohongshu_note_v1")
+        load_effective_skill_content(xiaohongshu_skill_id, "xiaohongshu_note_v1"),
+        4200 if _skill_content_kind(xiaohongshu_skill_id) == "fiction_serial" else 2500,
     )
 
     tags_str = " ".join(f"#{t}" for t in (hashtags or ["AI工具", "普通人学AI"])[:6])
