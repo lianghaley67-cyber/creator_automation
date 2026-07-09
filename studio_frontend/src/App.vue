@@ -201,9 +201,15 @@ const stockForm = reactive({
   risk_level: "balanced",
   holding_period: "swing",
   max_position_percent: "20",
-  notes: ""
+  notes: "",
+  circle_of_competence: "",
+  business_quality: "",
+  moat_notes: "",
+  management_notes: "",
+  financial_notes: "",
+  intrinsic_value: ""
 });
-const stockQuestion = ref("请从趋势、量能、风险和适合我的观察动作分析这只股票。");
+const stockQuestion = ref("请结合巴菲特价值投资框架，从能力圈、业务本质、护城河、管理层、安全边际、趋势、量能、风险和适合我的观察动作分析这只股票。");
 
 const voicePresets = [
   { label: "温暖真人女声（推荐）", value: "zh-CN-XiaoxiaoNeural" },
@@ -1943,6 +1949,7 @@ async function runStockSkill(skillId = selectedStockSkill.value, symbol = stockF
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify({
+        ...stockForm,
         skill_id: selected,
         symbol: value,
         question: stockQuestion.value,
@@ -6196,6 +6203,49 @@ textarea {
   font-weight: 800;
 }
 
+.stock-buffett-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(255, 207, 183, 0.28);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(255, 207, 183, 0.06);
+}
+
+.stock-buffett-panel p {
+  margin: 0;
+  color: #dcecff;
+  line-height: 1.6;
+}
+
+.stock-buffett-panel em {
+  color: #ffcfb7;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.stock-buffett-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.stock-buffett-grid span {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(255, 207, 183, 0.18);
+  border-radius: 8px;
+  padding: 10px;
+  color: #a9bfda;
+  background: rgba(255, 207, 183, 0.06);
+}
+
+.stock-buffett-grid strong {
+  color: #fff4ed;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .stock-plain-answer {
   display: grid;
   gap: 8px;
@@ -6283,6 +6333,7 @@ textarea {
 
 .indicator-grid strong {
   color: #f7fbff;
+  overflow-wrap: anywhere;
 }
 
 .stock-signal-columns {
@@ -6435,6 +6486,7 @@ textarea {
   .stock-dashboard-grid,
   .stock-signal-columns,
   .indicator-grid,
+  .stock-buffett-grid,
   .stock-target-grid,
   .stock-skill-grid,
   .console-grid {

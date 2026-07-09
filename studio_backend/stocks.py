@@ -283,6 +283,7 @@ def analyze_stock(symbol: str, *, question: str = "", position: dict[str, Any] |
     volumes = [float(item.get("volume") or 0) for item in points]
     indicators = _technical_indicators(closes, volumes)
     score, stance, risks, opportunities = _score_stock(quote, indicators)
+    buffett_framework = _buffett_framework(quote, indicators, score, stance, risks, opportunities, position or {})
     conclusion = _clear_conclusion(quote, indicators, score, stance)
     upside_targets = _upside_targets(quote, indicators)
     plain_answer = _plain_language_answer(quote, indicators, score, stance, conclusion, risks, opportunities, question, position or {})
@@ -297,6 +298,7 @@ def analyze_stock(symbol: str, *, question: str = "", position: dict[str, Any] |
         conclusion=conclusion,
         upside_targets=upside_targets,
         plain_answer=plain_answer,
+        buffett_framework=buffett_framework,
     )
     return {
         "quote": quote,
@@ -306,6 +308,7 @@ def analyze_stock(symbol: str, *, question: str = "", position: dict[str, Any] |
         "stance": stance,
         "conclusion": conclusion,
         "plain_answer": plain_answer,
+        "buffett_framework": buffett_framework,
         "upside_targets": upside_targets,
         "opportunities": opportunities,
         "risks": risks,
@@ -434,6 +437,7 @@ def _build_report(
     conclusion: dict[str, Any],
     upside_targets: list[dict[str, Any]],
     plain_answer: dict[str, Any],
+    buffett_framework: dict[str, Any],
 ) -> str:
     lines = [
         f"## {quote.get('name')}（{quote.get('symbol')}）AI 辅助分析",
@@ -454,6 +458,24 @@ def _build_report(
         f"- RSI14：{indicators.get('rsi14')}，量能比：{indicators.get('volume_ratio')}",
         f"- MACD：{(indicators.get('macd') or {}).get('signal')}，BOLL：{(indicators.get('boll') or {}).get('position')}",
         f"- 近5日/20日收益：{indicators.get('return5')}% / {indicators.get('return20')}%，20日波动率：{indicators.get('volatility20')}%",
+        "",
+        "### 巴菲特价值投资校验",
+        f"- 总评：{buffett_framework.get('label')}，价值分 {buffett_framework.get('score')}/100。{buffett_framework.get('summary')}",
+        f"- 能力圈：{buffett_framework.get('circle_of_competence')}",
+        f"- 安全边际：{buffett_framework.get('margin_of_safety')}",
+        f"- 纪律动作：{buffett_framework.get('discipline')}",
+        "",
+        "### 3M 决策法则",
+        *[
+            f"- {item.get('name')}：{item.get('status')}。{item.get('note')}"
+            for item in buffett_framework.get("three_m") or []
+        ],
+        "",
+        "### 护城河观察",
+        *[f"- {item}" for item in buffett_framework.get("moat_checks") or []],
+        "",
+        "### 财务与估值待核验",
+        *[f"- {item}" for item in buffett_framework.get("financial_checklist") or []],
         "",
         "### 目标价情景测算",
         *[
@@ -476,6 +498,147 @@ def _build_report(
     if question:
         lines.extend(["", "### 你的问题", f"- {question}"])
     return "\n".join(lines)
+
+
+def _buffett_framework(
+    quote: dict[str, Any],
+    indicators: dict[str, Any],
+    technical_score: int,
+    stance: str,
+    risks: list[str],
+    opportunities: list[str],
+    position: dict[str, Any],
+) -> dict[str, Any]:
+    text_fields = {
+        "circle": str(position.get("circle_of_competence") or position.get("circle") or "").strip(),
+        "business": str(position.get("business_quality") or position.get("business") or "").strip(),
+        "moat": str(position.get("moat_notes") or position.get("moat") or "").strip(),
+        "management": str(position.get("management_notes") or position.get("management") or "").strip(),
+        "financials": str(position.get("financial_notes") or position.get("financials") or "").strip(),
+        "intrinsic": str(position.get("intrinsic_value") or "").strip(),
+    }
+    price = _num(quote.get("price") or indicators.get("latest"))
+    intrinsic_value = _num(text_fields["intrinsic"])
+    margin_pct = ((intrinsic_value - price) / intrinsic_value * 100) if price and intrinsic_value else None
+    trend = indicators.get("trend")
+    volatility = _num(indicators.get("volatility20")) or 0
+    return20 = _num(indicators.get("return20")) or 0
+
+    score = 38
+    positives: list[str] = []
+    concerns: list[str] = []
+    if text_fields["circle"]:
+        score += 10
+        positives.append("已填写能力圈边界。")
+    else:
+        concerns.append("未说明自己为什么看得懂这家公司。")
+    if text_fields["business"]:
+        score += 10
+        positives.append("已描述业务本质/盈利模式。")
+    else:
+        concerns.append("需用一句话讲清公司如何赚钱。")
+    if text_fields["moat"]:
+        score += 12
+        positives.append("已记录护城河线索。")
+    else:
+        concerns.append("需核验品牌、成本、网络效应或转换成本。")
+    if text_fields["management"]:
+        score += 8
+        positives.append("已记录管理层判断。")
+    else:
+        concerns.append("需核验回购、分红、股权稀释和资本配置。")
+    if text_fields["financials"]:
+        score += 8
+        positives.append("已记录财务/财报线索。")
+    else:
+        concerns.append("未接入真实财报数据，ROE、负债率、自由现金流仍待核验。")
+    if margin_pct is not None:
+        if margin_pct >= 30:
+            score += 18
+            positives.append(f"你给出的内在价值相对现价有约 {round(margin_pct, 2)}% 安全边际。")
+        elif margin_pct > 0:
+            score += 6
+            concerns.append(f"你给出的安全边际约 {round(margin_pct, 2)}%，低于 30% 缓冲。")
+        else:
+            score -= 14
+            concerns.append(f"现价高于你给出的内在价值约 {abs(round(margin_pct, 2))}%。")
+    else:
+        concerns.append("未填写内在价值估算，不能判断是否有 30% 安全边际。")
+    if trend == "空头排列":
+        score -= 8
+        concerns.append("技术趋势偏弱，价值投资也不应急着摊平。")
+    elif trend == "多头排列" and technical_score >= 70:
+        score += 4
+        positives.append("价格趋势较强，但仍需用价值而非热度做锚。")
+    if volatility >= 45:
+        score -= 6
+        concerns.append("波动率偏高，仓位上限应更保守。")
+    if return20 >= 18:
+        concerns.append("近20日涨幅较快，需避免把价格动量误判成安全边际。")
+    score = max(0, min(100, int(round(score))))
+
+    if score >= 75:
+        label = "可进入深度研究"
+        discipline = "先核验10-K/年报和估值，再分批；没有30%安全边际不重仓。"
+    elif score >= 58:
+        label = "观察池候选"
+        discipline = "补齐财务和管理层证据，等待价格进入甜蜜击球区。"
+    elif score >= 42:
+        label = "证据不足"
+        discipline = "先不扩大仓位，把能力圈、护城河和内在价值写清楚。"
+    else:
+        label = "谨慎回避"
+        discipline = "不要因为短线信号或概念热度买入，先保护现金。"
+
+    three_m = [
+        {
+            "name": "Meaning 业务本质",
+            "status": "已描述" if text_fields["business"] else "待补充",
+            "note": text_fields["business"] or "用一句话写清盈利模式、客户是谁、为什么能持续赚钱。",
+        },
+        {
+            "name": "Moat 护城河",
+            "status": "有线索" if text_fields["moat"] else "待核验",
+            "note": text_fields["moat"] or "检查品牌溢价、成本优势、网络效应、转换成本和定价权。",
+        },
+        {
+            "name": "Management 管理层",
+            "status": "有记录" if text_fields["management"] else "待核验",
+            "note": text_fields["management"] or "检查回购/分红、资本配置、股权稀释、是否坦诚披露错误。",
+        },
+    ]
+    financial_checklist = [
+        text_fields["financials"] or "读取近10年年报/10-K：ROE是否长期高于15%，负债率是否低于50%。",
+        "核验自由现金流是否持续覆盖利润和再投资需求，增长率是否跑赢通胀。",
+        "估值对比历史区间和同行：PE/PB/PS/EV-EBITDA 是否给出足够折价。",
+        "若是金融股，重点看P/B、坏账/拨备、资本充足率；若是现金牛，关注股息率和回购质量。",
+    ]
+    moat_checks = [
+        text_fields["moat"] or "暂无护城河描述，先把品牌、成本、网络效应、转换成本四项逐条打分。",
+        "优先寻找提价不明显伤害销量的证据，而不是只看短期涨跌。",
+        "远离自己无法解释商业模式、靠概念估值或衍生品结构驱动的标的。",
+    ]
+    margin_text = (
+        f"内在价值 {intrinsic_value}，现价 {price}，安全边际约 {round(margin_pct, 2)}%。"
+        if margin_pct is not None
+        else "未填写内在价值，暂不能判定是否满足30%+安全边际。"
+    )
+    summary_parts = positives[:2] + concerns[:2]
+    return {
+        "score": score,
+        "label": label,
+        "summary": " ".join(summary_parts),
+        "circle_of_competence": text_fields["circle"] or "未填写；不在能力圈内就只做观察，不做重仓决策。",
+        "margin_of_safety": margin_text,
+        "discipline": discipline,
+        "three_m": three_m,
+        "moat_checks": moat_checks,
+        "financial_checklist": financial_checklist,
+        "positives": positives,
+        "concerns": concerns + risks[:2],
+        "opportunity_bridge": opportunities[:2],
+        "source": "buffett-investing SKILL.md + 本地行情规则",
+    }
 
 
 def _plain_language_answer(

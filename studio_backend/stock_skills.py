@@ -32,6 +32,12 @@ STOCK_SKILLS: list[dict[str, Any]] = [
         "inputs": ["symbol", "question"],
     },
     {
+        "id": "buffett_value_check",
+        "name": "巴菲特价值校验",
+        "description": "按能力圈、3M、护城河、财务健康、安全边际和长期纪律复核个股。",
+        "inputs": ["symbol", "question", "latest_analysis"],
+    },
+    {
         "id": "news_risk_scan",
         "name": "公告新闻风险扫描",
         "description": "基于价格异动生成公告、新闻、财报、行业政策的核验路径。",
@@ -69,6 +75,7 @@ def run_stock_skill(
     question: str = "",
     watchlist: list[dict[str, Any]] | None = None,
     latest_analysis: dict[str, Any] | None = None,
+    position: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized = str(skill_id or "").strip()
     if normalized == "single_stock_diagnosis":
@@ -79,6 +86,8 @@ def run_stock_skill(
         return _condition_screening(watchlist or [], question)
     if normalized == "financial_checklist":
         return _financial_checklist(symbol, question)
+    if normalized == "buffett_value_check":
+        return _buffett_value_check(symbol, question, latest_analysis, position or {})
     if normalized == "news_risk_scan":
         return _news_risk_scan(symbol, question)
     if normalized == "money_flow_sentiment":
@@ -211,6 +220,50 @@ def _financial_checklist(symbol: str, question: str) -> dict[str, Any]:
         *_risk_footer(),
     ]
     return _skill_result("financial_checklist", quote.get("symbol"), "财报核验清单已生成", "\n".join(lines), analysis=analysis)
+
+
+def _buffett_value_check(symbol: str, question: str, latest_analysis: dict[str, Any] | None, position: dict[str, Any]) -> dict[str, Any]:
+    latest_symbol = str(((latest_analysis or {}).get("quote") or {}).get("symbol") or "").upper() if isinstance(latest_analysis, dict) else ""
+    requested_symbol = str(symbol or "").upper()
+    can_reuse_latest = bool(
+        isinstance(latest_analysis, dict)
+        and latest_analysis.get("buffett_framework")
+        and (not requested_symbol or latest_symbol == requested_symbol)
+    )
+    analysis = latest_analysis if can_reuse_latest else analyze_stock(symbol, question=question, position=position)
+    quote = analysis.get("quote") or {}
+    framework = analysis.get("buffett_framework") or {}
+    three_m = framework.get("three_m") if isinstance(framework.get("three_m"), list) else []
+    lines = [
+        f"## {quote.get('name')}（{quote.get('symbol')}）巴菲特价值校验",
+        "",
+        f"价值分：{framework.get('score')}/100，结论：{framework.get('label')}",
+        f"- 总评：{framework.get('summary')}",
+        f"- 能力圈：{framework.get('circle_of_competence')}",
+        f"- 安全边际：{framework.get('margin_of_safety')}",
+        f"- 纪律动作：{framework.get('discipline')}",
+        "",
+        "### 3M 决策法则",
+        *[f"- {item.get('name')}：{item.get('status')}。{item.get('note')}" for item in three_m],
+        "",
+        "### 护城河与定价权",
+        *[f"- {item}" for item in framework.get("moat_checks") or []],
+        "",
+        "### 财务健康与估值核验",
+        *[f"- {item}" for item in framework.get("financial_checklist") or []],
+        "",
+        "### 现在不做的事",
+        "- 不因为单日上涨、AI/概念热度或短线指标直接重仓。",
+        "- 不在无法解释商业模式、管理层和现金流质量时扩大仓位。",
+        "- 不把本地行情规则当作真实财报结论；年报、公告和估值模型需要另行核验。",
+        *_risk_footer(),
+    ]
+    cards = [
+        {"title": "价值分", "value": f"{framework.get('score')}/100", "note": framework.get("label")},
+        {"title": "安全边际", "value": framework.get("margin_of_safety"), "note": "目标 30%+"},
+        {"title": "能力圈", "value": framework.get("circle_of_competence"), "note": "看不懂就不重仓"},
+    ]
+    return _skill_result("buffett_value_check", quote.get("symbol"), "巴菲特价值校验已完成", "\n".join(lines), analysis=analysis, cards=cards)
 
 
 def _news_risk_scan(symbol: str, question: str) -> dict[str, Any]:

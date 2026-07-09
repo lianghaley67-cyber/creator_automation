@@ -75,6 +75,30 @@ export default {
                 <span>关注理由</span>
                 <input v-model="stockForm.notes" placeholder="财报、行业、策略..." />
               </label>
+              <label class="field">
+                <span>能力圈</span>
+                <input v-model="stockForm.circle_of_competence" placeholder="我为什么看得懂它" />
+              </label>
+              <label class="field">
+                <span>内在价值</span>
+                <input v-model="stockForm.intrinsic_value" inputmode="decimal" placeholder="你的估算，可选" />
+              </label>
+              <label class="field">
+                <span>业务本质</span>
+                <input v-model="stockForm.business_quality" placeholder="一句话说明如何赚钱" />
+              </label>
+              <label class="field">
+                <span>护城河</span>
+                <input v-model="stockForm.moat_notes" placeholder="品牌、成本、网络效应..." />
+              </label>
+              <label class="field">
+                <span>管理层</span>
+                <input v-model="stockForm.management_notes" placeholder="回购、分红、资本配置..." />
+              </label>
+              <label class="field">
+                <span>财务线索</span>
+                <input v-model="stockForm.financial_notes" placeholder="ROE、负债、现金流..." />
+              </label>
             </div>
             <textarea v-model="stockQuestion" class="stock-question" rows="3"></textarea>
             <div class="stock-actions">
@@ -231,6 +255,37 @@ export default {
                 <strong>明确结论：{{ stockAnalysis.conclusion.label }}</strong>
                 <p>{{ stockAnalysis.conclusion.summary }}</p>
                 <span>{{ stockAnalysis.conclusion.action }}</span>
+              </div>
+              <div v-if="stockAnalysis.buffett_framework" class="stock-buffett-panel">
+                <div class="stock-section-head">
+                  <strong>巴菲特价值校验</strong>
+                  <em>{{ stockAnalysis.buffett_framework.label }} · {{ stockAnalysis.buffett_framework.score }}/100</em>
+                </div>
+                <p>{{ stockAnalysis.buffett_framework.summary }}</p>
+                <div class="stock-buffett-grid">
+                  <span>
+                    能力圈
+                    <strong>{{ stockAnalysis.buffett_framework.circle_of_competence }}</strong>
+                  </span>
+                  <span>
+                    安全边际
+                    <strong>{{ stockAnalysis.buffett_framework.margin_of_safety }}</strong>
+                  </span>
+                  <span>
+                    纪律动作
+                    <strong>{{ stockAnalysis.buffett_framework.discipline }}</strong>
+                  </span>
+                </div>
+                <div class="stock-signal-columns">
+                  <div>
+                    <strong>3M 法则</strong>
+                    <p v-for="item in stockAnalysis.buffett_framework.three_m" :key="item.name">{{ item.name }}：{{ item.status }}。{{ item.note }}</p>
+                  </div>
+                  <div>
+                    <strong>财务/估值待核验</strong>
+                    <p v-for="item in stockAnalysis.buffett_framework.financial_checklist" :key="item">{{ item }}</p>
+                  </div>
+                </div>
               </div>
               <div v-if="stockAnalysis.upside_targets?.length" class="stock-target-grid">
                 <div v-for="item in stockAnalysis.upside_targets" :key="item.label">

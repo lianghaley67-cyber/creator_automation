@@ -1155,6 +1155,12 @@ def api_upsert_stock_watchlist(payload: dict[str, Any]) -> dict[str, Any]:
         "holding_period": str(payload.get("holding_period") or "swing").strip() or "swing",
         "max_position_percent": payload.get("max_position_percent") or "20",
         "notes": str(payload.get("notes") or "").strip(),
+        "circle_of_competence": str(payload.get("circle_of_competence") or "").strip(),
+        "business_quality": str(payload.get("business_quality") or "").strip(),
+        "moat_notes": str(payload.get("moat_notes") or "").strip(),
+        "management_notes": str(payload.get("management_notes") or "").strip(),
+        "financial_notes": str(payload.get("financial_notes") or "").strip(),
+        "intrinsic_value": payload.get("intrinsic_value") or "",
         "created_at": now,
         "updated_at": now,
     }
@@ -1300,6 +1306,7 @@ def api_run_stock_skill(payload: dict[str, Any]) -> dict[str, Any]:
             question=question,
             watchlist=watchlist,
             latest_analysis=latest_analysis,
+            position=payload,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
