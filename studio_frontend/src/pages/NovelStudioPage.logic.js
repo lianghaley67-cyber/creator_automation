@@ -78,3 +78,37 @@ export function novelOsModuleStatus({ blueprint, diagnosis, chapterBrief }) {
 export function novelOsPlanPreview(plan = [], limit = 12) {
   return (Array.isArray(plan) ? plan : []).slice(0, limit);
 }
+
+export function storyProductionStatus(story) {
+  if (!story?.id) return "创意阶段";
+  const chapterCount = Number(story.last_chapter_number || 0);
+  if (chapterCount <= 0) return "策划阶段";
+  if (chapterCount < 3) return "写作阶段";
+  return "连载生产中";
+}
+
+export function commandCenterMetrics({ story, diagnosis, chapterBrief, blueprint }) {
+  const planned = Number(blueprint?.volume_plan?.planned_chapters || 100);
+  const completed = Number(story?.last_chapter_number || 0);
+  const qualityScore = diagnosis?.score ? `${diagnosis.score}分` : "--";
+  const readerInterest = diagnosis?.score ? `${Math.max(50, Math.min(96, diagnosis.score + 6))}%` : "--";
+  const risk = diagnosis?.hard_issues?.length ? "需复核" : (diagnosis ? "低" : "待检测");
+  const currentTask = chapterBrief
+    ? `确认第${chapterBrief.chapter_number}章 Brief 并生成正文`
+    : story?.id
+      ? `生成第${completed + 1}章 Brief`
+      : "创建小说并生成开书蓝图";
+  return { planned, completed, qualityScore, readerInterest, risk, currentTask };
+}
+
+export function aiTeamStatus({ hasBlueprint, hasStory, hasBrief, generating }) {
+  return [
+    { role: "小说总编", duty: "整体规划与质量决策", status: hasBlueprint ? "已规划" : "等待创意" },
+    { role: "市场分析师", duty: "定位读者与商业卖点", status: hasBlueprint ? "完成" : "待调用" },
+    { role: "世界观设计师", duty: "建立规则与长期设定", status: hasBlueprint ? "完成" : "待调用" },
+    { role: "人物专家", duty: "维护角色动机与成长", status: hasBlueprint ? "完成" : "待调用" },
+    { role: "剧情专家", duty: "规划章节和伏笔", status: hasBrief ? "章节就绪" : (hasStory ? "等待Brief" : "待调用") },
+    { role: "章节作者", duty: "生成正文草稿", status: generating ? "运行中" : (hasBrief ? "等待生产" : "待任务") },
+    { role: "审核专家", duty: "逻辑、节奏与平台安全", status: "发布前执行" },
+  ];
+}

@@ -6774,6 +6774,196 @@ textarea {
   scroll-margin-top: 96px;
 }
 
+.novel-product-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 24px;
+  background: linear-gradient(135deg, rgba(0, 213, 232, 0.14), rgba(255, 122, 61, 0.08));
+}
+
+.novel-product-hero span {
+  color: #00d5e8;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.novel-product-hero h2 {
+  margin: 8px 0;
+  font-size: 30px;
+}
+
+.novel-product-hero p {
+  margin: 0;
+  color: #c8dff5;
+  line-height: 1.6;
+}
+
+.novel-mode-switch {
+  display: inline-flex;
+  gap: 6px;
+  border: 1px solid rgba(142, 171, 205, 0.18);
+  border-radius: 10px;
+  padding: 4px;
+  background: rgba(7, 22, 37, 0.72);
+}
+
+.novel-mode-switch button {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #a9bfda;
+  background: transparent;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.novel-mode-switch button.active {
+  color: #06111c;
+  background: #00d5e8;
+}
+
+.novel-project-grid,
+.novel-team-status,
+.novel-wizard-steps {
+  display: grid;
+  gap: 10px;
+}
+
+.novel-project-grid {
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+
+.novel-project-card,
+.novel-team-status article,
+.novel-wizard-steps article,
+.novel-current-book,
+.novel-dashboard-grid span {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(142, 171, 205, 0.14);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(13, 31, 51, 0.72);
+}
+
+.novel-project-card {
+  cursor: pointer;
+}
+
+.novel-project-card.active {
+  border-color: rgba(0, 213, 232, 0.48);
+  background: rgba(0, 213, 232, 0.08);
+}
+
+.novel-project-card strong,
+.novel-current-book strong,
+.novel-team-status strong,
+.novel-wizard-steps strong {
+  color: #f7fbff;
+}
+
+.novel-project-card span,
+.novel-current-book span,
+.novel-team-status span,
+.novel-wizard-steps p {
+  color: #a9bfda;
+  line-height: 1.5;
+}
+
+.novel-project-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.novel-command-main {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
+  gap: 12px;
+}
+
+.novel-current-book p {
+  margin: 0;
+  color: #c8dff5;
+}
+
+.novel-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.novel-dashboard-grid strong {
+  color: #00d5e8;
+  font-size: 22px;
+}
+
+.novel-team-status {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  margin-top: 12px;
+}
+
+.novel-team-status em {
+  color: #7ee8a2;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.novel-wizard-steps {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.novel-wizard-steps article span {
+  color: #00d5e8;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.novel-wizard-steps article.done {
+  border-color: rgba(126, 232, 162, 0.28);
+}
+
+.novel-advanced-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.novel-advanced-panel > summary {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  cursor: pointer;
+}
+
+.novel-advanced-panel > summary span {
+  color: #a9bfda;
+  font-size: 13px;
+}
+
+.novel-advanced-panel > *:not(summary) {
+  margin: 0 16px 16px;
+}
+
+.novel-publish-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.novel-publish-checklist span {
+  border: 1px solid rgba(126, 232, 162, 0.2);
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #d9ffe6;
+  background: rgba(126, 232, 162, 0.08);
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .novel-empty {
   color: var(--muted);
   padding: 14px;
@@ -7887,6 +8077,10 @@ textarea {
 
 @media (max-width: 760px) {
   .novel-form-grid,
+  .novel-product-hero,
+  .novel-command-main,
+  .novel-dashboard-grid,
+  .novel-wizard-steps,
   .novel-charter-card,
   .novel-os-command,
   .novel-agent-grid,

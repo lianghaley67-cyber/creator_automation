@@ -8,6 +8,9 @@ import {
   formatStoryStep,
   novelOsModuleStatus,
   novelOsPlanPreview,
+  storyProductionStatus,
+  commandCenterMetrics,
+  aiTeamStatus,
 } from "./NovelStudioPage.logic.js";
 
 export default {
@@ -44,6 +47,7 @@ export default {
     const blueprintPromise = ref("");
     const chapterNote = ref("");
     const selectedNovelSkillId = ref("");
+    const userMode = ref("novice");
     const storyDraft = reactive({
       visible: false,
       name: "",
@@ -63,6 +67,23 @@ export default {
     }));
     const novelOsModules = computed(() => novelOsModuleStatus({ blueprint: blueprint.value, diagnosis: diagnosis.value, chapterBrief: chapterBrief.value }));
     const planPreview = computed(() => novelOsPlanPreview(blueprint.value?.hundred_chapter_plan || [], 12));
+    const commandMetrics = computed(() => commandCenterMetrics({
+      story: ctx.selectedStory.value,
+      diagnosis: diagnosis.value,
+      chapterBrief: chapterBrief.value,
+      blueprint: blueprint.value,
+    }));
+    const aiTeam = computed(() => aiTeamStatus({
+      hasBlueprint: Boolean(blueprint.value),
+      hasStory: Boolean(ctx.selectedStoryId.value),
+      hasBrief: Boolean(chapterBrief.value),
+      generating: loading.chapter,
+    }));
+    const projectCards = computed(() => (ctx.stories.value || []).map((story) => ({
+      ...story,
+      production_status: storyProductionStatus(story),
+      quality_score: ctx.selectedStoryId.value === story.id && diagnosis.value ? diagnosis.value.score : "--",
+    })));
 
     function normalizeStoryGenre(raw) {
       const value = String(raw || "").trim();
@@ -318,6 +339,23 @@ export default {
       }
     }
 
+    async function runOneClickProduction() {
+      if (!blueprint.value) {
+        await createBlueprint();
+      }
+      if (!ctx.selectedStoryId.value) {
+        storyDraft.name = storyDraft.name || blueprint.value?.book_profile?.title || blueprintForm.title || "未命名小说";
+        storyDraft.genre = normalizeStoryGenre(storyDraft.genre || blueprintForm.genre);
+        await saveBlueprintToStory();
+      }
+      if (ctx.selectedStoryId.value && !diagnosis.value) {
+        await diagnoseStory();
+      }
+      if (ctx.selectedStoryId.value && !chapterBrief.value) {
+        await createChapterBrief();
+      }
+    }
+
     function syncBlueprintTitleFromStory() {
       if (!blueprintForm.title && selectedStoryName.value) blueprintForm.title = selectedStoryName.value;
     }
@@ -344,6 +382,7 @@ export default {
       blueprintPromise,
       chapterNote,
       selectedNovelSkillId,
+      userMode,
       storyDraft,
       novelSkills,
       selectedNovelSkill,
@@ -351,6 +390,10 @@ export default {
       storyNextAction,
       novelOsModules,
       planPreview,
+      commandMetrics,
+      aiTeam,
+      projectCards,
+      storyProductionStatus,
       uploadNovelSkill,
       ensureNovelSkillSelected,
       openStoryDraft,
@@ -361,6 +404,7 @@ export default {
       diagnoseStory,
       createChapterBrief,
       generateChapterFromBrief,
+      runOneClickProduction,
       storyMetricClass,
       formatStoryStep,
       storyScoreLabel,
@@ -372,7 +416,104 @@ export default {
 
 <template>
   <div v-if="activeTab === 'novels'" class="novel-page">
-    <section class="panel novel-workflow-panel">
+    <section class="panel novel-product-hero">
+      <div>
+        <span>SERIAL FICTION OPS</span>
+        <h2>AI小说生产工作台</h2>
+        <p>输入一个想法，AI总编带领团队完成策划、设定、人物、章节、审核和发布。</p>
+      </div>
+      <div class="novel-mode-switch">
+        <button type="button" :class="{ active: userMode === 'novice' }" @click="userMode = 'novice'">新手模式</button>
+        <button type="button" :class="{ active: userMode === 'professional' }" @click="userMode = 'professional'">专业模式</button>
+      </div>
+    </section>
+
+    <section class="panel novel-project-center">
+      <div class="panel-header">
+        <div>
+          <h2>我的小说</h2>
+          <div class="meta">管理项目进度，选择一本书进入生产。</div>
+        </div>
+        <button class="btn accent" @click="openStoryDraft">+ 创建小说</button>
+      </div>
+      <div v-if="!projectCards.length" class="novel-empty">还没有小说项目。先输入创意，或点击创建小说。</div>
+      <div v-else class="novel-project-grid">
+        <article
+          v-for="story in projectCards"
+          :key="story.id"
+          class="novel-project-card"
+          :class="{ active: selectedStoryId === story.id }"
+          @click="selectedStoryId = story.id"
+        >
+          <div>
+            <strong>{{ story.name }}</strong>
+            <span>{{ story.genre || "未分类" }} · {{ story.production_status }}</span>
+          </div>
+          <div class="novel-project-meta">
+            <span>章节 {{ story.last_chapter_number || 0 }}</span>
+            <span>质量 {{ story.quality_score }}</span>
+          </div>
+          <div class="novel-actions compact">
+            <button class="btn secondary small" @click.stop="openStoryManage(story)">章节</button>
+            <button class="btn secondary small" @click.stop="selectedStoryId = story.id; diagnoseStory()">诊断</button>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel novel-command-center">
+      <div class="panel-header">
+        <div>
+          <h2>小说生产驾驶舱</h2>
+          <div class="meta">当前任务、质量、风险和AI团队状态集中在这里。</div>
+        </div>
+        <button class="btn accent" :disabled="loading.blueprint || loading.createStory || loading.diagnosis || loading.brief" @click="runOneClickProduction">
+          {{ loading.blueprint || loading.createStory || loading.diagnosis || loading.brief ? "生产中..." : "开始AI小说生产" }}
+        </button>
+      </div>
+      <div class="novel-command-main">
+        <div class="novel-current-book">
+          <span>当前小说</span>
+          <strong>{{ selectedStory?.name || blueprintForm.title || "未创建" }}</strong>
+          <p>{{ commandMetrics.currentTask }}</p>
+        </div>
+        <div class="novel-dashboard-grid">
+          <span>章节 <strong>{{ commandMetrics.completed }}/{{ commandMetrics.planned }}</strong></span>
+          <span>质量评分 <strong>{{ commandMetrics.qualityScore }}</strong></span>
+          <span>读者兴趣 <strong>{{ commandMetrics.readerInterest }}</strong></span>
+          <span>风险 <strong>{{ commandMetrics.risk }}</strong></span>
+        </div>
+      </div>
+      <div class="novel-team-status">
+        <article v-for="member in aiTeam" :key="member.role">
+          <strong>{{ member.role }}</strong>
+          <span>{{ member.duty }}</span>
+          <em>{{ member.status }}</em>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel novel-wizard-panel">
+      <div class="panel-header">
+        <div>
+          <h2>AI小说创作向导</h2>
+          <div class="meta">按步骤把一个创意变成可持续生产的小说项目。</div>
+        </div>
+      </div>
+      <div class="novel-wizard-steps">
+        <article :class="{ done: blueprintForm.idea }"><span>01</span><strong>输入创意</strong><p>类型、一句话故事、喜欢方向、目标读者。</p></article>
+        <article :class="{ done: blueprint?.topic_center }"><span>02</span><strong>AI总编分析</strong><p>市场定位、商业潜力、核心卖点和风险。</p></article>
+        <article :class="{ done: blueprint?.world_bible }"><span>03</span><strong>小说DNA</strong><p>主题、世界规则、人物方向、核心冲突。</p></article>
+        <article :class="{ done: selectedNovelSkillId }"><span>04</span><strong>配置AI团队</strong><p>总编、市场、世界观、人物、剧情、作者、审核。</p></article>
+        <article :class="{ done: chapterBrief }"><span>05</span><strong>章节生产</strong><p>Brief、正文、节奏检测、逻辑审核、平台审核。</p></article>
+      </div>
+    </section>
+
+    <details class="panel novel-workflow-panel novel-advanced-panel" :open="userMode === 'professional'">
+      <summary>
+        <strong>专业模式：系统架构与AI团队配置</strong>
+        <span>Skill、Memory、商业智能、总编工作流等高级配置</span>
+      </summary>
       <div class="panel-header">
         <div>
           <h2>Novel OS 2.0 · AI小说工业化生产系统</h2>
@@ -482,9 +623,9 @@ export default {
           <em>{{ workflow.commercial_intelligence.analytics_dashboard.example.suggestion }}</em>
         </div>
       </div>
-    </section>
+    </details>
 
-    <section class="panel novel-skill-panel">
+    <section v-if="userMode === 'professional'" class="panel novel-skill-panel">
       <div class="panel-header">
         <div>
           <h2>0. 小说 Skill</h2>
@@ -920,8 +1061,8 @@ export default {
     <section class="panel novel-chapter-panel">
       <div class="panel-header">
         <div>
-          <h2>3. 本章 Brief → 逐章生成</h2>
-          <div class="meta">每章先定目标、冲突、关系变化和禁忌，再用当前小说 Skill 生成下一章。</div>
+          <h2>Chapter Studio · 每日章节生产</h2>
+          <div class="meta">先确认章节目标，再生成正文，并进入节奏、逻辑和平台安全审核。</div>
         </div>
         <button class="btn primary" :disabled="!selectedStoryId || loading.brief" @click="createChapterBrief">
           {{ loading.brief ? "生成中..." : "生成下一章 Brief" }}
@@ -954,13 +1095,15 @@ export default {
         <button class="btn accent" :disabled="loading.chapter || !selectedStoryId || !selectedNovelSkillId" @click="generateChapterFromBrief">
           {{ loading.chapter ? "生成中..." : "按 Brief 生成下一章" }}
         </button>
+        <button class="btn secondary" :disabled="loading.chapter || !selectedStoryId" @click="createChapterBrief">重新生成</button>
+        <button class="btn secondary" :disabled="!selectedStory" @click="openStoryManage(selectedStory)">AI优化/人工修改</button>
         <button v-if="selectedStory" class="btn secondary" @click="openStoryManage(selectedStory)">查看/推送章节</button>
       </div>
     </section>
 
     <section class="panel fanqie-panel standalone">
       <div class="fanqie-panel-head" @click="fanqieLoadSettings(); fanqie.loginVisible = !fanqie.loginVisible">
-        <span class="fanqie-logo">番茄小说发布配置</span>
+        <span class="fanqie-logo">Publishing Center · 番茄小说发布中心</span>
         <span class="fanqie-status-dot" :class="fanqie.logged_in ? 'online' : 'offline'"></span>
         <span class="fanqie-status-text">{{ fanqie.logged_in ? `已登录：${fanqie.username || '创作者'}` : '未登录' }}</span>
         <span style="margin-left:auto;font-size:11px;color:#6a8aaa;">{{ fanqie.loginVisible ? '收起' : '展开' }}</span>
@@ -974,6 +1117,13 @@ export default {
           <span>Book ID（推荐）</span>
           <input v-model="fanqie.bookId" placeholder="从章节管理 URL 获取" @blur="fanqieSaveSettings" />
         </label>
+        <div class="novel-publish-checklist">
+          <span>章节格式转换</span>
+          <span>标题优化</span>
+          <span>简介/标签建议</span>
+          <span>低俗与违规风险</span>
+          <span>逻辑与完整度</span>
+        </div>
         <div v-if="fanqie.logged_in && !fanqie.showCookieImport" class="fanqie-logged">
           <span class="fanqie-status-dot online" style="display:inline-block;margin-right:6px;"></span>
           <span class="fanqie-status-text">Cookie 有效{{ fanqie.cookieImportedAt ? `，导入于 ${fanqie.cookieImportedAt}` : '' }}</span>
