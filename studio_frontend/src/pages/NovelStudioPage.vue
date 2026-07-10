@@ -1,7 +1,14 @@
 <script>
 import { computed, reactive, ref, onMounted, watch } from "vue";
 import { useStudioContext } from "./useStudioContext.js";
-import { nextStoryAction, storyMetricClass, storyScoreLabel, formatStoryStep } from "./NovelStudioPage.logic.js";
+import {
+  nextStoryAction,
+  storyMetricClass,
+  storyScoreLabel,
+  formatStoryStep,
+  novelOsModuleStatus,
+  novelOsPlanPreview,
+} from "./NovelStudioPage.logic.js";
 
 export default {
   name: "NovelStudioPage",
@@ -25,7 +32,12 @@ export default {
       idea: "",
       audience: "喜欢言情玄幻、强剧情和关系拉扯的女性读者",
       tone: "有画面感，情绪克制但有张力，章末留钩子",
-      chapter_count: 30,
+      market_positioning: "平台连载型强情绪故事，优先追读、完读和章节钩子",
+      reader_pain: "现实压力下渴望被理解、被看见，并看到主角一步步夺回主动权",
+      emotional_core: "压抑处境中的选择、成长、希望和关系确认",
+      worldview_seed: "",
+      protagonist_seed: "",
+      chapter_count: 100,
       first_volume_count: 10,
     });
     const blueprint = ref(null);
@@ -49,14 +61,22 @@ export default {
       hasDiagnosis: Boolean(diagnosis.value),
       hasBrief: Boolean(chapterBrief.value),
     }));
+    const novelOsModules = computed(() => novelOsModuleStatus({ blueprint: blueprint.value, diagnosis: diagnosis.value, chapterBrief: chapterBrief.value }));
+    const planPreview = computed(() => novelOsPlanPreview(blueprint.value?.hundred_chapter_plan || [], 12));
 
     function normalizeStoryGenre(raw) {
       const value = String(raw || "").trim();
       if (["romance_fantasy", "fantasy", "fantasy_upgrade", "xianxia", "romance", "modern_romance"].includes(value)) return value;
+      if (["urban", "transmigration", "female_lead_ancient", "eastern_mysticism", "sci_fi"].includes(value)) return value;
       if (["言情玄幻", "言情玄幻连载", "玄幻言情"].includes(value)) return "romance_fantasy";
       if (["修仙", "修仙升级", "仙侠"].includes(value)) return "xianxia";
       if (["玄幻升级"].includes(value)) return "fantasy_upgrade";
       if (["现代言情", "现代言情连载"].includes(value)) return "modern_romance";
+      if (["都市", "都市连载"].includes(value)) return "urban";
+      if (["穿越", "穿越连载"].includes(value)) return "transmigration";
+      if (["古装大女主"].includes(value)) return "female_lead_ancient";
+      if (["东方玄学"].includes(value)) return "eastern_mysticism";
+      if (["科幻", "科幻连载"].includes(value)) return "sci_fi";
       return "romance_fantasy";
     }
 
@@ -69,6 +89,11 @@ export default {
         fantasy: ["玄幻升级", "玄幻", "fantasy_upgrade", "fantasy"],
         romance: ["现代言情", "言情", "modern_romance"],
         modern_romance: ["现代言情", "modern_romance"],
+        urban: ["都市", "urban", "modern_romance"],
+        transmigration: ["穿越", "transmigration", "fantasy_upgrade"],
+        female_lead_ancient: ["古装大女主", "女主", "言情", "romance_fantasy"],
+        eastern_mysticism: ["东方玄学", "玄学", "悬疑", "xianxia"],
+        sci_fi: ["科幻", "sci_fi", "fantasy_upgrade"],
       };
       return (matchers[genre] || []).some((needle) => haystack.includes(needle));
     }
@@ -83,6 +108,11 @@ export default {
         fantasy: ["wechat_fantasy_upgrade_serial_v1", "wechat_ai_writing_workshop_v1"],
         romance: ["wechat_modern_romance_serial_v1", "wechat_ai_writing_workshop_v1"],
         modern_romance: ["wechat_modern_romance_serial_v1"],
+        urban: ["wechat_modern_romance_serial_v1", "wechat_ai_writing_workshop_v1"],
+        transmigration: ["wechat_fantasy_upgrade_serial_v1", "wechat_ai_writing_workshop_v1"],
+        female_lead_ancient: ["wechat_ai_writing_workshop_v1"],
+        eastern_mysticism: ["wechat_xianxia_cultivation_serial_v1", "wechat_ai_writing_workshop_v1"],
+        sci_fi: ["wechat_fantasy_upgrade_serial_v1", "wechat_ai_writing_workshop_v1"],
       };
       const preferred = (preferredIds[genre] || [])
         .map((id) => novelSkills.value.find((skill) => skill.id === id))
@@ -319,6 +349,8 @@ export default {
       selectedNovelSkill,
       selectedStoryName,
       storyNextAction,
+      novelOsModules,
+      planPreview,
       uploadNovelSkill,
       ensureNovelSkillSelected,
       openStoryDraft,
@@ -332,6 +364,7 @@ export default {
       storyMetricClass,
       formatStoryStep,
       storyScoreLabel,
+      novelOsPlanPreview,
     };
   }
 };
@@ -342,19 +375,111 @@ export default {
     <section class="panel novel-workflow-panel">
       <div class="panel-header">
         <div>
-          <h2>小说工程台</h2>
-          <div class="meta">小说单独走一套流程：先定一本书，再定章节脉络，最后逐章生成和审核。</div>
+          <h2>Novel OS 2.0 · AI小说工业化生产系统</h2>
+          <div class="meta">用总编、策划、剧情、人物、文字和审核编辑的协作方式，长期生产中文网文。</div>
         </div>
         <button class="btn secondary" :disabled="loading.workflow" @click="loadWorkflow">
           {{ loading.workflow ? "加载中..." : "刷新流程" }}
         </button>
       </div>
       <div class="novel-next-action">{{ storyNextAction }}</div>
+      <div v-if="workflow?.charter" class="novel-charter-card">
+        <div>
+          <span>最高使命</span>
+          <strong>{{ workflow.charter.mission }}</strong>
+          <p>{{ workflow.charter.creative_belief }}</p>
+        </div>
+        <div class="novel-quality-tags">
+          <span v-for="target in workflow.charter.quality_targets" :key="target">{{ target }}</span>
+        </div>
+      </div>
+      <div class="novel-os-command">
+        <div v-for="module in novelOsModules" :key="module.key" class="novel-os-module">
+          <span>{{ module.label }}</span>
+          <strong>{{ module.status }}</strong>
+          <p>{{ module.note }}</p>
+        </div>
+      </div>
       <div v-if="workflow?.steps?.length" class="novel-step-grid">
         <div v-for="(step, index) in workflow.steps" :key="step.key" class="novel-step">
           <span>{{ String(index + 1).padStart(2, "0") }}</span>
           <strong>{{ step.label }}</strong>
           <p>{{ step.desc }}</p>
+        </div>
+      </div>
+      <div v-if="workflow?.agents?.length" class="novel-agent-grid">
+        <article v-for="agent in workflow.agents" :key="agent.role">
+          <strong>{{ agent.role }}</strong>
+          <p>{{ agent.job }}</p>
+        </article>
+      </div>
+      <div v-if="workflow?.skills?.length" class="novel-professional-skill-grid">
+        <article v-for="skill in workflow.skills" :key="skill.id">
+          <span>{{ skill.id }}</span>
+          <strong>{{ skill.name }}</strong>
+          <p>{{ skill.output }}</p>
+        </article>
+      </div>
+      <div v-if="workflow?.skill_plugin_architecture" class="novel-plugin-architecture">
+        <div>
+          <div class="novel-section-title">{{ workflow.skill_plugin_architecture.name }}</div>
+          <p>{{ workflow.skill_plugin_architecture.description }}</p>
+          <small>{{ workflow.skill_plugin_architecture.collaboration_rule }}</small>
+        </div>
+        <div class="novel-plugin-tags">
+          <span v-for="capability in workflow.skill_plugin_architecture.capabilities" :key="capability">{{ capability }}</span>
+        </div>
+      </div>
+      <div v-if="workflow?.skill_calling_rules?.length" class="novel-call-rule-grid">
+        <article v-for="rule in workflow.skill_calling_rules" :key="rule.stage">
+          <strong>{{ rule.stage }}</strong>
+          <span>{{ rule.skills.join(" / ") }}</span>
+          <p>{{ rule.handoff }}</p>
+        </article>
+      </div>
+      <div v-if="workflow?.skill_collaboration_flow?.length" class="novel-collaboration-flow">
+        <span v-for="step in workflow.skill_collaboration_flow" :key="step">{{ step }}</span>
+      </div>
+      <div v-if="workflow?.master_workflow" class="novel-master-workflow">
+        <div class="novel-section-title">{{ workflow.master_workflow.name }} 工作流程</div>
+        <p>{{ workflow.master_workflow.positioning }}</p>
+        <div class="novel-master-stage-grid">
+          <article v-for="stage in workflow.master_workflow.stages" :key="stage.key">
+            <span>{{ stage.title }}</span>
+            <strong>{{ stage.goal }}</strong>
+            <small>Skill：{{ stage.skills.join(" / ") }}</small>
+          </article>
+        </div>
+      </div>
+      <div v-if="workflow?.novel_memory_engine" class="novel-memory-engine">
+        <div class="novel-section-title">{{ workflow.novel_memory_engine.name }}</div>
+        <p>{{ workflow.novel_memory_engine.positioning }}</p>
+        <strong>{{ workflow.novel_memory_engine.core_rule }}</strong>
+        <div class="novel-memory-layer-grid">
+          <article v-for="layer in workflow.novel_memory_engine.memory_layers" :key="layer.key">
+            <span>{{ layer.name }}</span>
+            <strong>{{ layer.purpose }}</strong>
+            <small>{{ layer.fields.join(" / ") }}</small>
+          </article>
+        </div>
+      </div>
+      <div v-if="workflow?.commercial_intelligence" class="novel-commercial-panel">
+        <div class="novel-section-title">{{ workflow.commercial_intelligence.name }}</div>
+        <p>{{ workflow.commercial_intelligence.positioning }}</p>
+        <div class="novel-commercial-agent-grid">
+          <article v-for="agent in workflow.commercial_intelligence.agents" :key="agent.id">
+            <span>{{ agent.id }}</span>
+            <strong>{{ agent.name }}</strong>
+            <p>{{ agent.responsibility }}</p>
+          </article>
+        </div>
+        <div class="novel-analytics-preview">
+          <span>完成章节：{{ workflow.commercial_intelligence.analytics_dashboard.example.completed_chapters }}</span>
+          <span>质量评分：{{ workflow.commercial_intelligence.analytics_dashboard.example.quality_score }}</span>
+          <span>读者兴趣：{{ workflow.commercial_intelligence.analytics_dashboard.example.reader_interest }}</span>
+          <span>风险：{{ workflow.commercial_intelligence.analytics_dashboard.example.risk }}</span>
+          <strong>{{ workflow.commercial_intelligence.analytics_dashboard.example.current_issue }}</strong>
+          <em>{{ workflow.commercial_intelligence.analytics_dashboard.example.suggestion }}</em>
         </div>
       </div>
     </section>
@@ -423,9 +548,14 @@ export default {
           <span>类型</span>
           <select v-model="blueprintForm.genre">
             <option value="romance_fantasy">言情玄幻</option>
+            <option value="urban">都市</option>
             <option value="xianxia">修仙升级</option>
             <option value="fantasy_upgrade">玄幻升级</option>
             <option value="fantasy">玄幻</option>
+            <option value="transmigration">穿越</option>
+            <option value="female_lead_ancient">古装大女主</option>
+            <option value="eastern_mysticism">东方玄学</option>
+            <option value="sci_fi">科幻</option>
             <option value="romance">言情</option>
             <option value="modern_romance">现代言情</option>
           </select>
@@ -442,10 +572,247 @@ export default {
           <span>文风</span>
           <input v-model="blueprintForm.tone" />
         </label>
+        <label class="field">
+          <span>市场定位</span>
+          <input v-model="blueprintForm.market_positioning" placeholder="例：番茄强情绪女频，追读优先" />
+        </label>
+        <label class="field">
+          <span>读者压力/痛点</span>
+          <input v-model="blueprintForm.reader_pain" placeholder="例：就业焦虑、家庭压力、未来不确定" />
+        </label>
+        <label class="field wide">
+          <span>核心情绪价值</span>
+          <textarea v-model="blueprintForm.emotional_core" rows="2" placeholder="例：被误解后仍然成长，靠智慧和同盟夺回主动权。"></textarea>
+        </label>
+        <label class="field">
+          <span>世界观种子</span>
+          <input v-model="blueprintForm.worldview_seed" placeholder="时间背景、社会体系或力量规则" />
+        </label>
+        <label class="field">
+          <span>主角生命种子</span>
+          <input v-model="blueprintForm.protagonist_seed" placeholder="背景、缺陷、心理矛盾或成长方向" />
+        </label>
+        <label class="field">
+          <span>规划章节数</span>
+          <input v-model.number="blueprintForm.chapter_count" inputmode="numeric" placeholder="100" />
+        </label>
+        <label class="field">
+          <span>第一卷章数</span>
+          <input v-model.number="blueprintForm.first_volume_count" inputmode="numeric" placeholder="20" />
+        </label>
       </div>
       <div v-if="blueprint" class="blueprint-card">
         <strong>{{ blueprint.book_profile.title }} · {{ blueprint.book_profile.genre }}</strong>
         <p>{{ blueprint.book_profile.one_sentence }}</p>
+        <div v-if="blueprint.chief_editor_charter" class="novel-os-section">
+          <div class="novel-section-title">超级总编创作宪章</div>
+          <div class="novel-principle-grid">
+            <article v-for="principle in blueprint.chief_editor_charter.principles" :key="principle.title">
+              <strong>{{ principle.title }}</strong>
+              <p>{{ principle.rule }}</p>
+              <span>{{ principle.checklist.join(" · ") }}</span>
+            </article>
+          </div>
+        </div>
+        <div v-if="blueprint.topic_center" class="novel-os-section">
+          <div class="novel-section-title">小说选题中心</div>
+          <div class="novel-insight-grid">
+            <span>
+              小说方向
+              <strong>{{ blueprint.topic_center.direction }}</strong>
+            </span>
+            <span>
+              市场定位
+              <strong>{{ blueprint.topic_center.market_positioning }}</strong>
+            </span>
+            <span>
+              用户画像
+              <strong>{{ blueprint.topic_center.audience_profile }}</strong>
+            </span>
+            <span>
+              情绪价值
+              <strong>{{ blueprint.topic_center.emotion_value }}</strong>
+            </span>
+          </div>
+        </div>
+        <div v-if="blueprint.social_emotion_database?.length" class="novel-os-section">
+          <div class="novel-section-title">社会情绪数据库</div>
+          <div class="novel-emotion-grid">
+            <article v-for="item in blueprint.social_emotion_database.slice(0, 6)" :key="item.key">
+              <strong>{{ item.label }}</strong>
+              <p>{{ item.pain }}</p>
+              <span>{{ item.positive_resolution }}</span>
+            </article>
+          </div>
+        </div>
+        <div v-if="blueprint.world_bible" class="novel-os-section">
+          <div class="novel-section-title">世界观设计模块</div>
+          <div class="novel-insight-grid">
+            <span>
+              时间背景
+              <strong>{{ blueprint.world_bible.time_background }}</strong>
+            </span>
+            <span>
+              社会体系
+              <strong>{{ blueprint.world_bible.society_system }}</strong>
+            </span>
+            <span>
+              规则体系
+              <strong>{{ blueprint.world_bible.rule_system }}</strong>
+            </span>
+            <span>
+              力量体系
+              <strong>{{ blueprint.world_bible.power_system }}</strong>
+            </span>
+          </div>
+        </div>
+        <div v-if="blueprint.character_life_system?.length" class="novel-os-section">
+          <div class="novel-section-title">人物生命系统</div>
+          <div class="novel-character-grid">
+            <article v-for="character in blueprint.character_life_system" :key="character.name">
+              <strong>{{ character.name }} · {{ character.role }}</strong>
+              <p>{{ character.background }}</p>
+              <span>心理矛盾：{{ character.inner_conflict }}</span>
+              <span>成长路线：{{ character.growth_route }}</span>
+            </article>
+          </div>
+        </div>
+        <div v-if="planPreview.length" class="novel-os-section">
+          <div class="novel-section-title">100章节规划系统</div>
+          <div class="novel-plan-table">
+            <div class="novel-plan-head">
+              <span>章</span>
+              <span>目标</span>
+              <span>冲突</span>
+              <span>悬念</span>
+            </div>
+            <div v-for="item in planPreview" :key="item.chapter" class="novel-plan-row">
+              <span>V{{ item.volume }} · {{ item.chapter }}</span>
+              <strong>{{ item.chapter_goal }}</strong>
+              <em>{{ item.plot_conflict }}</em>
+              <small>{{ item.hook }}</small>
+            </div>
+          </div>
+        </div>
+        <div v-if="blueprint.professional_skills?.length" class="novel-os-section">
+          <div class="novel-section-title">专业 Skill 调度</div>
+          <div class="novel-professional-skill-grid compact">
+            <article v-for="skill in blueprint.professional_skills" :key="skill.id">
+              <span>{{ skill.id }}</span>
+              <strong>{{ skill.name }}</strong>
+              <p>{{ skill.output }}</p>
+            </article>
+          </div>
+        </div>
+        <div v-if="blueprint.skill_plugins?.length" class="novel-os-section">
+          <div class="novel-section-title">AI小说生产团队 Skill插件体系</div>
+          <div class="novel-plugin-grid">
+            <article v-for="plugin in blueprint.skill_plugins" :key="plugin.skill_id">
+              <div>
+                <span>{{ plugin.skill_id }} · v{{ plugin.version }}</span>
+                <strong>{{ plugin.skill_name }}</strong>
+                <em>{{ plugin.enabled_status ? "启用" : "关闭" }} · 优先级 {{ plugin.priority }}</em>
+              </div>
+              <p>{{ plugin.description }}</p>
+              <small>触发：{{ plugin.trigger_condition }}</small>
+              <small>评价：{{ plugin.evaluation_rule }}</small>
+            </article>
+          </div>
+        </div>
+        <div v-if="blueprint.skill_calling_rules?.length" class="novel-os-section">
+          <div class="novel-section-title">Skill调用规则与质量评价</div>
+          <div class="novel-call-rule-grid compact">
+            <article v-for="rule in blueprint.skill_calling_rules" :key="rule.stage">
+              <strong>{{ rule.stage }}</strong>
+              <span>{{ rule.skills.join(" / ") }}</span>
+              <p>{{ rule.handoff }}</p>
+            </article>
+          </div>
+          <div class="novel-editor-rule">{{ blueprint.skill_plugin_architecture?.retry_rule }}</div>
+        </div>
+        <div v-if="blueprint.master_chief_editor_workflow" class="novel-os-section">
+          <div class="novel-section-title">总编评分机制</div>
+          <div class="novel-score-rubric">
+            <article v-for="item in blueprint.master_chief_editor_workflow.chapter_score_rubric" :key="item.key">
+              <span>{{ item.points }}分</span>
+              <strong>{{ item.label }}</strong>
+              <p>{{ item.pass_rule }}</p>
+            </article>
+          </div>
+          <div class="novel-editor-rule">{{ blueprint.master_chief_editor_workflow.optimization_rule }}</div>
+        </div>
+        <div v-if="blueprint.novel_memory_engine" class="novel-os-section">
+          <div class="novel-section-title">Novel Memory Engine 长期记忆引擎</div>
+          <div class="novel-memory-layer-grid compact">
+            <article v-for="layer in blueprint.novel_memory_engine.memory_layers" :key="layer.key">
+              <span>{{ layer.name }}</span>
+              <strong>{{ layer.purpose }}</strong>
+              <small>{{ layer.read_rule }}</small>
+            </article>
+          </div>
+          <div class="novel-memory-manager-grid">
+            <article v-for="manager in blueprint.novel_memory_engine.managers" :key="manager.name">
+              <strong>{{ manager.name }}</strong>
+              <p>{{ manager.responsibility }}</p>
+              <span>{{ manager.example_guard || manager.example_state || manager.output }}</span>
+            </article>
+          </div>
+          <div class="novel-context-package">
+            <strong>Chapter Context Package</strong>
+            <p>{{ blueprint.novel_memory_engine.chapter_context_package.description }}</p>
+            <span v-for="field in blueprint.novel_memory_engine.chapter_context_package.fields" :key="field">{{ field }}</span>
+          </div>
+          <div class="novel-memory-flow">
+            <span v-for="step in blueprint.novel_memory_engine.update_pipeline" :key="step">{{ step }}</span>
+          </div>
+          <div class="novel-db-table-grid">
+            <article v-for="table in blueprint.novel_memory_engine.database_tables" :key="table.name">
+              <strong>{{ table.name }}</strong>
+              <p>{{ table.purpose }}</p>
+              <small>{{ table.fields.join(" · ") }}</small>
+            </article>
+          </div>
+        </div>
+        <div v-if="blueprint.commercial_intelligence" class="novel-os-section">
+          <div class="novel-section-title">小说商业智能与自动优化系统</div>
+          <div class="novel-commercial-dimension-grid">
+            <article v-for="dimension in blueprint.commercial_intelligence.bestseller_analysis_dimensions" :key="dimension.key">
+              <span>{{ dimension.name }}</span>
+              <strong>{{ dimension.output }}</strong>
+              <p>{{ (dimension.extract || dimension.categories || []).join(" / ") }}</p>
+            </article>
+          </div>
+          <div class="novel-reader-grid">
+            <article v-for="reader in blueprint.commercial_intelligence.reader_personas" :key="reader.id">
+              <strong>{{ reader.name }} · {{ reader.profile }}</strong>
+              <span>{{ reader.focus.join(" / ") }}</span>
+            </article>
+          </div>
+          <div class="novel-score-rubric">
+            <article v-for="item in blueprint.commercial_intelligence.novel_quality_score.dimensions" :key="item.key">
+              <span>{{ item.points }}分</span>
+              <strong>{{ item.label }}</strong>
+              <p>{{ blueprint.commercial_intelligence.novel_quality_score.low_score_action }}</p>
+            </article>
+          </div>
+          <div class="novel-memory-flow">
+            <span v-for="step in blueprint.commercial_intelligence.feedback_loop" :key="step">{{ step }}</span>
+          </div>
+          <div class="novel-pattern-grid">
+            <article v-for="pattern in blueprint.commercial_intelligence.story_pattern_database" :key="pattern.name">
+              <span>{{ pattern.type }}</span>
+              <strong>{{ pattern.name }}</strong>
+              <p>{{ pattern.usage }}</p>
+            </article>
+          </div>
+          <div class="novel-db-table-grid">
+            <article v-for="table in blueprint.commercial_intelligence.database_tables" :key="table.name">
+              <strong>{{ table.name }}</strong>
+              <p>{{ table.purpose }}</p>
+              <small>{{ table.fields.join(" · ") }}</small>
+            </article>
+          </div>
+        </div>
         <label class="field wide blueprint-promise-field">
           <span>故事承诺（会写入故事档案，后面每章都按它校准）</span>
           <textarea
@@ -501,15 +868,20 @@ export default {
             <input v-model="storyDraft.name" placeholder="例：烬月灯" />
           </label>
           <label class="field">
-            <span>类型</span>
-            <select v-model="storyDraft.genre">
-              <option value="romance_fantasy">言情玄幻</option>
-              <option value="xianxia">修仙升级</option>
-              <option value="fantasy_upgrade">玄幻升级</option>
-              <option value="fantasy">玄幻</option>
-              <option value="romance">言情</option>
-              <option value="modern_romance">现代言情</option>
-            </select>
+          <span>类型</span>
+          <select v-model="storyDraft.genre">
+            <option value="romance_fantasy">言情玄幻</option>
+            <option value="urban">都市</option>
+            <option value="xianxia">修仙升级</option>
+            <option value="fantasy_upgrade">玄幻升级</option>
+            <option value="fantasy">玄幻</option>
+            <option value="transmigration">穿越</option>
+            <option value="female_lead_ancient">古装大女主</option>
+            <option value="eastern_mysticism">东方玄学</option>
+            <option value="sci_fi">科幻</option>
+            <option value="romance">言情</option>
+            <option value="modern_romance">现代言情</option>
+          </select>
           </label>
           <div class="inline-story-actions">
             <button class="btn accent small" :disabled="loading.createStory" @click="createStoryInline">
