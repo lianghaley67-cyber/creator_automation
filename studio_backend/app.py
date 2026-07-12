@@ -10,6 +10,7 @@ import json
 import time
 import urllib.parse
 import urllib.request
+import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -2008,6 +2009,181 @@ def get_channel_skills() -> dict[str, Any]:
 
 
 # ── 连载故事档案 API ──────────────────────────────────────────────────────
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _normalize_book_payload(body: dict[str, Any], *, generated: dict[str, Any] | None = None) -> dict[str, Any]:
+    generated = generated or {}
+    title = str(body.get("title") or generated.get("title") or "未命名小说").strip() or "未命名小说"
+    genre = str(body.get("genre") or generated.get("genre") or "romance_fantasy").strip() or "romance_fantasy"
+    hook = str(body.get("hook") or body.get("idea") or generated.get("hook") or "").strip()
+    created_at = str(generated.get("created_at") or body.get("created_at") or now_iso())
+    return {
+        "id": str(body.get("id") or generated.get("id") or uuid.uuid4()),
+        "title": title,
+        "genre": genre,
+        "hook": hook,
+        "core_design": _as_dict(body.get("core_design") or generated.get("core_design")),
+        "real_event_strategy": _as_dict(body.get("real_event_strategy") or generated.get("real_event_strategy")),
+        "world_setting": _as_dict(body.get("world_setting") or generated.get("world_setting")),
+        "characters": _as_list(body.get("characters") or generated.get("characters")),
+        "plot_outline": _as_list(body.get("plot_outline") or generated.get("plot_outline")),
+        "created_at": created_at,
+        "updated_at": now_iso(),
+        "blueprint": _as_dict(body.get("blueprint") or generated.get("blueprint")),
+    }
+
+
+def _book_from_blueprint(input_data: dict[str, Any], blueprint: dict[str, Any]) -> dict[str, Any]:
+    book_profile = _as_dict(blueprint.get("book_profile"))
+    world_bible = _as_dict(blueprint.get("world_bible"))
+    character_life_system = _as_dict(blueprint.get("character_life_system"))
+    chapter_outline = _as_list(blueprint.get("chapter_outline"))
+    topic_center = _as_dict(blueprint.get("topic_center"))
+    social_emotion_database = _as_list(blueprint.get("social_emotion_database"))
+    protagonist = character_life_system.get("protagonist") if isinstance(character_life_system.get("protagonist"), dict) else {}
+    supporting_cast = character_life_system.get("supporting_cast") if isinstance(character_life_system.get("supporting_cast"), list) else []
+    characters: list[dict[str, Any]] = []
+    if protagonist:
+        characters.append(protagonist)
+    characters.extend([item for item in supporting_cast if isinstance(item, dict)])
+
+    core_design = _as_dict(input_data.get("core_design"))
+    if not core_design:
+        core_design = {
+            "satisfaction_design": topic_center.get("commercial_potential") or "以成长、反转和阶段性胜利保持追读",
+            "emotion_curve": book_profile.get("emotion_tone") or str(input_data.get("emotional_core") or ""),
+            "reader_profile": topic_center.get("audience_profile") or str(input_data.get("audience") or ""),
+            "commercial_tags": str(input_data.get("market_positioning") or ""),
+        }
+
+    real_event_strategy = _as_dict(input_data.get("real_event_strategy"))
+    if not real_event_strategy:
+        real_event_strategy = {
+            "based_on_real_event": False,
+            "event_source": "personal",
+            "adaptation_level": "medium",
+            "risk_avoidance": "人物、地点和关键事件均虚构化，保留情绪真实，不影射具体个人。",
+        }
+
+    world_setting = {
+        "time_background": world_bible.get("time_background") or str(input_data.get("worldview_seed") or ""),
+        "social_system": world_bible.get("social_system") or "",
+        "relationship_network": character_life_system.get("relationship_map") or [],
+        "rule_system": world_bible.get("rule_system") or [],
+        "power_system": world_bible.get("power_system") or "",
+        "raw": world_bible,
+    }
+    plot_outline = [
+        {
+            "chapter": item.get("chapter"),
+            "goal": item.get("goal"),
+            "conflict": item.get("conflict"),
+            "emotion": item.get("emotion"),
+            "hook": item.get("hook"),
+        }
+        for item in chapter_outline
+        if isinstance(item, dict)
+    ]
+    if not plot_outline:
+        plot_outline = [
+            {
+                "chapter": 1,
+                "goal": "建立主角困境、核心钩子和第一个选择",
+                "conflict": str(input_data.get("reader_pain") or "现实压力与主角目标发生冲突"),
+                "emotion": str(input_data.get("emotional_core") or "压抑后的希望"),
+                "hook": str(input_data.get("hook") or input_data.get("idea") or "新的问题出现"),
+            }
+        ]
+
+    return _normalize_book_payload(
+        {
+            **input_data,
+            "title": book_profile.get("title") or input_data.get("title"),
+            "genre": book_profile.get("genre") or input_data.get("genre"),
+            "hook": book_profile.get("one_sentence") or input_data.get("hook") or input_data.get("idea"),
+            "core_design": core_design,
+            "real_event_strategy": real_event_strategy,
+            "world_setting": world_setting,
+            "characters": characters,
+            "plot_outline": plot_outline,
+            "blueprint": blueprint,
+        }
+    )
+
+
+@app.post("/api/ai/generate")
+async def api_ai_generate_blueprint(request: Request) -> dict[str, Any]:
+    """Generate a structured book blueprint JSON for the author workspace."""
+    from .story_workflow import build_story_blueprint
+
+    body = await request.json()
+    input_data = body if isinstance(body, dict) else {}
+    blueprint = build_story_blueprint(input_data)
+    return _book_from_blueprint(input_data, blueprint)
+
+
+@app.get("/books")
+@app.get("/api/books")
+def api_list_books() -> dict[str, Any]:
+    return {"items": _sorted(store.list_section("books"))}
+
+
+@app.post("/books")
+@app.post("/api/books")
+async def api_create_book(request: Request) -> dict[str, Any]:
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
+    book = _normalize_book_payload(body)
+    if not book["title"]:
+        raise HTTPException(status_code=400, detail="书名不能为空")
+    store.add_record("books", book)
+    return book
+
+
+@app.get("/books/{book_id}")
+@app.get("/api/books/{book_id}")
+def api_get_book(book_id: str) -> dict[str, Any]:
+    book = store.find_record("books", book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="小说不存在")
+    return book
+
+
+@app.patch("/books/{book_id}")
+@app.patch("/api/books/{book_id}")
+async def api_update_book(book_id: str, request: Request) -> dict[str, Any]:
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
+    patch = _normalize_book_payload({**body, "id": book_id})
+    patch["updated_at"] = now_iso()
+    try:
+        return store.update_record("books", book_id, patch)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="小说不存在") from exc
+
+
+@app.delete("/books/{book_id}")
+@app.delete("/api/books/{book_id}")
+def api_delete_book(book_id: str) -> dict[str, Any]:
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        books = state.setdefault("books", [])
+        before = len(books)
+        state["books"] = [book for book in books if str(book.get("id")) != book_id]
+        return {"ok": True, "book_id": book_id, "deleted": before - len(state["books"])}
+
+    result = store.mutate(updater)
+    if not result.get("deleted"):
+        raise HTTPException(status_code=404, detail="小说不存在")
+    return result
 
 def _normalize_story_genre_for_db(raw: str) -> str:
     """Map UI/planning genre labels to the values accepted by the current story table."""

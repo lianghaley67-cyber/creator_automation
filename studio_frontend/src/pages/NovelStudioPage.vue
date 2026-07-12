@@ -20,12 +20,17 @@ export default {
     const workflow = ref(null);
     const diagnosis = ref(null);
     const chapterBrief = ref(null);
+    const books = ref([]);
+    const selectedBookId = ref("");
+    const editingBookId = ref("");
     const loading = reactive({
       workflow: false,
       diagnosis: false,
       blueprint: false,
       saveBlueprint: false,
       createStory: false,
+      books: false,
+      deleteBook: "",
       brief: false,
       chapter: false,
     });
@@ -40,6 +45,18 @@ export default {
       emotional_core: "压抑处境中的选择、成长、希望和关系确认",
       worldview_seed: "",
       protagonist_seed: "",
+      real_event_strategy: {
+        based_on_real_event: false,
+        event_source: "news",
+        adaptation_level: "medium",
+        risk_avoidance: "人物、地点、时间线和关键事件均虚构化，不影射具体个人，保留现实情绪但避免复刻真实案件。",
+      },
+      core_design: {
+        satisfaction_design: "弱势处境中靠智慧破局，阶段性获得尊重、资源和同盟",
+        emotion_curve: "压抑开局 -> 发现机会 -> 小胜释放 -> 新危机牵引",
+        reader_profile: "喜欢强情绪、快节奏、女性成长和关系拉扯的连载读者",
+        commercial_tags: "番茄,女频,成长,逆袭,强钩子",
+      },
       chapter_count: 100,
       first_volume_count: 10,
     });
@@ -79,10 +96,13 @@ export default {
       hasBrief: Boolean(chapterBrief.value),
       generating: loading.chapter,
     }));
-    const projectCards = computed(() => (ctx.stories.value || []).map((story) => ({
-      ...story,
-      production_status: storyProductionStatus(story),
-      quality_score: ctx.selectedStoryId.value === story.id && diagnosis.value ? diagnosis.value.score : "--",
+    const selectedBook = computed(() => books.value.find((book) => book.id === selectedBookId.value) || null);
+    const projectCards = computed(() => (books.value || []).map((book) => ({
+      ...book,
+      name: book.title,
+      production_status: book.plot_outline?.length ? "策划完成" : "创意阶段",
+      last_chapter_number: book.chapter_count || 0,
+      quality_score: book.quality_score || "--",
     })));
 
     function normalizeStoryGenre(raw) {
@@ -165,24 +185,162 @@ export default {
       }
     }
 
-    async function createBlueprint() {
+    async function loadBooks() {
+      loading.books = true;
+      try {
+        const result = await ctx.requestApi("/books", {}, 10000);
+        books.value = Array.isArray(result?.items) ? result.items : [];
+        if (!selectedBookId.value && books.value[0]) {
+          selectedBookId.value = books.value[0].id;
+        }
+      } catch (err) {
+        ctx.setError(`小说列表加载失败：${err.message}`);
+      } finally {
+        loading.books = false;
+      }
+    }
+
+    function collectBookBlueprintInput() {
+      return {
+        title: blueprintForm.title.trim(),
+        genre: normalizeStoryGenre(blueprintForm.genre),
+        hook: blueprintForm.idea.trim(),
+        idea: blueprintForm.idea.trim(),
+        audience: blueprintForm.audience,
+        tone: blueprintForm.tone,
+        market_positioning: blueprintForm.market_positioning,
+        reader_pain: blueprintForm.reader_pain,
+        emotional_core: blueprintForm.emotional_core,
+        worldview_seed: blueprintForm.worldview_seed,
+        protagonist_seed: blueprintForm.protagonist_seed,
+        chapter_count: blueprintForm.chapter_count,
+        first_volume_count: blueprintForm.first_volume_count,
+        real_event_strategy: {
+          ...blueprintForm.real_event_strategy,
+          based_on_real_event: Boolean(blueprintForm.real_event_strategy.based_on_real_event),
+        },
+        core_design: { ...blueprintForm.core_design },
+      };
+    }
+
+    async function generateBlueprint(input) {
+      return await ctx.requestApi("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }, 30000);
+    }
+
+    function bookToBlueprint(book) {
+      if (book?.blueprint?.book_profile) return book.blueprint;
+      return {
+        book_profile: {
+          title: book?.title || blueprintForm.title,
+          genre: book?.genre || blueprintForm.genre,
+          one_sentence: book?.hook || blueprintForm.idea,
+          promise: book?.core_design?.satisfaction_design || blueprintPromise.value,
+        },
+        topic_center: {
+          direction: book?.genre || blueprintForm.genre,
+          market_positioning: book?.core_design?.commercial_tags || blueprintForm.market_positioning,
+          audience_profile: book?.core_design?.reader_profile || blueprintForm.audience,
+          emotion_value: book?.core_design?.emotion_curve || blueprintForm.emotional_core,
+          commercial_potential: book?.core_design?.satisfaction_design || "",
+        },
+        world_bible: book?.world_setting || {},
+        character_life_system: {
+          protagonist: Array.isArray(book?.characters) ? book.characters[0] : null,
+          supporting_cast: Array.isArray(book?.characters) ? book.characters.slice(1) : [],
+        },
+        chapter_outline: Array.isArray(book?.plot_outline) ? book.plot_outline : [],
+        hundred_chapter_plan: Array.isArray(book?.plot_outline) ? book.plot_outline : [],
+      };
+    }
+
+    function fillFormFromBook(book) {
+      if (!book) return;
+      blueprintForm.title = book.title || "";
+      blueprintForm.genre = normalizeStoryGenre(book.genre);
+      blueprintForm.idea = book.hook || "";
+      blueprintForm.worldview_seed = book.world_setting?.time_background || book.world_setting?.power_system || "";
+      const protagonist = Array.isArray(book.characters) ? book.characters[0] : null;
+      blueprintForm.protagonist_seed = protagonist?.name || protagonist?.background || "";
+      blueprintForm.core_design = {
+        ...blueprintForm.core_design,
+        ...(book.core_design || {}),
+      };
+      blueprintForm.real_event_strategy = {
+        ...blueprintForm.real_event_strategy,
+        ...(book.real_event_strategy || {}),
+      };
+      blueprint.value = bookToBlueprint(book);
+      blueprintPromise.value = book.core_design?.satisfaction_design || blueprint.value?.book_profile?.promise || "";
+    }
+
+    async function createBookBlueprint() {
+      if (loading.blueprint) return;
+      const input = collectBookBlueprintInput();
+      if (!input.title || !input.hook) {
+        ctx.setError("请先填写书名和一句话想法。");
+        return;
+      }
       loading.blueprint = true;
       try {
-        blueprint.value = await ctx.requestApi("/api/stories/planning/blueprint", {
+        const generated = await generateBlueprint(input);
+        const saved = await ctx.requestApi("/books", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(blueprintForm),
+          body: JSON.stringify({
+            ...generated,
+            core_design: generated.core_design || input.core_design,
+            real_event_strategy: generated.real_event_strategy || input.real_event_strategy,
+          }),
         }, 15000);
-        blueprintPromise.value = blueprint.value?.book_profile?.promise || "";
-        if (!storyDraft.name && blueprint.value?.book_profile?.title) {
-          storyDraft.name = blueprint.value.book_profile.title;
-        }
-        storyDraft.genre = normalizeStoryGenre(blueprint.value?.book_profile?.genre || blueprintForm.genre || storyDraft.genre);
-        ctx.setNotice("开书蓝图已生成，先确认方向，再进入章节。");
+        blueprint.value = bookToBlueprint(saved);
+        blueprintPromise.value = saved.core_design?.satisfaction_design || blueprint.value?.book_profile?.promise || "";
+        selectedBookId.value = saved.id;
+        editingBookId.value = "";
+        storyDraft.name = saved.title || input.title;
+        storyDraft.genre = normalizeStoryGenre(saved.genre || input.genre);
+        await loadBooks();
+        ctx.setNotice("小说创建成功，开书蓝图已写入数据库。");
       } catch (err) {
-        ctx.setError(`开书策划失败：${err.message}`);
+        ctx.setError(`开书蓝图生成失败：${err.message}`);
       } finally {
         loading.blueprint = false;
+      }
+    }
+
+    async function createBlueprint() {
+      return createBookBlueprint();
+    }
+
+    function continueBook(book) {
+      selectedBookId.value = book.id;
+      fillFormFromBook(book);
+      ctx.setNotice(`已载入「${book.title}」，可以继续生成章节 Brief 或编辑蓝图。`);
+    }
+
+    function editBook(book) {
+      selectedBookId.value = book.id;
+      editingBookId.value = book.id;
+      fillFormFromBook(book);
+      ctx.setNotice("已进入编辑状态，修改后可重新生成并保存新蓝图。");
+    }
+
+    async function deleteBook(book) {
+      if (!book?.id) return;
+      if (!window.confirm(`确定删除《${book.title || "未命名小说"}》吗？此操作会从数据库移除该小说项目。`)) return;
+      loading.deleteBook = book.id;
+      try {
+        await ctx.requestApi(`/books/${encodeURIComponent(book.id)}`, { method: "DELETE" }, 10000);
+        if (selectedBookId.value === book.id) selectedBookId.value = "";
+        await loadBooks();
+        ctx.setNotice("小说已删除。");
+      } catch (err) {
+        ctx.setError(`删除小说失败：${err.message}`);
+      } finally {
+        loading.deleteBook = "";
       }
     }
 
@@ -361,7 +519,7 @@ export default {
     }
 
     onMounted(async () => {
-      await Promise.allSettled([loadWorkflow(), ctx.loadStories(), ctx.fanqieLoadSettings(), ctx.loadPresetTopicsAndSkills()]);
+      await Promise.allSettled([loadWorkflow(), loadBooks(), ctx.loadStories(), ctx.fanqieLoadSettings(), ctx.loadPresetTopicsAndSkills()]);
       ensureNovelSkillSelected();
       syncBlueprintTitleFromStory();
     });
@@ -376,6 +534,10 @@ export default {
       workflow,
       diagnosis,
       chapterBrief,
+      books,
+      selectedBookId,
+      selectedBook,
+      editingBookId,
       loading,
       blueprintForm,
       blueprint,
@@ -395,6 +557,12 @@ export default {
       projectCards,
       storyProductionStatus,
       uploadNovelSkill,
+      loadBooks,
+      generateBlueprint,
+      createBookBlueprint,
+      continueBook,
+      editBook,
+      deleteBook,
       ensureNovelSkillSelected,
       openStoryDraft,
       createStoryInline,
@@ -434,28 +602,34 @@ export default {
           <h2>我的小说</h2>
           <div class="meta">管理项目进度，选择一本书进入生产。</div>
         </div>
-        <button class="btn accent" @click="openStoryDraft">+ 创建小说</button>
+        <button class="btn accent" :disabled="loading.blueprint" @click="createBookBlueprint">
+          {{ loading.blueprint ? "创建中..." : "+ 创建小说" }}
+        </button>
       </div>
-      <div v-if="!projectCards.length" class="novel-empty">还没有小说项目。先输入创意，或点击创建小说。</div>
+      <div v-if="loading.books" class="novel-empty">正在读取小说项目...</div>
+      <div v-else-if="!projectCards.length" class="novel-empty">还没有小说项目。先输入创意，或点击创建小说。</div>
       <div v-else class="novel-project-grid">
         <article
-          v-for="story in projectCards"
-          :key="story.id"
+          v-for="book in projectCards"
+          :key="book.id"
           class="novel-project-card"
-          :class="{ active: selectedStoryId === story.id }"
-          @click="selectedStoryId = story.id"
+          :class="{ active: selectedBookId === book.id }"
+          @click="continueBook(book)"
         >
           <div>
-            <strong>{{ story.name }}</strong>
-            <span>{{ story.genre || "未分类" }} · {{ story.production_status }}</span>
+            <strong>{{ book.title }}</strong>
+            <span>{{ book.genre || "未分类" }} · {{ book.production_status }}</span>
           </div>
           <div class="novel-project-meta">
-            <span>章节 {{ story.last_chapter_number || 0 }}</span>
-            <span>质量 {{ story.quality_score }}</span>
+            <span>规划 {{ book.plot_outline?.length || 0 }} 节点</span>
+            <span>质量 {{ book.quality_score }}</span>
           </div>
           <div class="novel-actions compact">
-            <button class="btn secondary small" @click.stop="openStoryManage(story)">章节</button>
-            <button class="btn secondary small" @click.stop="selectedStoryId = story.id; diagnoseStory()">诊断</button>
+            <button class="btn secondary small" @click.stop="continueBook(book)">继续写</button>
+            <button class="btn secondary small" @click.stop="editBook(book)">编辑</button>
+            <button class="btn secondary small danger" :disabled="loading.deleteBook === book.id" @click.stop="deleteBook(book)">
+              {{ loading.deleteBook === book.id ? "删除中" : "删除" }}
+            </button>
           </div>
         </article>
       </div>
@@ -474,7 +648,7 @@ export default {
       <div class="novel-command-main">
         <div class="novel-current-book">
           <span>当前小说</span>
-          <strong>{{ selectedStory?.name || blueprintForm.title || "未创建" }}</strong>
+          <strong>{{ selectedBook?.title || selectedStory?.name || blueprintForm.title || "未创建" }}</strong>
           <p>{{ commandMetrics.currentTask }}</p>
         </div>
         <div class="novel-dashboard-grid">
@@ -676,7 +850,7 @@ export default {
           <h2>1. 开书策划</h2>
           <div class="meta">先确认主题框架，避免写到第十章才发现方向错了。</div>
         </div>
-        <button class="btn accent" :disabled="loading.blueprint" @click="createBlueprint">
+        <button class="btn accent" :disabled="loading.blueprint" @click="createBookBlueprint">
           {{ loading.blueprint ? "生成中..." : "生成开书蓝图" }}
         </button>
       </div>
@@ -724,6 +898,49 @@ export default {
         <label class="field wide">
           <span>核心情绪价值</span>
           <textarea v-model="blueprintForm.emotional_core" rows="2" placeholder="例：被误解后仍然成长，靠智慧和同盟夺回主动权。"></textarea>
+        </label>
+        <label class="field">
+          <span>是否基于真实事件</span>
+          <select v-model="blueprintForm.real_event_strategy.based_on_real_event">
+            <option :value="false">否，完全虚构</option>
+            <option :value="true">是，需要改编</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>事件来源</span>
+          <select v-model="blueprintForm.real_event_strategy.event_source">
+            <option value="news">新闻</option>
+            <option value="history">历史</option>
+            <option value="personal">个人经历</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>改编程度</span>
+          <select v-model="blueprintForm.real_event_strategy.adaptation_level">
+            <option value="low">低：保留大框架</option>
+            <option value="medium">中：重组人物与事件</option>
+            <option value="high">高：只保留情绪内核</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>商业标签</span>
+          <input v-model="blueprintForm.core_design.commercial_tags" placeholder="例：番茄,女频,逆袭,强钩子" />
+        </label>
+        <label class="field wide">
+          <span>风险规避策略</span>
+          <textarea v-model="blueprintForm.real_event_strategy.risk_avoidance" rows="2" placeholder="例：人物地点虚构化，不复刻真实案件细节。"></textarea>
+        </label>
+        <label class="field wide">
+          <span>爽点设计</span>
+          <textarea v-model="blueprintForm.core_design.satisfaction_design" rows="2" placeholder="例：主角靠智慧破局，每3章一次阶段性小胜。"></textarea>
+        </label>
+        <label class="field">
+          <span>情绪曲线</span>
+          <input v-model="blueprintForm.core_design.emotion_curve" placeholder="例：压抑 -> 破局 -> 爽感释放 -> 新悬念" />
+        </label>
+        <label class="field">
+          <span>读者画像</span>
+          <input v-model="blueprintForm.core_design.reader_profile" placeholder="例：高压现实中需要成长代偿的女频读者" />
         </label>
         <label class="field">
           <span>世界观种子</span>

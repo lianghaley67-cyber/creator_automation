@@ -41,6 +41,7 @@ DEFAULT_STATE: dict[str, Any] = {
     "stock_analysis_history": [], # 股票AI分析历史
     "stock_skill_runs": [],     # 股票Skill运行历史
     "avatar_settings": {},      # 数字人设置
+    "books": [],                # 小说生产工作台项目
 }
 
 
