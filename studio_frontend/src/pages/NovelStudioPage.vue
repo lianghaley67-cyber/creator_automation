@@ -99,6 +99,10 @@ export default {
       generating: loading.chapter,
     }));
     const selectedBook = computed(() => books.value.find((book) => book.id === selectedBookId.value) || null);
+    const latestBookChapter = computed(() => {
+      const chapters = Array.isArray(storyArchive.value?.chapters) ? storyArchive.value.chapters : [];
+      return [...chapters].sort((a, b) => Number(b.chapter_number || 0) - Number(a.chapter_number || 0))[0] || null;
+    });
     const projectCards = computed(() => (books.value || []).map((book) => ({
       ...book,
       name: book.title,
@@ -565,6 +569,7 @@ export default {
       currentBookId,
       selectedBookId,
       selectedBook,
+      latestBookChapter,
       editingBookId,
       loading,
       blueprintForm,
@@ -1329,6 +1334,15 @@ export default {
         <button class="btn secondary" :disabled="loading.chapter || !currentBookId" @click="createChapterBrief">重新生成</button>
         <button class="btn secondary" :disabled="!currentBookId" @click="getStoryArchive()">刷新档案</button>
         <button v-if="storyArchive?.chapters?.length" class="btn secondary" @click="getStoryArchive()">查看已生成 {{ storyArchive.chapters.length }} 章</button>
+      </div>
+      <div v-if="latestBookChapter" class="brief-card chapter-output-card">
+        <strong>{{ latestBookChapter.title }}</strong>
+        <p>
+          质量 {{ latestBookChapter.quality?.score || "--" }} ·
+          沉浸感 {{ latestBookChapter.quality?.editor_immersion_score || "--" }} ·
+          审核 {{ latestBookChapter.editorial_review?.pass ? "通过" : "需复核" }}
+        </p>
+        <pre>{{ latestBookChapter.content }}</pre>
       </div>
     </section>
 

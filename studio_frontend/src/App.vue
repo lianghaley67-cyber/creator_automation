@@ -7588,6 +7588,17 @@ textarea {
   font-size: 16px;
 }
 
+.chapter-output-card pre {
+  margin: 12px 0 0;
+  padding: 14px;
+  border-radius: 8px;
+  background: rgba(3, 11, 20, 0.45);
+  color: #d8e7f7;
+  font: 14px/1.9 "Microsoft YaHei", "PingFang SC", sans-serif;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .blueprint-promise-field {
   margin-top: 10px;
 }

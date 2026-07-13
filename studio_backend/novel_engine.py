@@ -333,29 +333,180 @@ def build_chapter_brief_from_book(book: dict[str, Any], archive: dict[str, Any],
     }
 
 
+def _character_name(book: dict[str, Any]) -> str:
+    protagonist = (_list(book.get("characters")) or [{"name": "主角"}])[0]
+    if isinstance(protagonist, dict):
+        name = _text(protagonist.get("name"), "主角")
+        return "主角" if name in {"", "核心视角"} else name
+    return "主角"
+
+
+def _previous_summary(archive: dict[str, Any]) -> str:
+    chapters = _list(archive.get("chapters"))
+    if not chapters:
+        return "故事刚开始，读者还不知道主角会如何面对第一个选择。"
+    latest = sorted(chapters, key=lambda item: int(item.get("chapter_number") or 0))[-1]
+    return _text(latest.get("summary") or latest.get("title") or latest.get("content"), "上一章留下的选择还没有完成。")[:220]
+
+
+def _director_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any]) -> dict[str, Any]:
+    plan = _dict(brief.get("chapterPlan"))
+    chapter_number = int(brief.get("chapter_number") or plan.get("chapter") or 1)
+    total = max(1, len(_list(book.get("plot_outline"))) or 100)
+    if chapter_number <= 3:
+        pace = "快开局，直接把主角推入异常事件，迅速建立读者问题。"
+    elif chapter_number <= total * 0.25:
+        pace = "持续加压，每章必须让主角获得一个新线索或付出一个代价。"
+    elif chapter_number <= total * 0.75:
+        pace = "中段升级，冲突不能横向重复，必须扩大代价和关系变化。"
+    else:
+        pace = "后段收束，回收伏笔同时打开终局压力。"
+    return {
+        "role": "Director",
+        "chapter_position": f"{chapter_number}/{total}",
+        "pace": pace,
+        "conflict_speed": "每200-300字发生一次行动、发现、关系变化或风险升级。",
+    }
+
+
+def _plot_designer_step(brief: dict[str, Any]) -> dict[str, Any]:
+    plan = _dict(brief.get("chapterPlan"))
+    return {
+        "role": "Plot Designer",
+        "opening_conflict": _text(plan.get("conflict"), "旧问题未解决，新压力突然压上来。"),
+        "chapter_goal": _text(plan.get("goal"), "推进一个具体行动，让主角获得线索、资源或关系变化。"),
+        "twist": _text(brief.get("twist"), "看似能解决问题的线索，反而暴露出更大的风险。"),
+        "hook": _text(plan.get("suspense") or brief.get("hook"), "章末留下一个具体问题或更高层威胁。"),
+    }
+
+
+def _character_manager_step(book: dict[str, Any], archive: dict[str, Any]) -> dict[str, Any]:
+    characters = _list(book.get("characters"))
+    protagonist = characters[0] if characters and isinstance(characters[0], dict) else {}
+    ally = next((item for item in characters[1:] if isinstance(item, dict)), {})
+    return {
+        "role": "Character Manager",
+        "protagonist": _text(protagonist.get("name"), "主角"),
+        "motivation": _text(protagonist.get("inner_conflict") or protagonist.get("psychological_conflict"), "想获得安全感，又害怕再次失去主动权。"),
+        "behavior_guard": "主角必须通过观察、选择和行动破局，不能突然降智或被动等待拯救。",
+        "relationship_shift": f"与{_text(ally.get('name'), '关键同盟')}的信任推进一小步，但保留新的疑点。",
+        "previous_summary": _previous_summary(archive),
+    }
+
+
+def _clean_chapter_text(text: str) -> str:
+    banned_prefixes = ["总结", "本章", "这一章", "下面", "以下", "作为", "我们可以看到"]
+    lines = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            if lines and lines[-1] != "":
+                lines.append("")
+            continue
+        if any(line.startswith(prefix) for prefix in banned_prefixes):
+            continue
+        if "公众号" in line or "提示词" in line or "JSON" in line:
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any], director: dict[str, Any], plot: dict[str, Any], character: dict[str, Any]) -> str:
+    title = _text(book.get("title"), "这本书")
+    world = _dict(book.get("world_setting"))
+    place = _text(world.get("time_background"), "夜色压低的城市")
+    protagonist = _character_name(book)
+    hook = plot["hook"]
+    user_note = _text(brief.get("user_note"))
+    previous = character["previous_summary"]
+    relation = character["relationship_shift"]
+    goal = plot["chapter_goal"]
+    conflict = plot["opening_conflict"]
+    twist = plot["twist"]
+    note_line = f"她想起自己写在便签上的那句话：{user_note}" if user_note else "她把那句快要冲出口的解释咽了回去。"
+
+    paragraphs = [
+        f"警报响起的时候，{protagonist}正站在{place}的玻璃门前。",
+        f"门内的屏幕一排排熄灭，只剩最中间那行红字还亮着：{conflict}",
+        "人群先是安静了一秒，随即炸开。有人拍门，有人打电话，有人骂系统又在抽风。可她没有动。因为那行红字下面，还有一串只有她见过的编号。",
+        f"那编号，和《{title}》开端里压在她身上的秘密一模一样。",
+        f"{previous}",
+        f"{protagonist}攥紧手机，掌心全是汗。她知道自己不能退。{goal}",
+        "一个穿灰色外套的男人从人群后方挤过来，低声问：“你也看见了？”",
+        "她抬眼看他。男人的袖口沾着雨水，右手却一直按在内袋上，像那里藏着什么比命还要紧的东西。",
+        "“看见什么？”她反问。",
+        "男人没有立刻回答，只把一张折成四方的纸塞进她手里。纸角很旧，边缘被磨得发白，上面只有一句话：不要相信第一次重启。",
+        f"{note_line}",
+        "大厅的灯忽然全灭。",
+        "黑暗里，有人尖叫。紧接着，玻璃门外传来沉闷的撞击声，一下，又一下，像有什么东西正在从另一侧试图进来。",
+        f"{protagonist}后退半步，肩膀撞上冰冷的墙。她能感觉到所有人的恐慌正在往她身上涌，可真正让她心口发紧的，是手机屏幕自动亮起。",
+        "上面多了一条倒计时。",
+        "十分钟。",
+        "九分五十九秒。",
+        "灰衣男人压低声音：“你手里那张纸，是上一轮留下来的。只有你能打开安全门。”",
+        "“凭什么是我？”",
+        "“因为上一轮，是你亲手关上的。”",
+        "这句话像一根细针，猛地扎进她脑子里。许多破碎的画面一闪而过：奔跑的脚步、刺眼的白光、有人在她耳边喊不要回头。",
+        "她疼得弯下腰，却在下一秒听见门外的撞击停了。",
+        "安静比混乱更可怕。",
+        "所有人都看向玻璃门。",
+        "门外站着一个和她长得一模一样的人。",
+        f"{relation}",
+        f"{protagonist}的呼吸一点点沉下去。她没有冲过去，也没有尖叫。她把纸条翻到背面，看见背面还有一行更小的字。",
+        f"{twist}",
+        "倒计时跳到七分钟。",
+        "灰衣男人催她：“开门，还是不开？”",
+        f"{protagonist}抬起头，看着门外那个“自己”缓缓抬手，指尖贴上玻璃，一笔一画写下四个字。",
+        f"{hook}",
+    ]
+    return _clean_chapter_text("\n\n".join(paragraphs))
+
+
+def _editor_step(content: str) -> dict[str, Any]:
+    issues: list[str] = []
+    if len(content) < 900:
+        issues.append("正文长度偏短，连载沉浸感不足。")
+    if any(word in content for word in ["总结", "本章讲述", "本文", "公众号", "提示词", "JSON"]):
+        issues.append("存在说明/总结/平台化表达。")
+    if content.count("？") + content.count("?") < 2:
+        issues.append("对话和问题牵引不足。")
+    if not content.rstrip().endswith(("？", "。", "！", "”")):
+        issues.append("结尾不完整。")
+    return {
+        "role": "Editor",
+        "pass": not issues,
+        "issues": issues,
+        "immersion_score": max(60, 95 - len(issues) * 15),
+    }
+
+
+def _chapter_summary(content: str) -> str:
+    compact = " ".join(part.strip() for part in content.splitlines() if part.strip())
+    return compact[:180]
+
+
 def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any]) -> dict[str, Any]:
     plan = _dict(brief.get("chapterPlan"))
     chapter_number = int(brief.get("chapter_number") or plan.get("chapter") or 1)
     title = f"第{chapter_number}章：{_text(plan.get('goal'), '新的选择')[:24]}"
-    protagonist = (_list(book.get("characters")) or [{"name": "主角"}])[0]
-    protagonist_name = _text(protagonist.get("name"), "主角") if isinstance(protagonist, dict) else "主角"
-    content = (
-        f"{title}\n\n"
-        f"{protagonist_name}没有再等别人给答案。\n\n"
-        f"眼前的问题很具体：{plan.get('goal')} 可真正挡在面前的，是{plan.get('conflict')}\n\n"
-        "她先确认手里还能调动的资源，再把最危险的选择拆成三步。第一步，是让对手以为她还在原地；"
-        "第二步，是把关键线索交到可信的人手里；第三步，则是亲自去验证那个最不愿面对的答案。\n\n"
-        "这一次，她没有靠侥幸，也没有靠别人替她承担。她做出的每个决定都带着代价，却也让局面第一次向她倾斜。\n\n"
-        f"就在她以为终于抓住主动权时，新的消息送到了面前：{plan.get('suspense')}"
-    )
+    director = _director_step(book, archive, brief)
+    plot = _plot_designer_step(brief)
+    character = _character_manager_step(book, archive)
+    content = _writer_step(book, archive, brief, director, plot, character)
+    editor = _editor_step(content)
     review = analyze_story({"plot_outline": [plan], "characters": book.get("characters"), "core_design": book.get("core_design"), "real_event_strategy": book.get("real_event_strategy")})
+    review["editor_immersion_score"] = editor["immersion_score"]
+    review["score"] = round((float(review.get("score") or 0) + editor["immersion_score"]) / 2)
     return {
         "id": f"{book.get('id')}-{chapter_number}",
         "book_id": book.get("id"),
         "chapter_number": chapter_number,
         "title": title,
         "content": content,
+        "summary": _chapter_summary(content),
         "chapterPlan": plan,
         "quality": review,
+        "production_trace": [director, plot, character],
+        "editorial_review": editor,
         "created_at": book.get("updated_at"),
     }
