@@ -20,8 +20,10 @@ export default {
     const workflow = ref(null);
     const diagnosis = ref(null);
     const chapterBrief = ref(null);
+    const storyArchive = ref(null);
     const books = ref([]);
-    const selectedBookId = ref("");
+    const currentBookId = ref("");
+    const selectedBookId = currentBookId;
     const editingBookId = ref("");
     const loading = reactive({
       workflow: false,
@@ -46,16 +48,16 @@ export default {
       worldview_seed: "",
       protagonist_seed: "",
       real_event_strategy: {
-        based_on_real_event: false,
-        event_source: "news",
-        adaptation_level: "medium",
-        risk_avoidance: "人物、地点、时间线和关键事件均虚构化，不影射具体个人，保留现实情绪但避免复刻真实案件。",
+        enabled: false,
+        source_type: "个人",
+        adaptation_level: "中",
+        risk_control: "人物、地点、时间线和关键事件均虚构化，不影射具体个人，保留现实情绪但避免复刻真实案件。",
       },
       core_design: {
-        satisfaction_design: "弱势处境中靠智慧破局，阶段性获得尊重、资源和同盟",
-        emotion_curve: "压抑开局 -> 发现机会 -> 小胜释放 -> 新危机牵引",
-        reader_profile: "喜欢强情绪、快节奏、女性成长和关系拉扯的连载读者",
-        commercial_tags: "番茄,女频,成长,逆袭,强钩子",
+        爽点设计: "弱势处境中靠智慧破局，阶段性获得尊重、资源和同盟",
+        情绪曲线: "压抑开局 -> 发现机会 -> 小胜释放 -> 新危机牵引",
+        读者画像: "喜欢强情绪、快节奏、女性成长和关系拉扯的连载读者",
+        平台标签: "番茄,女频,成长,逆袭,强钩子",
       },
       chapter_count: 100,
       first_volume_count: 10,
@@ -190,8 +192,9 @@ export default {
       try {
         const result = await ctx.requestApi("/books", {}, 10000);
         books.value = Array.isArray(result?.items) ? result.items : [];
-        if (!selectedBookId.value && books.value[0]) {
-          selectedBookId.value = books.value[0].id;
+        if (currentBookId.value && !books.value.some((book) => book.id === currentBookId.value)) {
+          currentBookId.value = "";
+          storyArchive.value = null;
         }
       } catch (err) {
         ctx.setError(`小说列表加载失败：${err.message}`);
@@ -202,6 +205,7 @@ export default {
 
     function collectBookBlueprintInput() {
       return {
+        bookId: window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         title: blueprintForm.title.trim(),
         genre: normalizeStoryGenre(blueprintForm.genre),
         hook: blueprintForm.idea.trim(),
@@ -217,7 +221,7 @@ export default {
         first_volume_count: blueprintForm.first_volume_count,
         real_event_strategy: {
           ...blueprintForm.real_event_strategy,
-          based_on_real_event: Boolean(blueprintForm.real_event_strategy.based_on_real_event),
+          enabled: Boolean(blueprintForm.real_event_strategy.enabled),
         },
         core_design: { ...blueprintForm.core_design },
       };
@@ -231,6 +235,10 @@ export default {
       }, 30000);
     }
 
+    function coreValue(core, cnKey, legacyKey, fallback = "") {
+      return core?.[cnKey] || core?.[legacyKey] || fallback;
+    }
+
     function bookToBlueprint(book) {
       if (book?.blueprint?.book_profile) return book.blueprint;
       return {
@@ -238,14 +246,14 @@ export default {
           title: book?.title || blueprintForm.title,
           genre: book?.genre || blueprintForm.genre,
           one_sentence: book?.hook || blueprintForm.idea,
-          promise: book?.core_design?.satisfaction_design || blueprintPromise.value,
+          promise: coreValue(book?.core_design, "爽点设计", "satisfaction_design", blueprintPromise.value),
         },
         topic_center: {
           direction: book?.genre || blueprintForm.genre,
-          market_positioning: book?.core_design?.commercial_tags || blueprintForm.market_positioning,
-          audience_profile: book?.core_design?.reader_profile || blueprintForm.audience,
-          emotion_value: book?.core_design?.emotion_curve || blueprintForm.emotional_core,
-          commercial_potential: book?.core_design?.satisfaction_design || "",
+          market_positioning: coreValue(book?.core_design, "平台标签", "commercial_tags", blueprintForm.market_positioning),
+          audience_profile: coreValue(book?.core_design, "读者画像", "reader_profile", blueprintForm.audience),
+          emotion_value: coreValue(book?.core_design, "情绪曲线", "emotion_curve", blueprintForm.emotional_core),
+          commercial_potential: coreValue(book?.core_design, "爽点设计", "satisfaction_design", ""),
         },
         world_bible: book?.world_setting || {},
         character_life_system: {
@@ -274,7 +282,31 @@ export default {
         ...(book.real_event_strategy || {}),
       };
       blueprint.value = bookToBlueprint(book);
-      blueprintPromise.value = book.core_design?.satisfaction_design || blueprint.value?.book_profile?.promise || "";
+      blueprintPromise.value = coreValue(book.core_design, "爽点设计", "satisfaction_design", blueprint.value?.book_profile?.promise || "");
+    }
+
+    function resetBookScopedMemory(bookId) {
+      currentBookId.value = bookId || "";
+      ctx.selectedStoryId.value = "";
+      diagnosis.value = null;
+      chapterBrief.value = null;
+      storyArchive.value = null;
+    }
+
+    async function getStoryArchive(bookId = currentBookId.value) {
+      if (!bookId) return null;
+      storyArchive.value = await ctx.requestApi(`/books/${encodeURIComponent(bookId)}/archive`, {}, 10000);
+      return storyArchive.value;
+    }
+
+    async function updateStoryArchive(bookId = currentBookId.value, archive = storyArchive.value) {
+      if (!bookId || !archive) return null;
+      storyArchive.value = await ctx.requestApi(`/books/${encodeURIComponent(bookId)}/archive`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(archive),
+      }, 10000);
+      return storyArchive.value;
     }
 
     async function createBookBlueprint() {
@@ -284,6 +316,7 @@ export default {
         ctx.setError("请先填写书名和一句话想法。");
         return;
       }
+      resetBookScopedMemory(input.bookId);
       loading.blueprint = true;
       try {
         const generated = await generateBlueprint(input);
@@ -297,12 +330,13 @@ export default {
           }),
         }, 15000);
         blueprint.value = bookToBlueprint(saved);
-        blueprintPromise.value = saved.core_design?.satisfaction_design || blueprint.value?.book_profile?.promise || "";
-        selectedBookId.value = saved.id;
+        blueprintPromise.value = coreValue(saved.core_design, "爽点设计", "satisfaction_design", blueprint.value?.book_profile?.promise || "");
+        currentBookId.value = saved.id;
         editingBookId.value = "";
         storyDraft.name = saved.title || input.title;
         storyDraft.genre = normalizeStoryGenre(saved.genre || input.genre);
         await loadBooks();
+        await getStoryArchive(saved.id);
         ctx.setNotice("小说创建成功，开书蓝图已写入数据库。");
       } catch (err) {
         ctx.setError(`开书蓝图生成失败：${err.message}`);
@@ -316,15 +350,17 @@ export default {
     }
 
     function continueBook(book) {
-      selectedBookId.value = book.id;
+      resetBookScopedMemory(book.id);
       fillFormFromBook(book);
+      getStoryArchive(book.id).catch((err) => ctx.setError(`故事档案读取失败：${err.message}`));
       ctx.setNotice(`已载入「${book.title}」，可以继续生成章节 Brief 或编辑蓝图。`);
     }
 
     function editBook(book) {
-      selectedBookId.value = book.id;
+      resetBookScopedMemory(book.id);
       editingBookId.value = book.id;
       fillFormFromBook(book);
+      getStoryArchive(book.id).catch((err) => ctx.setError(`故事档案读取失败：${err.message}`));
       ctx.setNotice("已进入编辑状态，修改后可重新生成并保存新蓝图。");
     }
 
@@ -334,7 +370,7 @@ export default {
       loading.deleteBook = book.id;
       try {
         await ctx.requestApi(`/books/${encodeURIComponent(book.id)}`, { method: "DELETE" }, 10000);
-        if (selectedBookId.value === book.id) selectedBookId.value = "";
+        if (currentBookId.value === book.id) resetBookScopedMemory("");
         await loadBooks();
         ctx.setNotice("小说已删除。");
       } catch (err) {
@@ -443,13 +479,13 @@ export default {
     }
 
     async function createChapterBrief() {
-      if (!ctx.selectedStoryId.value) {
-        ctx.setError("请先选择一个故事。");
+      if (!currentBookId.value) {
+        ctx.setError("请先选择或创建一本小说。");
         return;
       }
       loading.brief = true;
       try {
-        chapterBrief.value = await ctx.requestApi(`/api/stories/${ctx.selectedStoryId.value}/chapter-brief`, {
+        chapterBrief.value = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapter-brief`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ user_note: chapterNote.value }),
@@ -463,13 +499,13 @@ export default {
     }
 
     async function generateChapterFromBrief() {
-      if (!ctx.selectedStoryId.value) {
-        ctx.setError("请先选择一个故事。");
+      if (!currentBookId.value) {
+        ctx.setError("请先选择或创建一本小说。");
         return;
       }
       loading.chapter = true;
       try {
-        const result = await ctx.requestApi(`/api/stories/${ctx.selectedStoryId.value}/chapters/generate`, {
+        const result = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapters/generate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -478,18 +514,16 @@ export default {
             wechat_skill_id: selectedNovelSkillId.value || "wechat_ai_writing_workshop_v1",
           }),
         }, 90000);
-        const chNum = result?.story_chapter_saved;
-        const review = result?.fanqie_review;
-        if (chNum && review && !review.pass) {
-          const issues = (review.issues || []).join("；");
-          ctx.setError(`第 ${chNum} 章已保存，但番茄审核可能不通过：${issues || "请人工复核"}`);
+        const chNum = result?.chapter?.chapter_number;
+        const review = result?.quality;
+        if (chNum && review && Number(review.score || 0) < 60) {
+          ctx.setError(`第 ${chNum} 章已保存，但商业智能评分偏低，请先AI优化。`);
         } else if (chNum) {
-          ctx.setNotice(`第 ${chNum} 章已生成并保存，可以去「查看/推送章节」里审核。`);
+          ctx.setNotice(`第 ${chNum} 章已按当前书的100章规划生成并保存。`);
         } else {
           ctx.setNotice("章节已生成，请在章节管理里查看。");
         }
-        await ctx.loadStories();
-        if (ctx.selectedStory.value) await ctx.openStoryManage(ctx.selectedStory.value);
+        await getStoryArchive(currentBookId.value);
       } catch (err) {
         ctx.setError(`章节生成失败：${err.message}`);
       } finally {
@@ -499,17 +533,9 @@ export default {
 
     async function runOneClickProduction() {
       if (!blueprint.value) {
-        await createBlueprint();
+        await createBookBlueprint();
       }
-      if (!ctx.selectedStoryId.value) {
-        storyDraft.name = storyDraft.name || blueprint.value?.book_profile?.title || blueprintForm.title || "未命名小说";
-        storyDraft.genre = normalizeStoryGenre(storyDraft.genre || blueprintForm.genre);
-        await saveBlueprintToStory();
-      }
-      if (ctx.selectedStoryId.value && !diagnosis.value) {
-        await diagnoseStory();
-      }
-      if (ctx.selectedStoryId.value && !chapterBrief.value) {
+      if (currentBookId.value && !chapterBrief.value) {
         await createChapterBrief();
       }
     }
@@ -534,7 +560,9 @@ export default {
       workflow,
       diagnosis,
       chapterBrief,
+      storyArchive,
       books,
+      currentBookId,
       selectedBookId,
       selectedBook,
       editingBookId,
@@ -560,6 +588,8 @@ export default {
       loadBooks,
       generateBlueprint,
       createBookBlueprint,
+      getStoryArchive,
+      updateStoryArchive,
       continueBook,
       editBook,
       deleteBook,
@@ -648,7 +678,7 @@ export default {
       <div class="novel-command-main">
         <div class="novel-current-book">
           <span>当前小说</span>
-          <strong>{{ selectedBook?.title || selectedStory?.name || blueprintForm.title || "未创建" }}</strong>
+          <strong>{{ selectedBook?.title || blueprintForm.title || "未创建" }}</strong>
           <p>{{ commandMetrics.currentTask }}</p>
         </div>
         <div class="novel-dashboard-grid">
@@ -901,46 +931,46 @@ export default {
         </label>
         <label class="field">
           <span>是否基于真实事件</span>
-          <select v-model="blueprintForm.real_event_strategy.based_on_real_event">
+          <select v-model="blueprintForm.real_event_strategy.enabled">
             <option :value="false">否，完全虚构</option>
             <option :value="true">是，需要改编</option>
           </select>
         </label>
         <label class="field">
           <span>事件来源</span>
-          <select v-model="blueprintForm.real_event_strategy.event_source">
-            <option value="news">新闻</option>
-            <option value="history">历史</option>
-            <option value="personal">个人经历</option>
+          <select v-model="blueprintForm.real_event_strategy.source_type">
+            <option value="新闻">新闻</option>
+            <option value="历史">历史</option>
+            <option value="个人">个人经历</option>
           </select>
         </label>
         <label class="field">
           <span>改编程度</span>
           <select v-model="blueprintForm.real_event_strategy.adaptation_level">
-            <option value="low">低：保留大框架</option>
-            <option value="medium">中：重组人物与事件</option>
-            <option value="high">高：只保留情绪内核</option>
+            <option value="低">低：保留大框架</option>
+            <option value="中">中：重组人物与事件</option>
+            <option value="高">高：只保留情绪内核</option>
           </select>
         </label>
         <label class="field">
           <span>商业标签</span>
-          <input v-model="blueprintForm.core_design.commercial_tags" placeholder="例：番茄,女频,逆袭,强钩子" />
+          <input v-model="blueprintForm.core_design.平台标签" placeholder="例：番茄,女频,逆袭,强钩子" />
         </label>
         <label class="field wide">
           <span>风险规避策略</span>
-          <textarea v-model="blueprintForm.real_event_strategy.risk_avoidance" rows="2" placeholder="例：人物地点虚构化，不复刻真实案件细节。"></textarea>
+          <textarea v-model="blueprintForm.real_event_strategy.risk_control" rows="2" placeholder="例：人物地点虚构化，不复刻真实案件细节。"></textarea>
         </label>
         <label class="field wide">
           <span>爽点设计</span>
-          <textarea v-model="blueprintForm.core_design.satisfaction_design" rows="2" placeholder="例：主角靠智慧破局，每3章一次阶段性小胜。"></textarea>
+          <textarea v-model="blueprintForm.core_design.爽点设计" rows="2" placeholder="例：主角靠智慧破局，每3章一次阶段性小胜。"></textarea>
         </label>
         <label class="field">
           <span>情绪曲线</span>
-          <input v-model="blueprintForm.core_design.emotion_curve" placeholder="例：压抑 -> 破局 -> 爽感释放 -> 新悬念" />
+          <input v-model="blueprintForm.core_design.情绪曲线" placeholder="例：压抑 -> 破局 -> 爽感释放 -> 新悬念" />
         </label>
         <label class="field">
           <span>读者画像</span>
-          <input v-model="blueprintForm.core_design.reader_profile" placeholder="例：高压现实中需要成长代偿的女频读者" />
+          <input v-model="blueprintForm.core_design.读者画像" placeholder="例：高压现实中需要成长代偿的女频读者" />
         </label>
         <label class="field">
           <span>世界观种子</span>
@@ -1189,10 +1219,10 @@ export default {
           </div>
         </div>
         <div class="novel-actions compact">
-          <button class="btn primary small" :disabled="loading.saveBlueprint" @click="saveBlueprintToStory">
-            {{ loading.saveBlueprint ? "保存中..." : selectedStoryId ? "保存承诺到当前故事" : "创建故事并保存承诺" }}
+          <button class="btn primary small" :disabled="!currentBookId" @click="getStoryArchive()">
+            刷新当前书档案
           </button>
-          <button class="btn secondary small" @click="openStoryDraft">新建为另一本文档</button>
+          <button class="btn secondary small" :disabled="!currentBookId" @click="createChapterBrief">生成下一章 Brief</button>
         </div>
       </div>
     </section>
@@ -1203,55 +1233,39 @@ export default {
           <h2>2. 故事档案与诊断</h2>
           <div class="meta">这里看“这本书能不能继续写”，不是单纯看文笔。</div>
         </div>
-        <button class="btn secondary" @click="loadStories">刷新故事</button>
+        <button class="btn secondary" :disabled="!currentBookId" @click="getStoryArchive">刷新档案</button>
       </div>
 
       <div class="story-selector-block novel-selector">
         <div class="story-selector-row">
-          <select class="story-select" v-model="selectedStoryId">
-            <option value="">选择故事档案</option>
-            <option v-for="s in stories" :key="s.id" :value="s.id">
-              {{ s.name }} · 已写 {{ s.last_chapter_number || 0 }} 章
+          <select class="story-select" v-model="currentBookId" @change="selectedBook && continueBook(selectedBook)">
+            <option value="">选择小说项目</option>
+            <option v-for="book in books" :key="book.id" :value="book.id">
+              {{ book.title }} · 规划 {{ book.plot_outline?.length || 0 }} 章
             </option>
           </select>
-          <button class="btn secondary small" @click="openStoryDraft">+ 新建故事</button>
-          <button v-if="selectedStory" class="btn secondary small" @click="openStoryManage(selectedStory)">查看章节</button>
-          <button class="btn primary small" :disabled="!selectedStoryId || loading.diagnosis" @click="diagnoseStory">
-            {{ loading.diagnosis ? "诊断中..." : "诊断当前故事" }}
+          <button class="btn secondary small" :disabled="!currentBookId" @click="getStoryArchive">读取档案</button>
+          <button class="btn primary small" :disabled="!currentBookId || loading.brief" @click="createChapterBrief">
+            {{ loading.brief ? "生成中..." : "按100章规划生成Brief" }}
           </button>
         </div>
-        <div v-if="storyDraft.visible" class="inline-story-form">
-          <label class="field">
-            <span>故事名称</span>
-            <input v-model="storyDraft.name" placeholder="例：烬月灯" />
-          </label>
-          <label class="field">
-          <span>类型</span>
-          <select v-model="storyDraft.genre">
-            <option value="romance_fantasy">言情玄幻</option>
-            <option value="urban">都市</option>
-            <option value="xianxia">修仙升级</option>
-            <option value="fantasy_upgrade">玄幻升级</option>
-            <option value="fantasy">玄幻</option>
-            <option value="transmigration">穿越</option>
-            <option value="female_lead_ancient">古装大女主</option>
-            <option value="eastern_mysticism">东方玄学</option>
-            <option value="sci_fi">科幻</option>
-            <option value="romance">言情</option>
-            <option value="modern_romance">现代言情</option>
-          </select>
-          </label>
-          <div class="inline-story-actions">
-            <button class="btn accent small" :disabled="loading.createStory" @click="createStoryInline">
-              {{ loading.createStory ? "创建中..." : "确认创建" }}
-            </button>
-            <button class="btn secondary small" @click="storyDraft.visible = false">取消</button>
-            <span v-if="storyDraft.error" class="inline-error">{{ storyDraft.error }}</span>
+        <div v-if="storyArchive" class="diagnosis-card">
+          <div class="diagnosis-score">
+            <strong>{{ storyArchive.chapters?.length || 0 }}/{{ selectedBook?.plot_outline?.length || 100 }}</strong>
+            <span>bookId：{{ currentBookId }}</span>
+            <em>{{ storyArchive.title }} · {{ storyArchive.plot?.chapterPlans?.length || 0 }} 条章节规划</em>
+          </div>
+          <div class="next-actions">
+            <b>当前档案只读取这本书的数据</b>
+            <span>世界观：{{ storyArchive.world?.time_background || "待生成" }}</span>
+            <span>人物数：{{ storyArchive.characters?.length || 0 }}</span>
+            <span>时间线事件：{{ storyArchive.timeline?.length || 0 }}</span>
+            <span>已生成章节：{{ storyArchive.chapters?.length || 0 }}</span>
           </div>
         </div>
       </div>
 
-      <div v-if="diagnosis" class="diagnosis-card">
+      <div v-if="userMode === 'professional' && diagnosis" class="diagnosis-card">
         <div class="diagnosis-score">
           <strong>{{ diagnosis.score }}/100</strong>
           <span>{{ diagnosis.level }}</span>
@@ -1281,7 +1295,7 @@ export default {
           <h2>Chapter Studio · 每日章节生产</h2>
           <div class="meta">先确认章节目标，再生成正文，并进入节奏、逻辑和平台安全审核。</div>
         </div>
-        <button class="btn primary" :disabled="!selectedStoryId || loading.brief" @click="createChapterBrief">
+        <button class="btn primary" :disabled="!currentBookId || loading.brief" @click="createChapterBrief">
           {{ loading.brief ? "生成中..." : "生成下一章 Brief" }}
         </button>
       </div>
@@ -1309,12 +1323,12 @@ export default {
         </div>
       </div>
       <div class="novel-actions">
-        <button class="btn accent" :disabled="loading.chapter || !selectedStoryId || !selectedNovelSkillId" @click="generateChapterFromBrief">
+        <button class="btn accent" :disabled="loading.chapter || !currentBookId || !selectedNovelSkillId" @click="generateChapterFromBrief">
           {{ loading.chapter ? "生成中..." : "按 Brief 生成下一章" }}
         </button>
-        <button class="btn secondary" :disabled="loading.chapter || !selectedStoryId" @click="createChapterBrief">重新生成</button>
-        <button class="btn secondary" :disabled="!selectedStory" @click="openStoryManage(selectedStory)">AI优化/人工修改</button>
-        <button v-if="selectedStory" class="btn secondary" @click="openStoryManage(selectedStory)">查看/推送章节</button>
+        <button class="btn secondary" :disabled="loading.chapter || !currentBookId" @click="createChapterBrief">重新生成</button>
+        <button class="btn secondary" :disabled="!currentBookId" @click="getStoryArchive()">刷新档案</button>
+        <button v-if="storyArchive?.chapters?.length" class="btn secondary" @click="getStoryArchive()">查看已生成 {{ storyArchive.chapters.length }} 章</button>
       </div>
     </section>
 

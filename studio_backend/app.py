@@ -2024,8 +2024,10 @@ def _normalize_book_payload(body: dict[str, Any], *, generated: dict[str, Any] |
     genre = str(body.get("genre") or generated.get("genre") or "romance_fantasy").strip() or "romance_fantasy"
     hook = str(body.get("hook") or body.get("idea") or generated.get("hook") or "").strip()
     created_at = str(generated.get("created_at") or body.get("created_at") or now_iso())
+    book_id = str(body.get("bookId") or body.get("book_id") or body.get("id") or generated.get("bookId") or generated.get("id") or uuid.uuid4())
     return {
-        "id": str(body.get("id") or generated.get("id") or uuid.uuid4()),
+        "id": book_id,
+        "bookId": book_id,
         "title": title,
         "genre": genre,
         "hook": hook,
@@ -2034,99 +2036,27 @@ def _normalize_book_payload(body: dict[str, Any], *, generated: dict[str, Any] |
         "world_setting": _as_dict(body.get("world_setting") or generated.get("world_setting")),
         "characters": _as_list(body.get("characters") or generated.get("characters")),
         "plot_outline": _as_list(body.get("plot_outline") or generated.get("plot_outline")),
+        "pipeline_trace": _as_list(body.get("pipeline_trace") or generated.get("pipeline_trace")),
+        "commercial_analysis": _as_dict(body.get("commercial_analysis") or generated.get("commercial_analysis")),
+        "chapter_generation_rule": _as_dict(body.get("chapter_generation_rule") or generated.get("chapter_generation_rule")),
+        "chapter_count": int(body.get("chapter_count") or generated.get("chapter_count") or len(_as_list(body.get("plot_outline") or generated.get("plot_outline"))) or 100),
         "created_at": created_at,
         "updated_at": now_iso(),
         "blueprint": _as_dict(body.get("blueprint") or generated.get("blueprint")),
     }
 
-
-def _book_from_blueprint(input_data: dict[str, Any], blueprint: dict[str, Any]) -> dict[str, Any]:
-    book_profile = _as_dict(blueprint.get("book_profile"))
-    world_bible = _as_dict(blueprint.get("world_bible"))
-    character_life_system = _as_dict(blueprint.get("character_life_system"))
-    chapter_outline = _as_list(blueprint.get("chapter_outline"))
-    topic_center = _as_dict(blueprint.get("topic_center"))
-    social_emotion_database = _as_list(blueprint.get("social_emotion_database"))
-    protagonist = character_life_system.get("protagonist") if isinstance(character_life_system.get("protagonist"), dict) else {}
-    supporting_cast = character_life_system.get("supporting_cast") if isinstance(character_life_system.get("supporting_cast"), list) else []
-    characters: list[dict[str, Any]] = []
-    if protagonist:
-        characters.append(protagonist)
-    characters.extend([item for item in supporting_cast if isinstance(item, dict)])
-
-    core_design = _as_dict(input_data.get("core_design"))
-    if not core_design:
-        core_design = {
-            "satisfaction_design": topic_center.get("commercial_potential") or "以成长、反转和阶段性胜利保持追读",
-            "emotion_curve": book_profile.get("emotion_tone") or str(input_data.get("emotional_core") or ""),
-            "reader_profile": topic_center.get("audience_profile") or str(input_data.get("audience") or ""),
-            "commercial_tags": str(input_data.get("market_positioning") or ""),
-        }
-
-    real_event_strategy = _as_dict(input_data.get("real_event_strategy"))
-    if not real_event_strategy:
-        real_event_strategy = {
-            "based_on_real_event": False,
-            "event_source": "personal",
-            "adaptation_level": "medium",
-            "risk_avoidance": "人物、地点和关键事件均虚构化，保留情绪真实，不影射具体个人。",
-        }
-
-    world_setting = {
-        "time_background": world_bible.get("time_background") or str(input_data.get("worldview_seed") or ""),
-        "social_system": world_bible.get("social_system") or "",
-        "relationship_network": character_life_system.get("relationship_map") or [],
-        "rule_system": world_bible.get("rule_system") or [],
-        "power_system": world_bible.get("power_system") or "",
-        "raw": world_bible,
-    }
-    plot_outline = [
-        {
-            "chapter": item.get("chapter"),
-            "goal": item.get("goal"),
-            "conflict": item.get("conflict"),
-            "emotion": item.get("emotion"),
-            "hook": item.get("hook"),
-        }
-        for item in chapter_outline
-        if isinstance(item, dict)
-    ]
-    if not plot_outline:
-        plot_outline = [
-            {
-                "chapter": 1,
-                "goal": "建立主角困境、核心钩子和第一个选择",
-                "conflict": str(input_data.get("reader_pain") or "现实压力与主角目标发生冲突"),
-                "emotion": str(input_data.get("emotional_core") or "压抑后的希望"),
-                "hook": str(input_data.get("hook") or input_data.get("idea") or "新的问题出现"),
-            }
-        ]
-
-    return _normalize_book_payload(
-        {
-            **input_data,
-            "title": book_profile.get("title") or input_data.get("title"),
-            "genre": book_profile.get("genre") or input_data.get("genre"),
-            "hook": book_profile.get("one_sentence") or input_data.get("hook") or input_data.get("idea"),
-            "core_design": core_design,
-            "real_event_strategy": real_event_strategy,
-            "world_setting": world_setting,
-            "characters": characters,
-            "plot_outline": plot_outline,
-            "blueprint": blueprint,
-        }
-    )
-
-
 @app.post("/api/ai/generate")
 async def api_ai_generate_blueprint(request: Request) -> dict[str, Any]:
     """Generate a structured book blueprint JSON for the author workspace."""
-    from .story_workflow import build_story_blueprint
+    from .novel_engine import build_book_blueprint
 
     body = await request.json()
     input_data = body if isinstance(body, dict) else {}
-    blueprint = build_story_blueprint(input_data)
-    return _book_from_blueprint(input_data, blueprint)
+    try:
+        generated = build_book_blueprint(input_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _normalize_book_payload(generated)
 
 
 @app.get("/books")
@@ -2138,13 +2068,28 @@ def api_list_books() -> dict[str, Any]:
 @app.post("/books")
 @app.post("/api/books")
 async def api_create_book(request: Request) -> dict[str, Any]:
+    from .novel_engine import build_story_archive
+
     body = await request.json()
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
     book = _normalize_book_payload(body)
     if not book["title"]:
         raise HTTPException(status_code=400, detail="书名不能为空")
-    store.add_record("books", book)
+    archive = build_story_archive(book)
+
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        books = state.setdefault("books", [])
+        books[:] = [item for item in books if str(item.get("id")) != book["id"]]
+        books.append(book)
+        archives = state.setdefault("story_archives", [])
+        archives[:] = [item for item in archives if str(item.get("book_id")) != book["id"]]
+        archives.append(archive)
+        chapters = state.setdefault("book_chapters", [])
+        chapters[:] = [item for item in chapters if str(item.get("book_id")) != book["id"]]
+        return book
+
+    store.mutate(updater)
     return book
 
 
@@ -2178,12 +2123,104 @@ def api_delete_book(book_id: str) -> dict[str, Any]:
         books = state.setdefault("books", [])
         before = len(books)
         state["books"] = [book for book in books if str(book.get("id")) != book_id]
+        state["story_archives"] = [archive for archive in state.setdefault("story_archives", []) if str(archive.get("book_id")) != book_id]
+        state["book_chapters"] = [chapter for chapter in state.setdefault("book_chapters", []) if str(chapter.get("book_id")) != book_id]
         return {"ok": True, "book_id": book_id, "deleted": before - len(state["books"])}
 
     result = store.mutate(updater)
     if not result.get("deleted"):
         raise HTTPException(status_code=404, detail="小说不存在")
     return result
+
+
+@app.get("/books/{book_id}/archive")
+@app.get("/api/books/{book_id}/archive")
+def api_get_story_archive(book_id: str) -> dict[str, Any]:
+    archive = next((item for item in store.list_section("story_archives") if str(item.get("book_id")) == book_id), None)
+    if not archive:
+        book = store.find_record("books", book_id)
+        if not book:
+            raise HTTPException(status_code=404, detail="小说不存在")
+        from .novel_engine import build_story_archive
+
+        archive = build_story_archive(book)
+        store.add_record("story_archives", archive)
+    chapters = [item for item in store.list_section("book_chapters") if str(item.get("book_id")) == book_id]
+    return {**archive, "chapters": _sorted(chapters, key="chapter_number")}
+
+
+@app.put("/books/{book_id}/archive")
+@app.put("/api/books/{book_id}/archive")
+async def api_update_story_archive(book_id: str, request: Request) -> dict[str, Any]:
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
+    if not store.find_record("books", book_id):
+        raise HTTPException(status_code=404, detail="小说不存在")
+    archive = {**body, "book_id": book_id, "updated_at": now_iso()}
+
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        archives = state.setdefault("story_archives", [])
+        archives[:] = [item for item in archives if str(item.get("book_id")) != book_id]
+        archives.append(archive)
+        return archive
+
+    return store.mutate(updater)
+
+
+@app.post("/books/{book_id}/chapter-brief")
+@app.post("/api/books/{book_id}/chapter-brief")
+async def api_create_book_chapter_brief(book_id: str, request: Request) -> dict[str, Any]:
+    from .novel_engine import build_chapter_brief_from_book
+
+    book = store.find_record("books", book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="小说不存在")
+    body = await request.json()
+    archive = api_get_story_archive(book_id)
+    return build_chapter_brief_from_book(book, archive, user_note=str((body if isinstance(body, dict) else {}).get("user_note") or ""))
+
+
+@app.post("/books/{book_id}/chapters/generate")
+@app.post("/api/books/{book_id}/chapters/generate")
+async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str, Any]:
+    from .novel_engine import build_chapter_brief_from_book, generate_chapter_from_plan
+
+    book = store.find_record("books", book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="小说不存在")
+    body = await request.json()
+    brief = body.get("brief") if isinstance(body, dict) and isinstance(body.get("brief"), dict) else {}
+    archive = api_get_story_archive(book_id)
+    if not brief:
+        brief = build_chapter_brief_from_book(book, archive, user_note=str((body if isinstance(body, dict) else {}).get("user_note") or ""))
+    chapter = generate_chapter_from_plan(book, archive, brief)
+    chapter["created_at"] = now_iso()
+
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        chapters = state.setdefault("book_chapters", [])
+        chapters[:] = [
+            item for item in chapters
+            if not (str(item.get("book_id")) == book_id and int(item.get("chapter_number") or 0) == int(chapter["chapter_number"]))
+        ]
+        chapters.append(chapter)
+        archives = state.setdefault("story_archives", [])
+        archive_items = [item for item in archives if str(item.get("book_id")) == book_id]
+        archive = archive_items[0] if archive_items else {"book_id": book_id}
+        archive["chapters"] = [item for item in chapters if str(item.get("book_id")) == book_id]
+        archive["timeline"] = archive.get("timeline") or []
+        archive["timeline"].append({
+            "chapter": chapter["chapter_number"],
+            "event": chapter["chapterPlan"].get("goal"),
+            "suspense": chapter["chapterPlan"].get("suspense"),
+        })
+        archive["updated_at"] = now_iso()
+        archives[:] = [item for item in archives if str(item.get("book_id")) != book_id]
+        archives.append(archive)
+        return chapter
+
+    saved = store.mutate(updater)
+    return {"ok": True, "chapter": saved, "quality": saved.get("quality")}
 
 def _normalize_story_genre_for_db(raw: str) -> str:
     """Map UI/planning genre labels to the values accepted by the current story table."""

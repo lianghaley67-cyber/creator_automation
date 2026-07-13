@@ -42,6 +42,8 @@ DEFAULT_STATE: dict[str, Any] = {
     "stock_skill_runs": [],     # 股票Skill运行历史
     "avatar_settings": {},      # 数字人设置
     "books": [],                # 小说生产工作台项目
+    "story_archives": [],       # 按 book_id 隔离的故事档案
+    "book_chapters": [],        # 按 book_id 隔离的小说章节草稿
 }
 
 
