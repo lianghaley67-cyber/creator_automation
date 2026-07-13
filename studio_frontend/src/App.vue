@@ -6783,6 +6783,10 @@ textarea {
   background: linear-gradient(135deg, rgba(0, 213, 232, 0.14), rgba(255, 122, 61, 0.08));
 }
 
+.novel-product-hero .novel-wizard-steps {
+  grid-column: 1 / -1;
+}
+
 .novel-product-hero span {
   color: #00d5e8;
   font-size: 12px;
@@ -6822,6 +6826,27 @@ textarea {
 .novel-mode-switch button.active {
   color: #06111c;
   background: #00d5e8;
+}
+
+.novel-system-capabilities {
+  border: 1px solid rgba(0, 213, 232, 0.2);
+  border-radius: 10px;
+  padding: 12px;
+  background: rgba(0, 213, 232, 0.04);
+}
+
+.novel-system-capabilities > summary {
+  display: grid;
+  gap: 4px;
+  cursor: pointer;
+  color: #f7fbff;
+  font-weight: 900;
+}
+
+.novel-system-capabilities > summary span {
+  color: #9fb6d1;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .novel-project-grid,

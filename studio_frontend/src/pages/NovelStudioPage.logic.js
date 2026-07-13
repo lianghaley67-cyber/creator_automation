@@ -87,15 +87,18 @@ export function storyProductionStatus(story) {
   return "连载生产中";
 }
 
-export function commandCenterMetrics({ story, diagnosis, chapterBrief, blueprint }) {
-  const planned = Number(blueprint?.volume_plan?.planned_chapters || 100);
-  const completed = Number(story?.last_chapter_number || 0);
-  const qualityScore = diagnosis?.score ? `${diagnosis.score}分` : "--";
-  const readerInterest = diagnosis?.score ? `${Math.max(50, Math.min(96, diagnosis.score + 6))}%` : "--";
-  const risk = diagnosis?.hard_issues?.length ? "需复核" : (diagnosis ? "低" : "待检测");
+export function commandCenterMetrics({ book, archive, latestChapter, diagnosis, chapterBrief, blueprint }) {
+  const planned = Number(book?.plot_outline?.length || blueprint?.volume_plan?.planned_chapters || 100);
+  const completed = Number(archive?.chapters?.length || 0);
+  const quality = latestChapter?.quality?.score || book?.commercial_analysis?.score || diagnosis?.score || 0;
+  const qualityScore = quality ? `${quality}分` : "--";
+  const readerInterest = quality ? `${Math.max(50, Math.min(96, Number(quality) + 6))}%` : "--";
+  const risk = latestChapter?.editorial_review?.pass === false
+    ? "需复核"
+    : (book?.commercial_analysis?.风险等级 || (diagnosis?.hard_issues?.length ? "需复核" : (book ? "低" : "待检测")));
   const currentTask = chapterBrief
     ? `确认第${chapterBrief.chapter_number}章 Brief 并生成正文`
-    : story?.id
+    : book?.id
       ? `生成第${completed + 1}章 Brief`
       : "创建小说并生成开书蓝图";
   return { planned, completed, qualityScore, readerInterest, risk, currentTask };

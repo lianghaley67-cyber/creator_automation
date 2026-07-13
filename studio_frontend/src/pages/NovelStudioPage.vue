@@ -1,5 +1,5 @@
 <script>
-import { computed, reactive, ref, onMounted, watch } from "vue";
+import { computed, nextTick, reactive, ref, onMounted, watch } from "vue";
 import { useStudioContext } from "./useStudioContext.js";
 import {
   nextStoryAction,
@@ -25,6 +25,7 @@ export default {
     const currentBookId = ref("");
     const selectedBookId = currentBookId;
     const editingBookId = ref("");
+    const plannerPanel = ref(null);
     const loading = reactive({
       workflow: false,
       diagnosis: false,
@@ -87,14 +88,16 @@ export default {
     const novelOsModules = computed(() => novelOsModuleStatus({ blueprint: blueprint.value, diagnosis: diagnosis.value, chapterBrief: chapterBrief.value }));
     const planPreview = computed(() => novelOsPlanPreview(blueprint.value?.hundred_chapter_plan || [], 12));
     const commandMetrics = computed(() => commandCenterMetrics({
-      story: ctx.selectedStory.value,
+      book: selectedBook.value,
+      archive: storyArchive.value,
+      latestChapter: latestBookChapter.value,
       diagnosis: diagnosis.value,
       chapterBrief: chapterBrief.value,
       blueprint: blueprint.value,
     }));
     const aiTeam = computed(() => aiTeamStatus({
       hasBlueprint: Boolean(blueprint.value),
-      hasStory: Boolean(ctx.selectedStoryId.value),
+      hasStory: Boolean(currentBookId.value),
       hasBrief: Boolean(chapterBrief.value),
       generating: loading.chapter,
     }));
@@ -108,7 +111,7 @@ export default {
       name: book.title,
       production_status: book.plot_outline?.length ? "策划完成" : "创意阶段",
       last_chapter_number: book.chapter_count || 0,
-      quality_score: book.quality_score || "--",
+      quality_score: book.quality_score || book.commercial_analysis?.score || "--",
     })));
 
     function normalizeStoryGenre(raw) {
@@ -207,9 +210,55 @@ export default {
       }
     }
 
+    function freshBookId() {
+      return window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    function resetBlueprintForm() {
+      blueprintForm.title = "";
+      blueprintForm.genre = "romance_fantasy";
+      blueprintForm.idea = "";
+      blueprintForm.audience = "喜欢言情玄幻、强剧情和关系拉扯的女性读者";
+      blueprintForm.tone = "有画面感，情绪克制但有张力，章末留钩子";
+      blueprintForm.market_positioning = "平台连载型强情绪故事，优先追读、完读和章节钩子";
+      blueprintForm.reader_pain = "现实压力下渴望被理解、被看见，并看到主角一步步夺回主动权";
+      blueprintForm.emotional_core = "压抑处境中的选择、成长、希望和关系确认";
+      blueprintForm.worldview_seed = "";
+      blueprintForm.protagonist_seed = "";
+      blueprintForm.real_event_strategy = {
+        enabled: false,
+        source_type: "个人",
+        adaptation_level: "中",
+        risk_control: "人物、地点、时间线和关键事件均虚构化，不影射具体个人，保留现实情绪但避免复刻真实案件。",
+      };
+      blueprintForm.core_design = {
+        爽点设计: "弱势处境中靠智慧破局，阶段性获得尊重、资源和同盟",
+        情绪曲线: "压抑开局 -> 发现机会 -> 小胜释放 -> 新危机牵引",
+        读者画像: "喜欢强情绪、快节奏、女性成长和关系拉扯的连载读者",
+        平台标签: "番茄,女频,成长,逆袭,强钩子",
+      };
+      blueprintForm.chapter_count = 100;
+      blueprintForm.first_volume_count = 10;
+      blueprint.value = null;
+      blueprintPromise.value = "";
+    }
+
+    async function scrollToPlanner() {
+      await nextTick();
+      plannerPanel.value?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }
+
+    function startCreateBook() {
+      editingBookId.value = "";
+      resetBookScopedMemory("");
+      resetBlueprintForm();
+      scrollToPlanner();
+      ctx.setNotice("请先填写开书策划表单，再生成蓝图。");
+    }
+
     function collectBookBlueprintInput() {
       return {
-        bookId: window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        bookId: editingBookId.value || freshBookId(),
         title: blueprintForm.title.trim(),
         genre: normalizeStoryGenre(blueprintForm.genre),
         hook: blueprintForm.idea.trim(),
@@ -320,12 +369,13 @@ export default {
         ctx.setError("请先填写书名和一句话想法。");
         return;
       }
-      resetBookScopedMemory(input.bookId);
+      if (!editingBookId.value) resetBookScopedMemory(input.bookId);
       loading.blueprint = true;
       try {
         const generated = await generateBlueprint(input);
-        const saved = await ctx.requestApi("/books", {
-          method: "POST",
+        const savePath = editingBookId.value ? `/books/${encodeURIComponent(editingBookId.value)}` : "/books";
+        const saved = await ctx.requestApi(savePath, {
+          method: editingBookId.value ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...generated,
@@ -341,7 +391,8 @@ export default {
         storyDraft.genre = normalizeStoryGenre(saved.genre || input.genre);
         await loadBooks();
         await getStoryArchive(saved.id);
-        ctx.setNotice("小说创建成功，开书蓝图已写入数据库。");
+        ctx.setNotice(editingBookId.value ? "小说编辑已保存，蓝图已更新。" : "小说创建成功，开书蓝图已写入数据库。");
+        editingBookId.value = "";
       } catch (err) {
         ctx.setError(`开书蓝图生成失败：${err.message}`);
       } finally {
@@ -365,7 +416,8 @@ export default {
       editingBookId.value = book.id;
       fillFormFromBook(book);
       getStoryArchive(book.id).catch((err) => ctx.setError(`故事档案读取失败：${err.message}`));
-      ctx.setNotice("已进入编辑状态，修改后可重新生成并保存新蓝图。");
+      scrollToPlanner();
+      ctx.setNotice("已进入编辑状态，可在开书策划表单中修改并保存。");
     }
 
     async function deleteBook(book) {
@@ -545,13 +597,12 @@ export default {
     }
 
     function syncBlueprintTitleFromStory() {
-      if (!blueprintForm.title && selectedStoryName.value) blueprintForm.title = selectedStoryName.value;
+      return null;
     }
 
     onMounted(async () => {
       await Promise.allSettled([loadWorkflow(), loadBooks(), ctx.loadStories(), ctx.fanqieLoadSettings(), ctx.loadPresetTopicsAndSkills()]);
       ensureNovelSkillSelected();
-      syncBlueprintTitleFromStory();
     });
 
     watch(
@@ -571,6 +622,7 @@ export default {
       selectedBook,
       latestBookChapter,
       editingBookId,
+      plannerPanel,
       loading,
       blueprintForm,
       blueprint,
@@ -590,6 +642,7 @@ export default {
       projectCards,
       storyProductionStatus,
       uploadNovelSkill,
+      startCreateBook,
       loadBooks,
       generateBlueprint,
       createBookBlueprint,
@@ -619,15 +672,22 @@ export default {
 
 <template>
   <div v-if="activeTab === 'novels'" class="novel-page">
-    <section class="panel novel-product-hero">
+    <section class="panel novel-wizard-panel novel-product-hero">
       <div>
         <span>SERIAL FICTION OPS</span>
-        <h2>AI小说生产工作台</h2>
-        <p>输入一个想法，AI总编带领团队完成策划、设定、人物、章节、审核和发布。</p>
+        <h2>AI小说创作向导</h2>
+        <p>先输入创意，再由AI团队完成市场分析、小说DNA、团队配置和章节生产。</p>
       </div>
       <div class="novel-mode-switch">
         <button type="button" :class="{ active: userMode === 'novice' }" @click="userMode = 'novice'">新手模式</button>
         <button type="button" :class="{ active: userMode === 'professional' }" @click="userMode = 'professional'">专业模式</button>
+      </div>
+      <div class="novel-wizard-steps">
+        <article :class="{ done: blueprintForm.idea }"><span>01</span><strong>输入创意</strong><p>类型、一句话故事、喜欢方向、目标读者。</p></article>
+        <article :class="{ done: blueprint?.topic_center }"><span>02</span><strong>AI总编分析</strong><p>市场定位、商业潜力、核心卖点和风险。</p></article>
+        <article :class="{ done: blueprint?.world_bible }"><span>03</span><strong>小说DNA</strong><p>主题、世界规则、人物方向、核心冲突。</p></article>
+        <article :class="{ done: selectedNovelSkillId }"><span>04</span><strong>配置AI团队</strong><p>总编、市场、世界观、人物、剧情、作者、审核。</p></article>
+        <article :class="{ done: chapterBrief }"><span>05</span><strong>章节生产</strong><p>Brief、正文、节奏检测、逻辑审核、平台审核。</p></article>
       </div>
     </section>
 
@@ -637,8 +697,8 @@ export default {
           <h2>我的小说</h2>
           <div class="meta">管理项目进度，选择一本书进入生产。</div>
         </div>
-        <button class="btn accent" :disabled="loading.blueprint" @click="createBookBlueprint">
-          {{ loading.blueprint ? "创建中..." : "+ 创建小说" }}
+        <button class="btn accent" :disabled="loading.blueprint" @click="startCreateBook">
+          + 创建小说
         </button>
       </div>
       <div v-if="loading.books" class="novel-empty">正在读取小说项目...</div>
@@ -699,22 +759,6 @@ export default {
           <span>{{ member.duty }}</span>
           <em>{{ member.status }}</em>
         </article>
-      </div>
-    </section>
-
-    <section class="panel novel-wizard-panel">
-      <div class="panel-header">
-        <div>
-          <h2>AI小说创作向导</h2>
-          <div class="meta">按步骤把一个创意变成可持续生产的小说项目。</div>
-        </div>
-      </div>
-      <div class="novel-wizard-steps">
-        <article :class="{ done: blueprintForm.idea }"><span>01</span><strong>输入创意</strong><p>类型、一句话故事、喜欢方向、目标读者。</p></article>
-        <article :class="{ done: blueprint?.topic_center }"><span>02</span><strong>AI总编分析</strong><p>市场定位、商业潜力、核心卖点和风险。</p></article>
-        <article :class="{ done: blueprint?.world_bible }"><span>03</span><strong>小说DNA</strong><p>主题、世界规则、人物方向、核心冲突。</p></article>
-        <article :class="{ done: selectedNovelSkillId }"><span>04</span><strong>配置AI团队</strong><p>总编、市场、世界观、人物、剧情、作者、审核。</p></article>
-        <article :class="{ done: chapterBrief }"><span>05</span><strong>章节生产</strong><p>Brief、正文、节奏检测、逻辑审核、平台审核。</p></article>
       </div>
     </section>
 
@@ -879,14 +923,16 @@ export default {
       </div>
     </section>
 
-    <section class="panel novel-planner-panel">
+    <section ref="plannerPanel" class="panel novel-planner-panel">
       <div class="panel-header">
         <div>
           <h2>1. 开书策划</h2>
-          <div class="meta">先确认主题框架，避免写到第十章才发现方向错了。</div>
+          <div class="meta">
+            {{ editingBookId ? "正在编辑当前小说，修改后会更新这本书的蓝图。" : "先手动填写创意和定位，再生成开书蓝图。" }}
+          </div>
         </div>
         <button class="btn accent" :disabled="loading.blueprint" @click="createBookBlueprint">
-          {{ loading.blueprint ? "生成中..." : "生成开书蓝图" }}
+          {{ loading.blueprint ? "生成中..." : editingBookId ? "保存编辑并重新生成蓝图" : "生成开书蓝图" }}
         </button>
       </div>
       <div class="novel-form-grid">
@@ -997,6 +1043,11 @@ export default {
       <div v-if="blueprint" class="blueprint-card">
         <strong>{{ blueprint.book_profile.title }} · {{ blueprint.book_profile.genre }}</strong>
         <p>{{ blueprint.book_profile.one_sentence }}</p>
+        <details class="novel-os-section novel-system-capabilities">
+          <summary>
+            <strong>系统默认能力与生成结果</strong>
+            <span>选题、世界观、人物、100章规划、Skill、Memory 和商业智能默认自动参与；需要查看或人工微调时展开。</span>
+          </summary>
         <div v-if="blueprint.chief_editor_charter" class="novel-os-section">
           <div class="novel-section-title">超级总编创作宪章</div>
           <div class="novel-principle-grid">
@@ -1206,6 +1257,7 @@ export default {
             </article>
           </div>
         </div>
+        </details>
         <label class="field wide blueprint-promise-field">
           <span>故事承诺（会写入故事档案，后面每章都按它校准）</span>
           <textarea

@@ -2105,13 +2105,33 @@ def api_get_book(book_id: str) -> dict[str, Any]:
 @app.patch("/books/{book_id}")
 @app.patch("/api/books/{book_id}")
 async def api_update_book(book_id: str, request: Request) -> dict[str, Any]:
+    from .novel_engine import build_story_archive
+
     body = await request.json()
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
     patch = _normalize_book_payload({**body, "id": book_id})
     patch["updated_at"] = now_iso()
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        books = state.setdefault("books", [])
+        for index, book in enumerate(books):
+            if str(book.get("id")) == book_id:
+                previous = dict(book)
+                updated = {**previous, **patch, "id": book_id, "bookId": book_id}
+                books[index] = updated
+                archives = state.setdefault("story_archives", [])
+                existing_archive = next((item for item in archives if str(item.get("book_id")) == book_id), None)
+                rebuilt_archive = build_story_archive(updated)
+                if existing_archive:
+                    rebuilt_archive["chapters"] = existing_archive.get("chapters") or []
+                    rebuilt_archive["timeline"] = existing_archive.get("timeline") or []
+                archives[:] = [item for item in archives if str(item.get("book_id")) != book_id]
+                archives.append(rebuilt_archive)
+                return updated
+        raise KeyError(book_id)
+
     try:
-        return store.update_record("books", book_id, patch)
+        return store.mutate(updater)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="小说不存在") from exc
 
