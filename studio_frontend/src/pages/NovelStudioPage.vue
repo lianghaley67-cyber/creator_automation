@@ -106,6 +106,10 @@ export default {
       const chapters = Array.isArray(storyArchive.value?.chapters) ? storyArchive.value.chapters : [];
       return [...chapters].sort((a, b) => Number(b.chapter_number || 0) - Number(a.chapter_number || 0))[0] || null;
     });
+    const sortedBookChapters = computed(() => {
+      const chapters = Array.isArray(storyArchive.value?.chapters) ? storyArchive.value.chapters : [];
+      return [...chapters].sort((a, b) => Number(a.chapter_number || 0) - Number(b.chapter_number || 0));
+    });
     const projectCards = computed(() => (books.value || []).map((book) => ({
       ...book,
       name: book.title,
@@ -621,6 +625,7 @@ export default {
       selectedBookId,
       selectedBook,
       latestBookChapter,
+      sortedBookChapters,
       editingBookId,
       plannerPanel,
       loading,
@@ -1387,14 +1392,20 @@ export default {
         <button class="btn secondary" :disabled="!currentBookId" @click="getStoryArchive()">刷新档案</button>
         <button v-if="storyArchive?.chapters?.length" class="btn secondary" @click="getStoryArchive()">查看已生成 {{ storyArchive.chapters.length }} 章</button>
       </div>
-      <div v-if="latestBookChapter" class="brief-card chapter-output-card">
-        <strong>{{ latestBookChapter.title }}</strong>
-        <p>
-          质量 {{ latestBookChapter.quality?.score || "--" }} ·
-          沉浸感 {{ latestBookChapter.quality?.editor_immersion_score || "--" }} ·
-          审核 {{ latestBookChapter.editorial_review?.pass ? "通过" : "需复核" }}
-        </p>
-        <pre>{{ latestBookChapter.content }}</pre>
+      <div v-if="sortedBookChapters.length" class="brief-card chapter-output-card">
+        <strong>已生成章节</strong>
+        <p>默认合并收起，点击任意章节展开查看完整正文。</p>
+        <details v-for="chapter in sortedBookChapters" :key="chapter.id || chapter.chapter_number" class="chapter-collapse-item">
+          <summary>
+            <span>{{ chapter.title || `第 ${chapter.chapter_number} 章` }}</span>
+            <em>
+              质量 {{ chapter.quality?.score || "--" }} ·
+              沉浸感 {{ chapter.quality?.editor_immersion_score || "--" }} ·
+              审核 {{ chapter.editorial_review?.pass ? "通过" : "需复核" }}
+            </em>
+          </summary>
+          <pre>{{ chapter.content }}</pre>
+        </details>
       </div>
     </section>
 

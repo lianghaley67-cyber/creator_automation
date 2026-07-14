@@ -7624,6 +7624,43 @@ textarea {
   word-break: break-word;
 }
 
+.chapter-collapse-item {
+  margin-top: 10px;
+  border: 1px solid rgba(142, 171, 205, 0.16);
+  border-radius: 8px;
+  background: rgba(13, 31, 51, 0.58);
+  overflow: hidden;
+}
+
+.chapter-collapse-item summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  cursor: pointer;
+  color: #f7fbff;
+  font-weight: 900;
+}
+
+.chapter-collapse-item summary em {
+  color: #9fb6d1;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.chapter-collapse-item[open] summary {
+  border-bottom: 1px solid rgba(142, 171, 205, 0.14);
+  background: rgba(0, 213, 232, 0.06);
+}
+
+.chapter-collapse-item pre {
+  margin: 0;
+  border-radius: 0;
+  background: rgba(3, 11, 20, 0.45);
+}
+
 .blueprint-promise-field {
   margin-top: 10px;
 }
