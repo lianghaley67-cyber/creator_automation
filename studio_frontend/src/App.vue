@@ -136,6 +136,9 @@ const fanqie = reactive({
   pushResult: {},
   workName: "",
   bookId: "",   // FanQie book_id，从章节管理 URL 获取，优先于按名称查找
+  works: [],
+  workDraft: { id: "", work_name: "", book_id: "" },
+  chapterTarget: {},
   loginVisible: false,
   cookieInput: "",
   importingCookies: false,
@@ -2294,6 +2297,15 @@ async function fanqieLoadSettings() {
     const data = await requestApi("/api/novel/fanqie/settings", {}, 8000);
     if (data.book_id)  fanqie.bookId  = data.book_id;
     if (data.work_name) fanqie.workName = data.work_name;
+    fanqie.works = Array.isArray(data.works)
+      ? data.works
+          .map((work) => ({
+            id: String(work.id || work.book_id || work.work_name || `fanqie_${Date.now()}`),
+            book_id: String(work.book_id || ""),
+            work_name: String(work.work_name || ""),
+          }))
+          .filter((work) => work.book_id || work.work_name)
+      : [];
     fanqie.logged_in        = !!data.logged_in;
     fanqie.username         = data.username || "";
     fanqie.cookieImportedAt = data.cookie_imported_at || "";
@@ -2306,9 +2318,74 @@ async function fanqieSaveSettings() {
     await requestApi("/api/novel/fanqie/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ book_id: fanqie.bookId, work_name: fanqie.workName }),
+      body: JSON.stringify({
+        book_id: fanqie.bookId,
+        work_name: fanqie.workName,
+        works: fanqie.works,
+      }),
     }, 5000);
   } catch (_) {}
+}
+
+function fanqieResetWorkDraft() {
+  fanqie.workDraft = { id: "", work_name: "", book_id: "" };
+}
+
+async function fanqieSaveWorkTarget() {
+  const workName = String(fanqie.workDraft.work_name || "").trim();
+  const bookId = String(fanqie.workDraft.book_id || "").trim();
+  if (!workName || !bookId) {
+    alert("请同时填写番茄 Book ID 和书名。");
+    return;
+  }
+  const target = {
+    id: fanqie.workDraft.id || `fanqie_${Date.now()}`,
+    work_name: workName,
+    book_id: bookId,
+  };
+  const index = fanqie.works.findIndex((work) => work.id === target.id);
+  if (index >= 0) {
+    fanqie.works.splice(index, 1, target);
+  } else {
+    fanqie.works.push(target);
+  }
+  fanqie.bookId = fanqie.works[0]?.book_id || "";
+  fanqie.workName = fanqie.works[0]?.work_name || "";
+  await fanqieSaveSettings();
+  fanqieResetWorkDraft();
+}
+
+function fanqieEditWorkTarget(work) {
+  fanqie.workDraft = {
+    id: work.id,
+    work_name: work.work_name || "",
+    book_id: work.book_id || "",
+  };
+}
+
+async function fanqieDeleteWorkTarget(workId) {
+  if (!confirm("确认删除这个番茄作品映射吗？已生成章节不会被删除。")) return;
+  fanqie.works = fanqie.works.filter((work) => work.id !== workId);
+  Object.entries(fanqie.chapterTarget || {}).forEach(([key, value]) => {
+    if (value === workId) delete fanqie.chapterTarget[key];
+  });
+  fanqie.bookId = fanqie.works[0]?.book_id || "";
+  fanqie.workName = fanqie.works[0]?.work_name || "";
+  await fanqieSaveSettings();
+}
+
+function fanqieChapterKey(chapter) {
+  return String(chapter?.id || chapter?.chapter_number || "");
+}
+
+function fanqieResolveChapterTarget(chapter, explicitTarget = null) {
+  if (explicitTarget?.book_id || explicitTarget?.work_name) return explicitTarget;
+  const key = fanqieChapterKey(chapter);
+  const selectedId = fanqie.chapterTarget?.[key];
+  return fanqie.works.find((work) => work.id === selectedId) || fanqie.works[0] || {
+    book_id: fanqie.bookId,
+    work_name: fanqie.workName,
+  };
 }
 
 async function fanqieStartLogin() {
@@ -2371,27 +2448,31 @@ async function fanqieImportCookies() {
   }
 }
 
-async function fanqiePushChapter(chapter) {
-  if (!fanqie.workName.trim() && !fanqie.bookId.trim()) {
-    alert('请先填写「番茄小说作品名」或「Book ID」。');
+async function fanqiePushChapter(chapter, target = null) {
+  const selectedTarget = fanqieResolveChapterTarget(chapter, target);
+  if (!String(selectedTarget.work_name || "").trim() || !String(selectedTarget.book_id || "").trim()) {
+    alert('请先在番茄发布中心录入「Book ID + 书名」，再选择章节推送目标。');
     return;
   }
-  fanqie.pushingChapter = chapter.chapter_number;
-  fanqie.pushResult = { ...fanqie.pushResult, [chapter.chapter_number]: null };
+  const chapterKey = fanqieChapterKey(chapter);
+  fanqie.pushingChapter = chapterKey;
+  fanqie.pushResult = { ...fanqie.pushResult, [chapterKey]: null };
   try {
     const data = await requestApi("/api/novel/fanqie/push-chapter", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        story_id: storyManageModal.storyId,
+        story_id: storyManageModal.storyId || "",
         chapter_number: chapter.chapter_number,
-        work_name: fanqie.workName,
-        book_id: fanqie.bookId,
+        title: chapter.title || `第${chapter.chapter_number}章`,
+        content: chapter.content || chapter.content_markdown || "",
+        work_name: selectedTarget.work_name,
+        book_id: selectedTarget.book_id,
       }),
     }, 60000);
-    fanqie.pushResult = { ...fanqie.pushResult, [chapter.chapter_number]: { ok: true, message: String(data.message || data.detail || "推送成功") } };
+    fanqie.pushResult = { ...fanqie.pushResult, [chapterKey]: { ok: true, message: String(data.message || data.detail || "推送成功") } };
   } catch (err) {
-    fanqie.pushResult = { ...fanqie.pushResult, [chapter.chapter_number]: { ok: false, error: String(err.message || err || "推送失败") } };
+    fanqie.pushResult = { ...fanqie.pushResult, [chapterKey]: { ok: false, error: String(err.message || err || "推送失败") } };
   } finally {
     fanqie.pushingChapter = null;
   }
@@ -2779,6 +2860,11 @@ const studioContext = {
   fanqieCheckStatus,
   fanqieLoadSettings,
   fanqieSaveSettings,
+  fanqieSaveWorkTarget,
+  fanqieEditWorkTarget,
+  fanqieDeleteWorkTarget,
+  fanqieResetWorkDraft,
+  fanqieChapterKey,
   fanqieStartLogin,
   fanqieRefreshQr,
   fanqieImportCookies,
@@ -4967,6 +5053,46 @@ textarea {
   color: #e8f4ff;
   padding: 6px 10px;
   font-size: 13px;
+}
+
+.fanqie-work-manager {
+  display: grid;
+  gap: 10px;
+}
+
+.fanqie-work-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 260px) auto auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.fanqie-work-list {
+  display: grid;
+  gap: 8px;
+}
+
+.fanqie-work-item {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(160px, 240px) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid rgba(142, 171, 205, 0.16);
+  border-radius: 8px;
+  background: rgba(142, 171, 205, 0.05);
+}
+
+.fanqie-work-item strong {
+  color: #f7fbff;
+}
+
+.fanqie-work-item code {
+  color: #7fe9ff;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .fanqie-login-area, .fanqie-logged {
@@ -7653,6 +7779,45 @@ textarea {
 .chapter-collapse-item[open] summary {
   border-bottom: 1px solid rgba(142, 171, 205, 0.14);
   background: rgba(0, 213, 232, 0.06);
+}
+
+.chapter-push-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(160px, auto);
+  gap: 10px;
+  align-items: end;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(142, 171, 205, 0.14);
+  background: rgba(13, 31, 51, 0.42);
+}
+
+.chapter-push-row label {
+  display: grid;
+  gap: 5px;
+  color: #9fb6d1;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.chapter-push-row select {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid rgba(142, 171, 205, 0.24);
+  border-radius: 7px;
+  background: #071726;
+  color: #e8f4ff;
+  padding: 6px 10px;
+  font-weight: 700;
+}
+
+.chapter-push-hint {
+  color: #8eaacd;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chapter-push-hint.err {
+  color: #ff8b7d;
 }
 
 .chapter-collapse-item pre {

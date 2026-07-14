@@ -255,7 +255,9 @@ class XiaohongshuDragRequest(BaseModel):
 
 
 class FanqiePushRequest(BaseModel):
-    story_id: str
+    story_id: str = ""
     chapter_number: int
     work_name: str
     book_id: str = ""   # 直接指定 FanQie book_id，省去按名称查找
+    title: str | None = None
+    content: str | None = None

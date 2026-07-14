@@ -1404,6 +1404,32 @@ export default {
               审核 {{ chapter.editorial_review?.pass ? "通过" : "需复核" }}
             </em>
           </summary>
+          <div class="chapter-push-row">
+            <label>
+              <span>推送目标</span>
+              <select v-model="fanqie.chapterTarget[fanqieChapterKey(chapter)]">
+                <option value="">选择番茄作品</option>
+                <option v-for="work in fanqie.works" :key="work.id" :value="work.id">
+                  {{ work.work_name }} · {{ work.book_id }}
+                </option>
+              </select>
+            </label>
+            <button
+              class="btn accent small"
+              :disabled="!fanqie.works.length || fanqie.pushingChapter === fanqieChapterKey(chapter)"
+              @click="fanqiePushChapter(chapter)"
+            >
+              {{ fanqie.pushingChapter === fanqieChapterKey(chapter) ? "推送中..." : "推送到草稿箱" }}
+            </button>
+            <span v-if="!fanqie.works.length" class="chapter-push-hint">先在下方录入番茄 Book ID 和书名。</span>
+            <span
+              v-else-if="fanqie.pushResult[fanqieChapterKey(chapter)]"
+              class="chapter-push-hint"
+              :class="{ err: !fanqie.pushResult[fanqieChapterKey(chapter)].ok }"
+            >
+              {{ fanqie.pushResult[fanqieChapterKey(chapter)].message || fanqie.pushResult[fanqieChapterKey(chapter)].error }}
+            </span>
+          </div>
           <pre>{{ chapter.content }}</pre>
         </details>
       </div>
@@ -1417,14 +1443,31 @@ export default {
         <span style="margin-left:auto;font-size:11px;color:#6a8aaa;">{{ fanqie.loginVisible ? '收起' : '展开' }}</span>
       </div>
       <div v-if="fanqie.loginVisible" class="fanqie-panel-body">
-        <label class="fanqie-field">
-          <span>番茄作品名（可留空）</span>
-          <input v-model="fanqie.workName" placeholder="和番茄小说创作中心的作品名一致" @blur="fanqieSaveSettings" />
-        </label>
-        <label class="fanqie-field">
-          <span>Book ID（推荐）</span>
-          <input v-model="fanqie.bookId" placeholder="从章节管理 URL 获取" @blur="fanqieSaveSettings" />
-        </label>
+        <div class="fanqie-work-manager">
+          <div class="fanqie-work-form">
+            <label class="fanqie-field">
+              <span>番茄书名</span>
+              <input v-model="fanqie.workDraft.work_name" placeholder="例：人间重启" />
+            </label>
+            <label class="fanqie-field">
+              <span>Book ID</span>
+              <input v-model="fanqie.workDraft.book_id" placeholder="从番茄章节管理 URL 获取" />
+            </label>
+            <button class="btn accent small" @click="fanqieSaveWorkTarget">
+              {{ fanqie.workDraft.id ? "保存映射" : "添加作品" }}
+            </button>
+            <button v-if="fanqie.workDraft.id" class="btn secondary small" @click="fanqieResetWorkDraft">取消编辑</button>
+          </div>
+          <div v-if="fanqie.works.length" class="fanqie-work-list">
+            <div v-for="work in fanqie.works" :key="work.id" class="fanqie-work-item">
+              <strong>{{ work.work_name }}</strong>
+              <code>{{ work.book_id }}</code>
+              <button class="btn secondary small" @click="fanqieEditWorkTarget(work)">编辑</button>
+              <button class="btn secondary small" @click="fanqieDeleteWorkTarget(work.id)">删除</button>
+            </div>
+          </div>
+          <p v-else class="fanqie-msg">还没有番茄作品映射。录入后，每一章都可以选择具体 Book ID 推送到对应草稿箱。</p>
+        </div>
         <div class="novel-publish-checklist">
           <span>章节格式转换</span>
           <span>标题优化</span>

@@ -2462,6 +2462,16 @@ def api_fanqie_get_settings() -> dict[str, Any]:
             settings = json.loads(settings_file.read_text(encoding="utf-8"))
         except Exception:
             pass
+    works = settings.get("works")
+    if not isinstance(works, list):
+        works = []
+    if not works and (settings.get("book_id") or settings.get("work_name")):
+        legacy_id = str(settings.get("book_id") or settings.get("work_name") or "legacy")
+        works = [{
+            "id": f"fanqie_{legacy_id}",
+            "book_id": settings.get("book_id", ""),
+            "work_name": settings.get("work_name", ""),
+        }]
     cookie_valid = False
     username = ""
     if COOKIE_FILE.exists():
@@ -2473,6 +2483,7 @@ def api_fanqie_get_settings() -> dict[str, Any]:
     return {
         "book_id": settings.get("book_id", ""),
         "work_name": settings.get("work_name", ""),
+        "works": works,
         "cookie_valid": cookie_valid,
         "cookie_imported_at": settings.get("cookie_imported_at", ""),
         "logged_in": cookie_valid,
@@ -2494,6 +2505,25 @@ async def api_fanqie_save_settings(request: Request) -> dict[str, Any]:
     for key in ("book_id", "work_name", "cookie_imported_at"):
         if key in body:
             existing[key] = body[key]
+    if "works" in body:
+        works: list[dict[str, str]] = []
+        for item in body.get("works") or []:
+            if not isinstance(item, dict):
+                continue
+            book_id = str(item.get("book_id") or "").strip()
+            work_name = str(item.get("work_name") or "").strip()
+            if not book_id and not work_name:
+                continue
+            work_id = str(item.get("id") or book_id or work_name or uuid.uuid4()).strip()
+            works.append({
+                "id": work_id,
+                "book_id": book_id,
+                "work_name": work_name,
+            })
+        existing["works"] = works
+        if works:
+            existing["book_id"] = works[0].get("book_id", "")
+            existing["work_name"] = works[0].get("work_name", "")
     settings_file.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"ok": True}
 
@@ -2567,15 +2597,14 @@ def api_fanqie_push_chapter(
     from .novel_platforms import fanqie_push_chapter_draft
     from .story_db import list_chapters
 
-    chapters = list_chapters(payload.story_id)
-    chapter = next(
-        (c for c in chapters if c["chapter_number"] == payload.chapter_number),
-        None,
-    )
-    if not chapter:
-        raise HTTPException(status_code=404, detail="章节不存在。")
-
-    content = str(chapter.get("content_markdown") or "").strip()
+    chapter: dict[str, Any] = {}
+    if payload.story_id:
+        chapters = list_chapters(payload.story_id)
+        chapter = next(
+            (c for c in chapters if c["chapter_number"] == payload.chapter_number),
+            None,
+        ) or {}
+    content = str(payload.content or chapter.get("content_markdown") or "").strip()
     if not content:
         raise HTTPException(status_code=400, detail="章节内容为空，无法推送。")
 
@@ -2584,7 +2613,7 @@ def api_fanqie_push_chapter(
             work_name=payload.work_name,
             book_id=payload.book_id,
             chapter_number=payload.chapter_number,
-            chapter_title=str(chapter.get("title") or f"第{payload.chapter_number}章"),
+            chapter_title=str(payload.title or chapter.get("title") or f"第{payload.chapter_number}章"),
             content=content,
         )
         return result
