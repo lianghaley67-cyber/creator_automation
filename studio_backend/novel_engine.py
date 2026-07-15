@@ -25,6 +25,28 @@ DEFAULT_PIPELINE = [
 ]
 
 
+NOVEL_WORLD_SIMULATOR_CONTRACT = {
+    "identity": "小说世界模拟器",
+    "mission": "让当前世界在既定条件下真实发生，而不是解释剧情或输出写作建议。",
+    "input_sections": ["World State", "Character State", "Chapter Mission", "Memory"],
+    "output_rule": "只输出小说正文，不要JSON、标题说明、写作思路、结构提示或总结。",
+    "must_do": [
+        "从当前场景直接开始，第一段就出现异常、压力或必须回应的问题。",
+        "所有信息通过动作、对话、物件、环境细节呈现。",
+        "角色用选择和行动推动事件，每200-300字必须出现推进或变化。",
+        "结尾留下角色当下必须面对的具体悬念。",
+        "语言保持番茄小说可读性：画面清楚、句子干净、对话推动剧情。",
+    ],
+    "never_do": [
+        "不解释这一章的作用。",
+        "不总结人物成长。",
+        "不写创作技巧、提示词、AI过程或结构分析。",
+        "不使用公众号风格、教学语气、复盘表格。",
+        "不为了制造冲突降低人物智商。",
+    ],
+}
+
+
 def normalize_real_event_strategy(raw: Any) -> dict[str, Any]:
     data = raw if isinstance(raw, dict) else {}
     enabled = data.get("enabled")
@@ -152,8 +174,9 @@ def skill_chapter_write(ctx: dict[str, Any]) -> dict[str, Any]:
         **ctx,
         "chapter_generation_rule": {
             "input_required": ["bookId", "chapterPlan"],
-            "must_follow": ["目标推进", "冲突制造", "悬念收尾"],
-            "rule": "章节正文只能基于当前 book_id 的 storyArchive 和 chapterPlan 生成。",
+            "must_follow": ["当前场景直接开始", "动作和对话呈现信息", "目标推进", "冲突制造", "悬念收尾"],
+            "rule": "章节正文只能基于当前 book_id 的 storyArchive 和 chapterPlan 生成，按小说世界模拟器契约输出正文。",
+            "world_simulator_contract": NOVEL_WORLD_SIMULATOR_CONTRACT,
         },
     }
 
@@ -311,20 +334,54 @@ def build_chapter_brief_from_book(book: dict[str, Any], archive: dict[str, Any],
             "conflict": "外部阻碍与内心选择同时出现。",
             "suspense": "章末留下一个具体问题或更高层威胁。",
         }
+    characters = _list(book.get("characters") or archive.get("characters"))
+    protagonist = characters[0] if characters and isinstance(characters[0], dict) else {}
+    recent_chapters = sorted(_list(archive.get("chapters")), key=lambda item: int(item.get("chapter_number") or 0))[-3:]
     return {
         "bookId": book.get("id"),
         "story_name": book.get("title"),
         "chapter_number": next_number,
         "chapterPlan": chapter_plan,
         "title_hint": f"第{next_number}章：{chapter_plan.get('goal')}",
+        "world_state": {
+            "title": book.get("title"),
+            "genre": book.get("genre"),
+            "world_setting": book.get("world_setting") or archive.get("world") or {},
+            "core_design": book.get("core_design") or {},
+        },
+        "character_state": {
+            "characters": characters[:8],
+            "current_viewpoint": _text(protagonist.get("name"), "主角"),
+        },
+        "chapter_mission": {
+            "goal": chapter_plan.get("goal"),
+            "conflict": chapter_plan.get("conflict"),
+            "hook": chapter_plan.get("suspense"),
+        },
+        "memory": {
+            "previous_chapters_summary": [
+                {
+                    "chapter_number": item.get("chapter_number"),
+                    "title": item.get("title"),
+                    "summary": item.get("summary") or item.get("context_summary"),
+                }
+                for item in recent_chapters
+            ],
+            "timeline": _list(archive.get("timeline"))[-8:],
+            "open_threads": _list(_dict(archive.get("plot")).get("open_threads"))[:8],
+        },
+        "world_simulator_contract": NOVEL_WORLD_SIMULATOR_CONTRACT,
         "must_do": [
-            "开头直接进入冲突场景，不写作者说明。",
+            "开头直接进入当前场景，不写作者说明。",
+            "只输出小说正文，不要标题说明、JSON、结构提示或写作思路。",
+            "信息必须通过动作、对话和细节呈现，不允许总结式旁白。",
             f"本章目标：{chapter_plan.get('goal')}",
             f"本章冲突：{chapter_plan.get('conflict')}",
             f"章末悬念：{chapter_plan.get('suspense')}",
         ],
         "do_not_do": [
             "不要继承其他小说的人物、世界观或旧章节。",
+            "不要写“本章”“这一章”“下面”“为了增强冲突”等说明。",
             "不要写平台外引流、联系方式、外部链接、账号口令。",
             "不要为了冲突降低人物智商。",
             "不要偏离当前 bookId 的 Story Archive。",
@@ -394,8 +451,39 @@ def _character_manager_step(book: dict[str, Any], archive: dict[str, Any]) -> di
     }
 
 
+def _is_modern_realist_book(book: dict[str, Any]) -> bool:
+    haystack = " ".join([
+        _text(book.get("title")),
+        _text(book.get("genre")),
+        _text(book.get("hook")),
+        _text(_dict(book.get("core_design")).get("平台标签")),
+        _text(_dict(book.get("world_setting")).get("time_background")),
+        _text(_dict(book.get("world_setting")).get("social_system")),
+    ])
+    return any(token in haystack for token in ["都市", "现代", "现言", "职场", "现实", "治愈", "励志", "普通人", "生活"])
+
+
+def _supporting_name(book: dict[str, Any], fallback: str = "周望") -> str:
+    characters = _list(book.get("characters"))
+    for item in characters[1:]:
+        if isinstance(item, dict) and _text(item.get("name")):
+            return _text(item.get("name"))
+    return fallback
+
+
+def _realist_scene_place(book: dict[str, Any], chapter_number: int) -> str:
+    world = _dict(book.get("world_setting"))
+    seed = _text(world.get("time_background") or world.get("social_system"))
+    if "社区" in seed:
+        return "社区服务站门口"
+    if "职场" in seed or "公司" in seed:
+        return "写字楼一层的闸机前"
+    places = ["早餐铺门口", "老小区楼下", "社区服务站门口", "便民超市外的雨棚下", "公交站旁边"]
+    return places[(max(chapter_number, 1) - 1) % len(places)]
+
+
 def _clean_chapter_text(text: str) -> str:
-    banned_prefixes = ["总结", "本章", "这一章", "下面", "以下", "作为", "我们可以看到"]
+    banned_prefixes = ["总结", "本章", "这一章", "下面", "以下", "作为", "我们可以看到", "写作", "结构", "为了增强"]
     lines = []
     for raw in (text or "").splitlines():
         line = raw.strip()
@@ -412,53 +500,102 @@ def _clean_chapter_text(text: str) -> str:
 
 
 def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any], director: dict[str, Any], plot: dict[str, Any], character: dict[str, Any]) -> str:
-    title = _text(book.get("title"), "这本书")
-    world = _dict(book.get("world_setting"))
-    place = _text(world.get("time_background"), "夜色压低的城市")
+    chapter_number = int(brief.get("chapter_number") or _dict(brief.get("chapterPlan")).get("chapter") or 1)
+    place = _realist_scene_place(book, chapter_number) if _is_modern_realist_book(book) else _text(_dict(book.get("world_setting")).get("time_background"), "风声压低的街口")
     protagonist = _character_name(book)
+    ally = _supporting_name(book)
     hook = plot["hook"]
     user_note = _text(brief.get("user_note"))
     previous = character["previous_summary"]
-    relation = character["relationship_shift"]
+    previous_memory = previous if archive.get("chapters") else "她出门前还在想，今天只要不再出错，就已经算赢。"
     goal = plot["chapter_goal"]
     conflict = plot["opening_conflict"]
     twist = plot["twist"]
-    note_line = f"她想起自己写在便签上的那句话：{user_note}" if user_note else "她把那句快要冲出口的解释咽了回去。"
+    note_line = f"她把{user_note}这几个字在心里压了一遍，没让它变成解释。" if user_note else "她把快到嘴边的解释咽了回去。"
 
-    paragraphs = [
-        f"警报响起的时候，{protagonist}正站在{place}的玻璃门前。",
-        f"门内的屏幕一排排熄灭，只剩最中间那行红字还亮着：{conflict}",
-        "人群先是安静了一秒，随即炸开。有人拍门，有人打电话，有人骂系统又在抽风。可她没有动。因为那行红字下面，还有一串只有她见过的编号。",
-        f"那编号，和《{title}》开端里压在她身上的秘密一模一样。",
-        f"{previous}",
-        f"{protagonist}攥紧手机，掌心全是汗。她知道自己不能退。{goal}",
-        "一个穿灰色外套的男人从人群后方挤过来，低声问：“你也看见了？”",
-        "她抬眼看他。男人的袖口沾着雨水，右手却一直按在内袋上，像那里藏着什么比命还要紧的东西。",
-        "“看见什么？”她反问。",
-        "男人没有立刻回答，只把一张折成四方的纸塞进她手里。纸角很旧，边缘被磨得发白，上面只有一句话：不要相信第一次重启。",
-        f"{note_line}",
-        "大厅的灯忽然全灭。",
-        "黑暗里，有人尖叫。紧接着，玻璃门外传来沉闷的撞击声，一下，又一下，像有什么东西正在从另一侧试图进来。",
-        f"{protagonist}后退半步，肩膀撞上冰冷的墙。她能感觉到所有人的恐慌正在往她身上涌，可真正让她心口发紧的，是手机屏幕自动亮起。",
-        "上面多了一条倒计时。",
-        "十分钟。",
-        "九分五十九秒。",
-        "灰衣男人压低声音：“你手里那张纸，是上一轮留下来的。只有你能打开安全门。”",
-        "“凭什么是我？”",
-        "“因为上一轮，是你亲手关上的。”",
-        "这句话像一根细针，猛地扎进她脑子里。许多破碎的画面一闪而过：奔跑的脚步、刺眼的白光、有人在她耳边喊不要回头。",
-        "她疼得弯下腰，却在下一秒听见门外的撞击停了。",
-        "安静比混乱更可怕。",
-        "所有人都看向玻璃门。",
-        "门外站着一个和她长得一模一样的人。",
-        f"{relation}",
-        f"{protagonist}的呼吸一点点沉下去。她没有冲过去，也没有尖叫。她把纸条翻到背面，看见背面还有一行更小的字。",
-        f"{twist}",
-        "倒计时跳到七分钟。",
-        "灰衣男人催她：“开门，还是不开？”",
-        f"{protagonist}抬起头，看着门外那个“自己”缓缓抬手，指尖贴上玻璃，一笔一画写下四个字。",
-        f"{hook}",
-    ]
+    if _is_modern_realist_book(book):
+        paragraphs = [
+            f"雨水从雨棚边缘滴下来时，{protagonist}的手机第三次响起。",
+            f"她站在{place}，一只手拎着还冒热气的早餐，另一只手按住帆布包里的缴费单。屏幕上跳着房东的名字，像一颗烫在掌心里的钉子。",
+            "她没有立刻接。",
+            "排队的人往前挪了一步，后面的大爷催了句：“姑娘，走不走？”",
+            f"{protagonist}回过神，把手机扣在掌心里，“走。”",
+            f"刚迈出半步，门口忽然传来一声闷响。一个外卖箱歪倒在水洼边，豆浆从袋口淌出来，混着雨水流到她鞋尖前。",
+            f"{ally}蹲在地上，手肘擦破了一块皮，车轮旁边扎着一枚细钉。手机提示音还在响，一声比一声急。",
+            "“您有一笔订单即将超时。”",
+            f"{ally}低低骂了一句，伸手去扶车，手指却抖了一下。",
+            f"{protagonist}把早餐袋放到台阶上，蹲下看了眼轮胎，“不能骑了。”",
+            "“我知道。”他撑着车把站起来，脸色比雨后的水泥地还灰，“还有九单。”",
+            "旁边有人看热闹，有人绕开水洼，也有人举起手机拍。早餐铺老板娘探出头：“小周，摔着没？”",
+            f"{ally}摇头，“没事。”",
+            "话刚说完，手机又跳出一条消息。客户催单，平台倒计时，红色数字挤在一块，看得人喘不过气。",
+            f"{protagonist}看着那串数字，忽然想起早上压在心底的事：{previous_memory}",
+            f"她知道自己也快被生活催到角落里了。房租、工作、家里的电话，每一样都在等她低头。可眼前这个人连低头的时间都没有。",
+            "“最近的一单在哪？”她问。",
+            f"{ally}抬头看她，“你要干什么？”",
+            "“帮你送。”",
+            "“别闹。”",
+            f"“我没闹。”{protagonist}伸手，“地址。”",
+            f"{ally}盯着她，像是没听懂。雨水从他额前滴下来，砸在外卖箱的塑料扣上。",
+            "旁边拍视频的小姑娘小声说：“这也能帮啊？”",
+            f"{protagonist}没看她，只看着{ally}，“你推车去补胎。近的给我，远的等车好。客户要骂，让他骂我。”",
+            "“你还有自己的事。”",
+            f"“所以我只帮你一单。”她顿了顿，“但这一单不能烂在这里。”",
+            f"{ally}终于把手机递给她。屏幕上是春明巷七号楼，备注写着：孩子上学前必须送到。",
+            f"{protagonist}拨通客户电话，往雨里跑。",
+            "电话那头几乎是吼出来的：“怎么还没到？我孩子早饭都没吃！”",
+            f"她喘着气穿过路口，“您好，骑手车胎扎了，我现在给您送过去。八分钟内到。豆浆洒了一点，我让他补您一份。”",
+            "“你是谁？”",
+            "“路过帮忙的。”",
+            "对面安静了两秒。",
+            "“路过？”",
+            "“对。”她跨过一片积水，鞋里瞬间灌进凉水，“但早餐是真的在路上。”",
+            "春明巷七号楼没有电梯。楼道里的灯坏了两盏，墙上贴着褪色的小广告，空气里有潮味和旧油烟味。",
+            f"{protagonist}爬到四楼时，胸口像塞了团湿棉花。门开得很快，一个女人抱着孩子站在门口，眼底全是没睡醒的火气。",
+            "“抱歉，晚了。”她把袋子递过去。",
+            "女人接过早餐，看见她裤脚上的泥水，声音低了一点，“你不是骑手？”",
+            "“不是。”",
+            "孩子从女人怀里探出头，“妈妈，她跑来的。”",
+            "女人打开袋子，发现豆浆少了一点，眉头刚皱起，又松开了。",
+            "“算了。”她把门边一包纸巾递出来，“擦擦吧。”",
+            f"{protagonist}愣了一下，“不用。”",
+            "“拿着。”女人说，“我刚才语气也不好。”",
+            f"{protagonist}接过纸巾，指尖碰到包装袋边缘，心里那根绷了一早上的线忽然松了一点。",
+            f"{note_line}",
+            "她下楼时，手机又响了。",
+            f"这次不是房东，是一个陌生号码。",
+            f"“你好，是{protagonist}吗？”电话那头的声音很急，“我是春和社区服务站。你是不是要来做临时登记？”",
+            f"{protagonist}停在二楼转角，“是，我可能会晚几分钟。”",
+            "“不用按临时工流程走了。”",
+            "她心口一沉。",
+            "对方紧接着说：“刚才有人把你帮外卖员送餐的视频发到业主群了。主任让你直接过来，他想跟你聊另一个岗位。”",
+            f"{protagonist}握着手机，楼道窗外的雨又密了起来。",
+            "她还没来得及问，电话那头压低声音。",
+            f"“不过你最好快点。有人说你们是在摆拍，还把视频发到平台投诉区了。”",
+            f"{twist}",
+            f"{protagonist}抬头，看见楼道墙角贴着一张刚被雨水洇开的通知。通知最下面，有人用黑笔补了一行字。",
+            f"{hook}",
+        ]
+    else:
+        paragraphs = [
+            f"风从街口卷过来时，{protagonist}听见身后有人喊她的名字。",
+            f"她没有回头，先把手里的东西压进袖中。{conflict}",
+            f"{ally}追上来，声音压得很低：“你真要现在去？”",
+            f"{protagonist}看着前方那扇半开的门，“现在不去，线索就没了。”",
+            f"门内传来瓷器碎裂声，紧接着是短促的呼救。围在外面的人齐齐后退，只有她往前走了一步。",
+            f"{previous}",
+            f"她知道这不是逞强。{goal}",
+            "有人伸手拦她，“进去就是惹祸。”",
+            f"{protagonist}避开那只手，“我已经在祸里了。”",
+            f"{note_line}",
+            f"{ally}咬了咬牙，跟在她身后，“那我陪你。”",
+            f"门轴发出一声刺耳的响。屋里没有灯，只有地上的水迹一直延到屏风后面。",
+            f"{protagonist}蹲下，用指腹碰了碰水迹。水还是温的。",
+            f"屏风后忽然有人笑了一声。",
+            f"{twist}",
+            f"{protagonist}抬起眼，手指慢慢收紧。",
+            f"{hook}",
+        ]
     return _clean_chapter_text("\n\n".join(paragraphs))
 
 

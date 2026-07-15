@@ -745,6 +745,24 @@ SENSITIVE_PATTERNS = {
     "violence_stack": re.compile(r"追杀|尸体|死亡|杀人|血|跳楼|自杀|枪|刀"),
     "platform_leak": re.compile(r"微信|QQ|公众号|小红书|微博|关注我|私信|http|www\.", re.I),
     "tutorial_leak": re.compile(r"提示词|怎么写|AI原版|我的修改|教程|步骤|表格|工具"),
+    "meta_narration": re.compile(r"本章|这一章|下面|以下|为了增强|写作思路|结构提示|剧情作用|节奏分析"),
+}
+
+
+NOVEL_WORLD_SIMULATOR_CONTRACT = {
+    "identity": "小说世界模拟器",
+    "output_rule": "只输出小说正文，不要解释、总结、JSON、写作思路或结构提示。",
+    "must_do": [
+        "从当前场景直接开始。",
+        "用角色动作、对话和细节呈现信息。",
+        "每200-300字出现一次事件推进、关系变化、发现或风险升级。",
+        "结尾留下具体悬念。",
+    ],
+    "never_do": [
+        "不写写作技巧说明。",
+        "不写章节作用分析。",
+        "不写公众号风格或教学语气。",
+    ],
 }
 
 
@@ -1159,11 +1177,14 @@ def build_chapter_brief(
         "title_hint": f"第{current}章：先写一个明确的选择",
         "must_do": [
             "开头直接进入场景，不写作者说明。",
+            "只输出小说正文，不要解释、总结、JSON、写作思路或结构提示。",
+            "所有信息通过动作、对话、环境细节呈现。",
             "本章只解决一个目标：让主角做出一个会付出代价的选择。",
             "至少安排一个人物关系变化，避免只有设定或旁白。",
             "结尾留下一个具体悬念，但不要新增大堆设定。",
         ],
         "do_not_do": FANQIE_HARD_RULES,
+        "world_simulator_contract": NOVEL_WORLD_SIMULATOR_CONTRACT,
         "previous_summary": (last_chapter or {}).get("context_summary", ""),
         "open_threads_to_use": open_threads,
         "user_note": user_note.strip(),
@@ -1174,20 +1195,18 @@ def validate_chapter_text(text: str, brief: dict[str, Any] | None = None) -> dic
     """Lightweight local review before platform publishing."""
     plain = re.sub(r"\s+", "", text or "")
     issues: list[str] = []
-    for key in ("platform_leak", "tutorial_leak", "family_romance_risk"):
+    for key in ("platform_leak", "tutorial_leak", "family_romance_risk", "meta_narration"):
         if SENSITIVE_PATTERNS[key].search(text or ""):
             issues.append({
                 "platform_leak": "正文含平台外信息/链接/引流痕迹。",
                 "tutorial_leak": "正文像教程或AI写作拆解，不像小说。",
                 "family_romance_risk": "存在亲属/疑似亲属暧昧风险。",
+                "meta_narration": "正文出现章节作用、写作思路或结构提示，不像沉浸式小说。",
             }[key])
     if len(plain) < 1200:
         issues.append("章节正文偏短，番茄连载建议至少有完整场景、冲突和章末钩子。")
     if (text or "").count("？") + (text or "").count("?") > 16:
         issues.append("疑问句过多，像设定提纲，建议改成行动和对话。")
-    if brief and str(brief.get("story_name") or "") and str(brief.get("story_name")) not in (text or "")[:200]:
-        issues.append("开头没有明显章节归属，建议标题包含书名或章节名。")
-
     return {
         "pass": not issues,
         "issues": issues,
