@@ -53,6 +53,7 @@ export default {
       real_event_strategy: {
         enabled: false,
         source_type: "个人",
+        source_type_custom: "",
         adaptation_level: "中",
         risk_control: "人物、地点、时间线和关键事件均虚构化，不影射具体个人，保留现实情绪但避免复刻真实案件。",
       },
@@ -263,6 +264,7 @@ export default {
       blueprintForm.real_event_strategy = {
         enabled: false,
         source_type: "个人",
+        source_type_custom: "",
         adaptation_level: "中",
         risk_control: "人物、地点、时间线和关键事件均虚构化，不影射具体个人，保留现实情绪但避免复刻真实案件。",
       };
@@ -291,6 +293,16 @@ export default {
       ctx.setNotice("请先填写开书策划表单，再生成蓝图。");
     }
 
+    function normalizedRealEventStrategy() {
+      const strategy = { ...blueprintForm.real_event_strategy };
+      const custom = String(strategy.source_type_custom || "").trim();
+      return {
+        ...strategy,
+        enabled: Boolean(strategy.enabled),
+        source_type: strategy.source_type === "__custom__" ? custom : strategy.source_type,
+      };
+    }
+
     function collectBookBlueprintInput() {
       return {
         bookId: editingBookId.value || freshBookId(),
@@ -307,10 +319,7 @@ export default {
         protagonist_seed: blueprintForm.protagonist_seed,
         chapter_count: blueprintForm.chapter_count,
         first_volume_count: blueprintForm.first_volume_count,
-        real_event_strategy: {
-          ...blueprintForm.real_event_strategy,
-          enabled: Boolean(blueprintForm.real_event_strategy.enabled),
-        },
+        real_event_strategy: normalizedRealEventStrategy(),
         core_design: { ...blueprintForm.core_design },
       };
     }
@@ -355,6 +364,8 @@ export default {
 
     function fillFormFromBook(book) {
       if (!book) return;
+      const sourceType = String(book.real_event_strategy?.source_type || "个人");
+      const sourcePresets = ["新闻", "历史", "个人"];
       blueprintForm.title = book.title || "";
       blueprintForm.genre = normalizeStoryGenre(book.genre);
       blueprintForm.idea = book.hook || "";
@@ -368,6 +379,8 @@ export default {
       blueprintForm.real_event_strategy = {
         ...blueprintForm.real_event_strategy,
         ...(book.real_event_strategy || {}),
+        source_type: sourcePresets.includes(sourceType) ? sourceType : "__custom__",
+        source_type_custom: sourcePresets.includes(sourceType) ? "" : sourceType,
       };
       blueprint.value = bookToBlueprint(book);
       blueprintPromise.value = coreValue(book.core_design, "爽点设计", "satisfaction_design", blueprint.value?.book_profile?.promise || "");
@@ -1096,7 +1109,15 @@ export default {
             <option value="新闻">新闻</option>
             <option value="历史">历史</option>
             <option value="个人">个人经历</option>
+            <option value="__custom__">自定义来源</option>
           </select>
+        </label>
+        <label v-if="blueprintForm.real_event_strategy.source_type === '__custom__'" class="field">
+          <span>自定义来源</span>
+          <input
+            v-model="blueprintForm.real_event_strategy.source_type_custom"
+            placeholder="例：社区见闻 / 行业案例 / 身边人物 / 公开访谈"
+          />
         </label>
         <label class="field">
           <span>改编程度</span>
