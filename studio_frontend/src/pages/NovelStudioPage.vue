@@ -296,6 +296,15 @@ export default {
     function normalizedRealEventStrategy() {
       const strategy = { ...blueprintForm.real_event_strategy };
       const custom = String(strategy.source_type_custom || "").trim();
+      if (!strategy.enabled) {
+        return {
+          enabled: false,
+          source_type: "",
+          source_type_custom: "",
+          adaptation_level: "",
+          risk_control: "",
+        };
+      }
       return {
         ...strategy,
         enabled: Boolean(strategy.enabled),
@@ -1103,7 +1112,7 @@ export default {
             <option :value="true">是，需要改编</option>
           </select>
         </label>
-        <label class="field">
+        <label v-if="blueprintForm.real_event_strategy.enabled" class="field">
           <span>事件来源</span>
           <select v-model="blueprintForm.real_event_strategy.source_type">
             <option value="新闻">新闻</option>
@@ -1112,14 +1121,14 @@ export default {
             <option value="__custom__">自定义来源</option>
           </select>
         </label>
-        <label v-if="blueprintForm.real_event_strategy.source_type === '__custom__'" class="field">
+        <label v-if="blueprintForm.real_event_strategy.enabled && blueprintForm.real_event_strategy.source_type === '__custom__'" class="field">
           <span>自定义来源</span>
           <input
             v-model="blueprintForm.real_event_strategy.source_type_custom"
             placeholder="例：社区见闻 / 行业案例 / 身边人物 / 公开访谈"
           />
         </label>
-        <label class="field">
+        <label v-if="blueprintForm.real_event_strategy.enabled" class="field">
           <span>改编程度</span>
           <select v-model="blueprintForm.real_event_strategy.adaptation_level">
             <option value="低">低：保留大框架</option>
@@ -1131,7 +1140,7 @@ export default {
           <span>商业标签</span>
           <input v-model="blueprintForm.core_design.平台标签" placeholder="例：番茄,女频,逆袭,强钩子" />
         </label>
-        <label class="field wide">
+        <label v-if="blueprintForm.real_event_strategy.enabled" class="field wide">
           <span>风险规避策略</span>
           <textarea v-model="blueprintForm.real_event_strategy.risk_control" rows="2" placeholder="例：人物地点虚构化，不复刻真实案件细节。"></textarea>
         </label>
