@@ -52,18 +52,18 @@ def normalize_real_event_strategy(raw: Any) -> dict[str, Any]:
     enabled = data.get("enabled")
     if enabled is None:
         enabled = data.get("based_on_real_event", False)
-    if not bool(enabled):
-        return {
-            "enabled": False,
-            "source_type": "",
-            "source_type_custom": "",
-            "adaptation_level": "",
-            "risk_control": "",
-        }
     source_type = str(data.get("source_type") or data.get("event_source") or "个人").strip()
     custom_source = str(data.get("source_type_custom") or "").strip()
     if source_type == "__custom__" and custom_source:
         source_type = custom_source
+    if not bool(enabled):
+        return {
+            "enabled": False,
+            "source_type": source_type,
+            "source_type_custom": custom_source,
+            "adaptation_level": "",
+            "risk_control": "",
+        }
     return {
         "enabled": bool(enabled),
         "source_type": source_type,

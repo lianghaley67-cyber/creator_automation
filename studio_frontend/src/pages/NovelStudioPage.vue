@@ -299,8 +299,8 @@ export default {
       if (!strategy.enabled) {
         return {
           enabled: false,
-          source_type: "",
-          source_type_custom: "",
+          source_type: strategy.source_type === "__custom__" ? custom : strategy.source_type,
+          source_type_custom: custom,
           adaptation_level: "",
           risk_control: "",
         };
@@ -1112,7 +1112,7 @@ export default {
             <option :value="true">是，需要改编</option>
           </select>
         </label>
-        <label v-if="blueprintForm.real_event_strategy.enabled" class="field">
+        <label class="field">
           <span>事件来源</span>
           <select v-model="blueprintForm.real_event_strategy.source_type">
             <option value="新闻">新闻</option>
@@ -1121,7 +1121,7 @@ export default {
             <option value="__custom__">自定义来源</option>
           </select>
         </label>
-        <label v-if="blueprintForm.real_event_strategy.enabled && blueprintForm.real_event_strategy.source_type === '__custom__'" class="field">
+        <label v-if="blueprintForm.real_event_strategy.source_type === '__custom__'" class="field">
           <span>自定义来源</span>
           <input
             v-model="blueprintForm.real_event_strategy.source_type_custom"
