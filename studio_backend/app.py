@@ -2242,6 +2242,108 @@ async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str,
     saved = store.mutate(updater)
     return {"ok": True, "chapter": saved, "quality": saved.get("quality")}
 
+
+@app.post("/books/{book_id}/chapters/{chapter_number}/regenerate")
+@app.post("/api/books/{book_id}/chapters/{chapter_number}/regenerate")
+async def api_regenerate_book_chapter(book_id: str, chapter_number: int, request: Request) -> dict[str, Any]:
+    from .novel_engine import build_chapter_brief_from_book, generate_chapter_from_plan
+
+    book = store.find_record("books", book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="小说不存在")
+    body = await request.json()
+    archive = api_get_story_archive(book_id)
+    archive_for_context = {
+        **archive,
+        "chapters": [
+            item for item in archive.get("chapters", [])
+            if int(item.get("chapter_number") or 0) < int(chapter_number)
+        ],
+    }
+    brief = body.get("brief") if isinstance(body, dict) and isinstance(body.get("brief"), dict) else {}
+    if not brief:
+        brief = build_chapter_brief_from_book(
+            book,
+            archive_for_context,
+            user_note=str((body if isinstance(body, dict) else {}).get("user_note") or "不合规范，按当前章节规划完整重写这一章。"),
+            chapter_number=chapter_number,
+        )
+    else:
+        brief = {**brief, "chapter_number": chapter_number}
+    chapter = generate_chapter_from_plan(book, archive_for_context, brief)
+    chapter["created_at"] = now_iso()
+    chapter["regenerated_at"] = now_iso()
+
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        chapters = state.setdefault("book_chapters", [])
+        chapters[:] = [
+            item for item in chapters
+            if not (str(item.get("book_id")) == book_id and int(item.get("chapter_number") or 0) == int(chapter_number))
+        ]
+        chapters.append(chapter)
+        archives = state.setdefault("story_archives", [])
+        archive_items = [item for item in archives if str(item.get("book_id")) == book_id]
+        archive = archive_items[0] if archive_items else {"book_id": book_id}
+        book_chapters = [item for item in chapters if str(item.get("book_id")) == book_id]
+        archive["chapters"] = _sorted(book_chapters, key="chapter_number")
+        timeline = [
+            item for item in archive.get("timeline", [])
+            if int(item.get("chapter") or 0) != int(chapter_number)
+        ]
+        timeline.append({
+            "chapter": chapter["chapter_number"],
+            "event": chapter["chapterPlan"].get("goal"),
+            "suspense": chapter["chapterPlan"].get("suspense"),
+            "regenerated": True,
+        })
+        archive["timeline"] = _sorted(timeline, key="chapter")
+        archive["updated_at"] = now_iso()
+        archives[:] = [item for item in archives if str(item.get("book_id")) != book_id]
+        archives.append(archive)
+        return chapter
+
+    saved = store.mutate(updater)
+    return {"ok": True, "chapter": saved, "quality": saved.get("quality")}
+
+
+@app.delete("/books/{book_id}/chapters/{chapter_number}")
+@app.delete("/api/books/{book_id}/chapters/{chapter_number}")
+def api_delete_book_chapter(book_id: str, chapter_number: int) -> dict[str, Any]:
+    if not store.find_record("books", book_id):
+        raise HTTPException(status_code=404, detail="小说不存在")
+
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        chapters = state.setdefault("book_chapters", [])
+        before = len(chapters)
+        state["book_chapters"] = [
+            item for item in chapters
+            if not (str(item.get("book_id")) == book_id and int(item.get("chapter_number") or 0) == int(chapter_number))
+        ]
+        deleted = before - len(state["book_chapters"])
+        archives = state.setdefault("story_archives", [])
+        archive_items = [item for item in archives if str(item.get("book_id")) == book_id]
+        archive = archive_items[0] if archive_items else {"book_id": book_id}
+        archive["chapters"] = _sorted(
+            [item for item in state["book_chapters"] if str(item.get("book_id")) == book_id],
+            key="chapter_number",
+        )
+        archive["timeline"] = _sorted(
+            [
+                item for item in archive.get("timeline", [])
+                if int(item.get("chapter") or 0) != int(chapter_number)
+            ],
+            key="chapter",
+        )
+        archive["updated_at"] = now_iso()
+        archives[:] = [item for item in archives if str(item.get("book_id")) != book_id]
+        archives.append(archive)
+        return {"ok": True, "book_id": book_id, "chapter_number": chapter_number, "deleted": deleted}
+
+    result = store.mutate(updater)
+    if not result.get("deleted"):
+        raise HTTPException(status_code=404, detail="章节不存在")
+    return result
+
 def _normalize_story_genre_for_db(raw: str) -> str:
     """Map UI/planning genre labels to the values accepted by the current story table."""
     value = str(raw or "").strip().lower()

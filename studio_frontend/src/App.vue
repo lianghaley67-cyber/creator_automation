@@ -7781,6 +7781,33 @@ textarea {
   background: rgba(0, 213, 232, 0.06);
 }
 
+.chapter-manage-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(142, 171, 205, 0.12);
+  background: rgba(3, 11, 20, 0.28);
+}
+
+.chapter-review-pill {
+  margin-right: auto;
+  border: 1px solid rgba(75, 224, 140, 0.28);
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #8df0b0;
+  background: rgba(75, 224, 140, 0.08);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.chapter-review-pill.warning {
+  border-color: rgba(255, 125, 76, 0.34);
+  color: #ffb089;
+  background: rgba(255, 125, 76, 0.1);
+}
+
 .chapter-push-row {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) auto minmax(160px, auto);

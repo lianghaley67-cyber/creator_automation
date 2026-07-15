@@ -34,6 +34,8 @@ export default {
       createStory: false,
       books: false,
       deleteBook: "",
+      regenerateChapter: "",
+      deleteChapter: "",
       brief: false,
       chapter: false,
     });
@@ -591,6 +593,60 @@ export default {
       }
     }
 
+    async function regenerateBookChapter(chapter) {
+      if (!currentBookId.value || !chapter?.chapter_number) {
+        ctx.setError("请先选择一本小说和要重生成的章节。");
+        return;
+      }
+      const chapterNumber = Number(chapter.chapter_number);
+      loading.regenerateChapter = String(chapterNumber);
+      try {
+        const plan = chapter.chapterPlan || (selectedBook.value?.plot_outline || []).find((item) => Number(item.chapter) === chapterNumber) || {};
+        const result = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapters/${chapterNumber}/regenerate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            brief: {
+              bookId: currentBookId.value,
+              story_name: selectedBook.value?.title,
+              chapter_number: chapterNumber,
+              chapterPlan: plan,
+              user_note: `${chapterNote.value || ""}\n不合规范，按小说世界模拟器规则重写：直接入场、动作对话推进、不要说明腔。`.trim(),
+            },
+            user_note: chapterNote.value,
+          }),
+        }, 90000);
+        const score = result?.quality?.score || result?.chapter?.quality?.score || "--";
+        ctx.setNotice(`第 ${chapterNumber} 章已重新生成，质量评分 ${score}。`);
+        await getStoryArchive(currentBookId.value);
+      } catch (err) {
+        ctx.setError(`章节重生成失败：${err.message}`);
+      } finally {
+        loading.regenerateChapter = "";
+      }
+    }
+
+    async function deleteBookChapter(chapter) {
+      if (!currentBookId.value || !chapter?.chapter_number) {
+        ctx.setError("请先选择一本小说和要删除的章节。");
+        return;
+      }
+      const chapterNumber = Number(chapter.chapter_number);
+      if (!confirm(`确认删除第 ${chapterNumber} 章吗？此操作不会删除小说项目。`)) return;
+      loading.deleteChapter = String(chapterNumber);
+      try {
+        await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapters/${chapterNumber}`, {
+          method: "DELETE",
+        }, 15000);
+        ctx.setNotice(`第 ${chapterNumber} 章已删除。`);
+        await getStoryArchive(currentBookId.value);
+      } catch (err) {
+        ctx.setError(`章节删除失败：${err.message}`);
+      } finally {
+        loading.deleteChapter = "";
+      }
+    }
+
     async function runOneClickProduction() {
       if (!blueprint.value) {
         await createBookBlueprint();
@@ -665,6 +721,8 @@ export default {
       diagnoseStory,
       createChapterBrief,
       generateChapterFromBrief,
+      regenerateBookChapter,
+      deleteBookChapter,
       runOneClickProduction,
       storyMetricClass,
       formatStoryStep,
@@ -1404,6 +1462,28 @@ export default {
               审核 {{ chapter.editorial_review?.pass ? "通过" : "需复核" }}
             </em>
           </summary>
+          <div class="chapter-manage-row">
+            <span
+              class="chapter-review-pill"
+              :class="{ warning: !chapter.editorial_review?.pass || Number(chapter.quality?.score || 0) < 80 }"
+            >
+              {{ chapter.editorial_review?.pass && Number(chapter.quality?.score || 0) >= 80 ? "符合规范" : "不合规范，建议重新生成" }}
+            </span>
+            <button
+              class="btn secondary small"
+              :disabled="loading.regenerateChapter === String(chapter.chapter_number) || loading.deleteChapter === String(chapter.chapter_number)"
+              @click="regenerateBookChapter(chapter)"
+            >
+              {{ loading.regenerateChapter === String(chapter.chapter_number) ? "重生成中..." : "重新生成" }}
+            </button>
+            <button
+              class="btn secondary small danger"
+              :disabled="loading.deleteChapter === String(chapter.chapter_number) || loading.regenerateChapter === String(chapter.chapter_number)"
+              @click="deleteBookChapter(chapter)"
+            >
+              {{ loading.deleteChapter === String(chapter.chapter_number) ? "删除中..." : "删除" }}
+            </button>
+          </div>
           <div class="chapter-push-row">
             <label>
               <span>推送目标</span>

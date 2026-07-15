@@ -322,9 +322,16 @@ def build_story_archive(book: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_chapter_brief_from_book(book: dict[str, Any], archive: dict[str, Any], *, user_note: str = "") -> dict[str, Any]:
+def build_chapter_brief_from_book(
+    book: dict[str, Any],
+    archive: dict[str, Any],
+    *,
+    user_note: str = "",
+    chapter_number: int | None = None,
+) -> dict[str, Any]:
     chapters = _list(archive.get("chapters"))
-    next_number = len(chapters) + 1
+    max_number = max((int(item.get("chapter_number") or 0) for item in chapters), default=0)
+    next_number = int(chapter_number or max_number + 1)
     plans = _list(book.get("plot_outline"))
     chapter_plan = next((item for item in plans if int(item.get("chapter") or 0) == next_number), None)
     if not chapter_plan:
