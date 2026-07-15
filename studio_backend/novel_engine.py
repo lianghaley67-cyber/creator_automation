@@ -95,6 +95,17 @@ def _story_safe_line(value: Any, fallback: str) -> str:
     return text
 
 
+def _is_generic_role_name(name: str) -> bool:
+    return _text(name) in {"", "主角", "女主", "男主", "核心视角", "主人公", "视角人物"}
+
+
+def _fallback_protagonist_name(data: dict[str, Any]) -> str:
+    seed = _text(data.get("protagonist_seed"))
+    if seed and not _is_generic_role_name(seed) and len(seed) <= 5:
+        return seed
+    return "林小满" if _is_modern_realist_book(data) else "云栖"
+
+
 def skill_market_analysis(ctx: dict[str, Any]) -> dict[str, Any]:
     core = normalize_core_design(ctx.get("core_design"))
     return {
@@ -118,7 +129,7 @@ def skill_world_build(ctx: dict[str, Any]) -> dict[str, Any]:
         "world_setting": {
             "time_background": world.get("time_background") or _text(ctx.get("worldview_seed"), "现代社会或架空世界的第一卷开端"),
             "social_system": world.get("society_system") or world.get("social_system") or "身份、资源和规则共同构成压力。",
-            "relationship_network": world.get("relationship_map") or "主角、同盟、对手、权力中心四层关系网。",
+            "relationship_network": world.get("relationship_map") or "林小满、同盟、对手、权力中心四层关系网。",
             "rule_system": world.get("rule_system") or "所有能力和选择必须付出代价，不允许临时开挂。",
             "power_system": world.get("power_system") or "能力成长、信息差、关系协作和关键选择共同构成力量体系。",
         },
@@ -131,7 +142,7 @@ def skill_character_design(ctx: dict[str, Any]) -> dict[str, Any]:
     if not characters:
         characters = [
             {
-                "name": "主角",
+                "name": _fallback_protagonist_name(ctx),
                 "background": _text(ctx.get("protagonist_seed"), "普通人处在高压现实中，被迫做出改变。"),
                 "personality": "清醒、韧性强，遇事先观察再行动。",
                 "strengths": "学习力、观察力、共情力、关键时刻的行动力。",
@@ -141,7 +152,10 @@ def skill_character_design(ctx: dict[str, Any]) -> dict[str, Any]:
                 "final_change": "成为有判断、有边界、有行动力的人。",
             }
         ]
-    return {**ctx, "characters": [item for item in characters if isinstance(item, dict)]}
+    cleaned = [dict(item) for item in characters if isinstance(item, dict)]
+    if cleaned and _is_generic_role_name(_text(cleaned[0].get("name"))):
+        cleaned[0]["name"] = _fallback_protagonist_name(ctx)
+    return {**ctx, "characters": cleaned}
 
 
 def build_chapter_plans(raw_plan: list[Any], target_count: int = 100) -> list[dict[str, Any]]:
@@ -367,7 +381,7 @@ def build_chapter_brief_from_book(
         },
         "character_state": {
             "characters": characters[:8],
-            "current_viewpoint": _text(protagonist.get("name"), "主角"),
+            "current_viewpoint": _character_name(book),
         },
         "chapter_mission": {
             "goal": chapter_plan.get("goal"),
@@ -407,17 +421,18 @@ def build_chapter_brief_from_book(
 
 
 def _character_name(book: dict[str, Any]) -> str:
-    protagonist = (_list(book.get("characters")) or [{"name": "主角"}])[0]
-    if isinstance(protagonist, dict):
-        name = _text(protagonist.get("name"), "主角")
-        return "主角" if name in {"", "核心视角"} else name
-    return "主角"
+    characters = _list(book.get("characters"))
+    if characters and isinstance(characters[0], dict):
+        name = _text(characters[0].get("name"))
+        if name and not _is_generic_role_name(name):
+            return name
+    return _fallback_protagonist_name(book)
 
 
 def _previous_summary(archive: dict[str, Any]) -> str:
     chapters = _list(archive.get("chapters"))
     if not chapters:
-        return "故事刚开始，读者还不知道主角会如何面对第一个选择。"
+        return "故事刚开始，读者还不知道她会如何面对第一个选择。"
     latest = sorted(chapters, key=lambda item: int(item.get("chapter_number") or 0))[-1]
     return _text(latest.get("summary") or latest.get("title") or latest.get("content"), "上一章留下的选择还没有完成。")[:220]
 
@@ -426,10 +441,11 @@ def _director_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[st
     plan = _dict(brief.get("chapterPlan"))
     chapter_number = int(brief.get("chapter_number") or plan.get("chapter") or 1)
     total = max(1, len(_list(book.get("plot_outline"))) or 100)
+    protagonist = _character_name(book)
     if chapter_number <= 3:
-        pace = "快开局，直接把主角推入异常事件，迅速建立读者问题。"
+        pace = f"快开局，直接把{protagonist}推入异常事件，迅速建立读者问题。"
     elif chapter_number <= total * 0.25:
-        pace = "持续加压，每章必须让主角获得一个新线索或付出一个代价。"
+        pace = f"持续加压，每章必须让{protagonist}获得一个新线索或付出一个代价。"
     elif chapter_number <= total * 0.75:
         pace = "中段升级，冲突不能横向重复，必须扩大代价和关系变化。"
     else:
@@ -457,11 +473,12 @@ def _character_manager_step(book: dict[str, Any], archive: dict[str, Any]) -> di
     characters = _list(book.get("characters"))
     protagonist = characters[0] if characters and isinstance(characters[0], dict) else {}
     ally = next((item for item in characters[1:] if isinstance(item, dict)), {})
+    protagonist_name = _character_name(book)
     return {
         "role": "Character Manager",
-        "protagonist": _text(protagonist.get("name"), "主角"),
+        "protagonist": protagonist_name,
         "motivation": _text(protagonist.get("inner_conflict") or protagonist.get("psychological_conflict"), "想获得安全感，又害怕再次失去主动权。"),
-        "behavior_guard": "主角必须通过观察、选择和行动破局，不能突然降智或被动等待拯救。",
+        "behavior_guard": f"{protagonist_name}必须通过观察、选择和行动破局，不能突然降智或被动等待拯救。",
         "relationship_shift": f"与{_text(ally.get('name'), '关键同盟')}的信任推进一小步，但保留新的疑点。",
         "previous_summary": _previous_summary(archive),
     }
@@ -476,7 +493,7 @@ def _is_modern_realist_book(book: dict[str, Any]) -> bool:
         _text(_dict(book.get("world_setting")).get("time_background")),
         _text(_dict(book.get("world_setting")).get("social_system")),
     ])
-    return any(token in haystack for token in ["都市", "现代", "现言", "职场", "现实", "治愈", "励志", "普通人", "生活"])
+    return any(token in haystack for token in ["都市", "现代", "现言", "职场", "现实", "治愈", "励志", "普通人", "生活", "urban", "modern_romance"])
 
 
 def _supporting_name(book: dict[str, Any], fallback: str = "周望") -> str:
@@ -523,6 +540,12 @@ def _next_episode_preview(book: dict[str, Any], hook: str, protagonist: str) -> 
     if _is_modern_realist_book(book):
         return f"下期看点：{protagonist}赶到社区服务站后，会发现质疑她的人不只想看热闹，还握着另一段被剪掉的视频。"
     return f"下期看点：{safe_hook}"
+
+
+def _replace_role_tokens(text: str, protagonist: str) -> str:
+    if not protagonist or protagonist == "主角":
+        return text
+    return (text or "").replace("主角", protagonist).replace("主人公", protagonist)
 
 
 def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any], director: dict[str, Any], plot: dict[str, Any], character: dict[str, Any]) -> str:
@@ -626,14 +649,14 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
             f"{protagonist}抬起眼，手指慢慢收紧。",
             _next_episode_preview(book, hook, protagonist),
         ]
-    return _clean_chapter_text("\n\n".join(paragraphs))
+    return _replace_role_tokens(_clean_chapter_text("\n\n".join(paragraphs)), protagonist)
 
 
 def _editor_step(content: str) -> dict[str, Any]:
     issues: list[str] = []
     if len(content) < 900:
         issues.append("正文长度偏短，连载沉浸感不足。")
-    if any(word in content for word in ["总结", "本章讲述", "本文", "公众号", "提示词", "JSON", "章末留下", "具体问题", "更高层威胁"]):
+    if any(word in content for word in ["总结", "本章讲述", "本文", "公众号", "提示词", "JSON", "章末留下", "具体问题", "更高层威胁", "主角"]):
         issues.append("存在说明/总结/平台化表达。")
     if content.count("？") + content.count("?") < 2:
         issues.append("对话和问题牵引不足。")

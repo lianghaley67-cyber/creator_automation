@@ -136,9 +136,33 @@ def test_generate_modern_chapter_uses_grounded_scene_not_template_alarm():
     assert "具体问题" not in content
     assert "更高层威胁" not in content
     assert "下期看点" in content
+    assert "主角" not in content
     assert "本章" not in content
     assert "写作思路" not in content
     assert chapter["editorial_review"]["pass"]
+
+
+def test_generic_protagonist_name_is_replaced_in_generated_chapter():
+    book = {
+        "id": "book-2",
+        "title": "人间重启",
+        "genre": "urban",
+        "hook": "普通人在平凡生活中努力拼搏，相互帮助。",
+        "core_design": {"平台标签": "番茄,女频,职场,治愈,励志"},
+        "world_setting": {"time_background": "现代城市社区"},
+        "characters": [{"name": "主角"}, {"name": "周望"}],
+        "plot_outline": [{
+            "chapter": 1,
+            "goal": "让主角帮助陌生人，获得一次新的机会。",
+            "conflict": "房租压力和他人的紧急困境同时出现。",
+            "suspense": "一段偷拍视频被发进群里，善意突然变成了质疑。",
+        }],
+    }
+    brief = build_chapter_brief_from_book(book, {"chapters": []})
+    chapter = generate_chapter_from_plan(book, {"chapters": []}, brief)
+
+    assert "林小满" in chapter["content"]
+    assert "主角" not in chapter["content"]
 
 
 def test_validate_chapter_text_rejects_meta_narration():

@@ -120,6 +120,35 @@ export default {
       quality_score: book.quality_score || book.commercial_analysis?.score || "--",
     })));
 
+    function formatBookDetail(value) {
+      if (value === null || value === undefined || value === "") return "暂无";
+      if (Array.isArray(value) || typeof value === "object") {
+        return JSON.stringify(value, null, 2);
+      }
+      return String(value);
+    }
+
+    function bookDetailSections(book) {
+      return [
+        {
+          label: "基础信息",
+          value: {
+            id: book.id,
+            title: book.title,
+            genre: book.genre,
+            hook: book.hook,
+            created_at: book.created_at,
+          },
+        },
+        { label: "核心设计", value: book.core_design || {} },
+        { label: "真实事件改编策略", value: book.real_event_strategy || {} },
+        { label: "世界观设定", value: book.world_setting || {} },
+        { label: "人物生命系统", value: book.characters || [] },
+        { label: "章节规划", value: book.plot_outline || [] },
+        { label: "商业分析", value: book.commercial_analysis || {} },
+      ];
+    }
+
     function normalizeStoryGenre(raw) {
       const value = String(raw || "").trim();
       if (["romance_fantasy", "fantasy", "fantasy_upgrade", "xianxia", "romance", "modern_romance"].includes(value)) return value;
@@ -701,6 +730,8 @@ export default {
       commandMetrics,
       aiTeam,
       projectCards,
+      formatBookDetail,
+      bookDetailSections,
       storyProductionStatus,
       uploadNovelSkill,
       startCreateBook,
@@ -789,6 +820,15 @@ export default {
               {{ loading.deleteBook === book.id ? "删除中" : "删除" }}
             </button>
           </div>
+          <details class="novel-book-details" @click.stop>
+            <summary>开书资料 · 点击展开</summary>
+            <div class="novel-book-detail-grid">
+              <article v-for="section in bookDetailSections(book)" :key="section.label">
+                <strong>{{ section.label }}</strong>
+                <pre>{{ formatBookDetail(section.value) }}</pre>
+              </article>
+            </div>
+          </details>
         </article>
       </div>
     </section>

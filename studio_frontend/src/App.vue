@@ -7008,6 +7008,50 @@ textarea {
   background: rgba(0, 213, 232, 0.08);
 }
 
+.novel-book-details {
+  margin-top: 4px;
+  border-top: 1px solid rgba(142, 171, 205, 0.12);
+  padding-top: 8px;
+}
+
+.novel-book-details summary {
+  cursor: pointer;
+  color: #7fe9ff;
+  font-size: 12px;
+  font-weight: 900;
+  list-style-position: inside;
+}
+
+.novel-book-detail-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.novel-book-detail-grid article {
+  display: grid;
+  gap: 5px;
+  border: 1px solid rgba(142, 171, 205, 0.12);
+  border-radius: 7px;
+  padding: 8px;
+  background: rgba(3, 11, 20, 0.28);
+}
+
+.novel-book-detail-grid article strong {
+  color: #f7fbff;
+  font-size: 12px;
+}
+
+.novel-book-detail-grid pre {
+  max-height: 240px;
+  overflow: auto;
+  margin: 0;
+  color: #a9bfda;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 11px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
 .novel-project-card strong,
 .novel-current-book strong,
 .novel-team-status strong,
