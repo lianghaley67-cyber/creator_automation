@@ -745,7 +745,7 @@ SENSITIVE_PATTERNS = {
     "violence_stack": re.compile(r"追杀|尸体|死亡|杀人|血|跳楼|自杀|枪|刀"),
     "platform_leak": re.compile(r"微信|QQ|公众号|小红书|微博|关注我|私信|http|www\.", re.I),
     "tutorial_leak": re.compile(r"提示词|怎么写|AI原版|我的修改|教程|步骤|表格|工具"),
-    "meta_narration": re.compile(r"本章|这一章|下面|以下|为了增强|写作思路|结构提示|剧情作用|节奏分析"),
+    "meta_narration": re.compile(r"本章|这一章|下面|以下|为了增强|写作思路|结构提示|剧情作用|节奏分析|章末留下|具体问题|更高层威胁"),
 }
 
 

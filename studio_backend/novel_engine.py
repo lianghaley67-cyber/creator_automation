@@ -86,6 +86,15 @@ def _list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _story_safe_line(value: Any, fallback: str) -> str:
+    """Convert planning language into a line that can safely appear in prose."""
+    text = _text(value)
+    meta_tokens = ["主角", "章末", "具体问题", "更高层威胁", "悬念", "读者", "本章", "剧情", "目标推进"]
+    if not text or any(token in text for token in meta_tokens):
+        return fallback
+    return text
+
+
 def skill_market_analysis(ctx: dict[str, Any]) -> dict[str, Any]:
     core = normalize_core_design(ctx.get("core_design"))
     return {
@@ -144,9 +153,9 @@ def build_chapter_plans(raw_plan: list[Any], target_count: int = 100) -> list[di
         plans.append(
             {
                 "chapter": chapter,
-                "goal": _text(item.get("goal") or item.get("chapter_goal"), "推进一个具体行动，让主角获得线索、资源或关系变化。"),
-                "conflict": _text(item.get("conflict") or item.get("plot_conflict"), "外部阻碍与内心选择同时出现。"),
-                "suspense": _text(item.get("suspense") or item.get("hook"), "章末留下一个具体问题或更高层威胁。"),
+                "goal": _story_safe_line(item.get("goal") or item.get("chapter_goal"), "她必须先帮眼前的人解决一件急事，才可能抓住自己的机会。"),
+                "conflict": _story_safe_line(item.get("conflict") or item.get("plot_conflict"), "自己的麻烦还没解决，别人的求助已经压到眼前。"),
+                "suspense": _story_safe_line(item.get("suspense") or item.get("hook"), "一段偷拍视频被发进群里，善意突然变成了质疑。"),
             }
         )
     while len(plans) < target_count:
@@ -154,9 +163,9 @@ def build_chapter_plans(raw_plan: list[Any], target_count: int = 100) -> list[di
         plans.append(
             {
                 "chapter": chapter,
-                "goal": "推进一个具体行动，让主角获得线索、资源或关系变化。",
-                "conflict": "外部阻碍与内心选择同时出现。",
-                "suspense": "章末留下一个具体问题或更高层威胁。",
+                "goal": "她必须先帮眼前的人解决一件急事，才可能抓住自己的机会。",
+                "conflict": "自己的麻烦还没解决，别人的求助已经压到眼前。",
+                "suspense": "一段偷拍视频被发进群里，善意突然变成了质疑。",
             }
         )
     return plans[:target_count]
@@ -337,9 +346,9 @@ def build_chapter_brief_from_book(
     if not chapter_plan:
         chapter_plan = {
             "chapter": next_number,
-            "goal": "推进一个具体行动，让主角获得线索、资源或关系变化。",
-            "conflict": "外部阻碍与内心选择同时出现。",
-            "suspense": "章末留下一个具体问题或更高层威胁。",
+            "goal": "她必须先帮眼前的人解决一件急事，才可能抓住自己的机会。",
+            "conflict": "自己的麻烦还没解决，别人的求助已经压到眼前。",
+            "suspense": "一段偷拍视频被发进群里，善意突然变成了质疑。",
         }
     characters = _list(book.get("characters") or archive.get("characters"))
     protagonist = characters[0] if characters and isinstance(characters[0], dict) else {}
@@ -492,6 +501,7 @@ def _realist_scene_place(book: dict[str, Any], chapter_number: int) -> str:
 def _clean_chapter_text(text: str) -> str:
     banned_prefixes = ["总结", "本章", "这一章", "下面", "以下", "作为", "我们可以看到", "写作", "结构", "为了增强"]
     lines = []
+    meta_fragments = ["章末留下", "具体问题", "更高层威胁", "目标推进", "本章目标", "本章冲突", "章节规划"]
     for raw in (text or "").splitlines():
         line = raw.strip()
         if not line:
@@ -500,10 +510,19 @@ def _clean_chapter_text(text: str) -> str:
             continue
         if any(line.startswith(prefix) for prefix in banned_prefixes):
             continue
+        if any(fragment in line for fragment in meta_fragments):
+            continue
         if "公众号" in line or "提示词" in line or "JSON" in line:
             continue
         lines.append(line)
     return "\n".join(lines).strip()
+
+
+def _next_episode_preview(book: dict[str, Any], hook: str, protagonist: str) -> str:
+    safe_hook = _story_safe_line(hook, "那段视频的发布者，很可能就在她即将赶去的社区服务站里。")
+    if _is_modern_realist_book(book):
+        return f"下期看点：{protagonist}赶到社区服务站后，会发现质疑她的人不只想看热闹，还握着另一段被剪掉的视频。"
+    return f"下期看点：{safe_hook}"
 
 
 def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any], director: dict[str, Any], plot: dict[str, Any], character: dict[str, Any]) -> str:
@@ -518,6 +537,9 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
     goal = plot["chapter_goal"]
     conflict = plot["opening_conflict"]
     twist = plot["twist"]
+    safe_goal = _story_safe_line(goal, "她必须先把这件急事处理好，才有资格去争取自己的机会。")
+    safe_conflict = _story_safe_line(conflict, "自己的麻烦还没解决，别人的求助已经压到眼前。")
+    safe_twist = _story_safe_line(twist, "她忽然意识到，这件事从一开始就被人剪掉了最重要的一段。")
     note_line = f"她把{user_note}这几个字在心里压了一遍，没让它变成解释。" if user_note else "她把快到嘴边的解释咽了回去。"
 
     if _is_modern_realist_book(book):
@@ -578,20 +600,21 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
             "对方紧接着说：“刚才有人把你帮外卖员送餐的视频发到业主群了。主任让你直接过来，他想跟你聊另一个岗位。”",
             f"{protagonist}握着手机，楼道窗外的雨又密了起来。",
             "她还没来得及问，电话那头压低声音。",
-            f"“不过你最好快点。有人说你们是在摆拍，还把视频发到平台投诉区了。”",
-            f"{twist}",
+            "“不过你最好快点。有人说你们是在摆拍，还把视频发到平台投诉区了。”",
+            f"{safe_twist}",
             f"{protagonist}抬头，看见楼道墙角贴着一张刚被雨水洇开的通知。通知最下面，有人用黑笔补了一行字。",
-            f"{hook}",
+            "别让她进服务站。",
+            _next_episode_preview(book, hook, protagonist),
         ]
     else:
         paragraphs = [
             f"风从街口卷过来时，{protagonist}听见身后有人喊她的名字。",
-            f"她没有回头，先把手里的东西压进袖中。{conflict}",
+            f"她没有回头，先把手里的东西压进袖中。{safe_conflict}",
             f"{ally}追上来，声音压得很低：“你真要现在去？”",
             f"{protagonist}看着前方那扇半开的门，“现在不去，线索就没了。”",
             f"门内传来瓷器碎裂声，紧接着是短促的呼救。围在外面的人齐齐后退，只有她往前走了一步。",
             f"{previous}",
-            f"她知道这不是逞强。{goal}",
+            f"她知道这不是逞强。{safe_goal}",
             "有人伸手拦她，“进去就是惹祸。”",
             f"{protagonist}避开那只手，“我已经在祸里了。”",
             f"{note_line}",
@@ -599,9 +622,9 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
             f"门轴发出一声刺耳的响。屋里没有灯，只有地上的水迹一直延到屏风后面。",
             f"{protagonist}蹲下，用指腹碰了碰水迹。水还是温的。",
             f"屏风后忽然有人笑了一声。",
-            f"{twist}",
+            f"{safe_twist}",
             f"{protagonist}抬起眼，手指慢慢收紧。",
-            f"{hook}",
+            _next_episode_preview(book, hook, protagonist),
         ]
     return _clean_chapter_text("\n\n".join(paragraphs))
 
@@ -610,7 +633,7 @@ def _editor_step(content: str) -> dict[str, Any]:
     issues: list[str] = []
     if len(content) < 900:
         issues.append("正文长度偏短，连载沉浸感不足。")
-    if any(word in content for word in ["总结", "本章讲述", "本文", "公众号", "提示词", "JSON"]):
+    if any(word in content for word in ["总结", "本章讲述", "本文", "公众号", "提示词", "JSON", "章末留下", "具体问题", "更高层威胁"]):
         issues.append("存在说明/总结/平台化表达。")
     if content.count("？") + content.count("?") < 2:
         issues.append("对话和问题牵引不足。")

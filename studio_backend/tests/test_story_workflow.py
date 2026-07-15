@@ -132,13 +132,17 @@ def test_generate_modern_chapter_uses_grounded_scene_not_template_alarm():
     assert "房东" in content or "房租" in content
     assert "警报" not in content
     assert "红字" not in content
+    assert "章末留下" not in content
+    assert "具体问题" not in content
+    assert "更高层威胁" not in content
+    assert "下期看点" in content
     assert "本章" not in content
     assert "写作思路" not in content
     assert chapter["editorial_review"]["pass"]
 
 
 def test_validate_chapter_text_rejects_meta_narration():
-    result = validate_chapter_text("本章的作用是增强冲突，然后推进人物成长。" * 80)
+    result = validate_chapter_text("本章的作用是增强冲突，章末留下一个具体问题。" * 80)
 
     assert not result["pass"]
     assert any("写作思路" in issue or "结构提示" in issue for issue in result["issues"])
