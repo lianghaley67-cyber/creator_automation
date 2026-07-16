@@ -8177,6 +8177,21 @@ textarea {
   margin-top: 12px;
 }
 
+.blueprint-debug-details {
+  margin-top: 12px;
+  border: 1px dashed rgba(142, 171, 205, 0.22);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(3, 11, 20, 0.2);
+}
+
+.blueprint-debug-details summary {
+  cursor: pointer;
+  color: #9fb6d1;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .blueprint-questions span,
 .next-actions span {
   background: rgba(13, 31, 51, 0.85);

@@ -187,7 +187,10 @@ def normalize_long_form_plan(raw: Any, *, chapter_count: int = 500, phase_count:
 def _story_safe_line(value: Any, fallback: str) -> str:
     """Convert planning language into a line that can safely appear in prose."""
     text = _text(value)
-    meta_tokens = ["主角", "章末", "具体问题", "更高层威胁", "悬念", "读者", "本章", "剧情", "目标推进"]
+    meta_tokens = [
+        "主角", "章末", "具体问题", "更高层威胁", "悬念", "读者", "本章", "剧情", "目标推进",
+        "开局危机", "世界规则", "人物困境", "章节规划", "规则重写", "小说世界模拟器", "不合规范",
+    ]
     if not text or any(token in text for token in meta_tokens):
         return fallback
     return text
@@ -678,7 +681,10 @@ def _realist_scene_place(book: dict[str, Any], chapter_number: int) -> str:
 def _clean_chapter_text(text: str) -> str:
     banned_prefixes = ["总结", "本章", "这一章", "下面", "以下", "作为", "我们可以看到", "写作", "结构", "为了增强"]
     lines = []
-    meta_fragments = ["章末留下", "具体问题", "更高层威胁", "目标推进", "本章目标", "本章冲突", "章节规划"]
+    meta_fragments = [
+        "章末留下", "具体问题", "更高层威胁", "目标推进", "本章目标", "本章冲突", "章节规划",
+        "小说世界模拟器", "不合规范", "按小说", "规则重写", "开局危机", "人物困境", "世界规则", "主角",
+    ]
     for raw in (text or "").splitlines():
         line = raw.strip()
         if not line:
@@ -723,7 +729,7 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
     safe_goal = _story_safe_line(goal, "她必须先把这件急事处理好，才有资格去争取自己的机会。")
     safe_conflict = _story_safe_line(conflict, "自己的麻烦还没解决，别人的求助已经压到眼前。")
     safe_twist = _story_safe_line(twist, "她忽然意识到，这件事从一开始就被人剪掉了最重要的一段。")
-    note_line = f"她把{user_note}这几个字在心里压了一遍，没让它变成解释。" if user_note else "她把快到嘴边的解释咽了回去。"
+    note_line = "她把快到嘴边的解释咽了回去。"
 
     if _is_modern_realist_book(book):
         paragraphs = [
@@ -790,25 +796,91 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
             _next_episode_preview(book, hook, protagonist),
         ]
     else:
-        paragraphs = [
-            f"风从街口卷过来时，{protagonist}听见身后有人喊她的名字。",
-            f"她没有回头，先把手里的东西压进袖中。{safe_conflict}",
-            f"{ally}追上来，声音压得很低：“你真要现在去？”",
-            f"{protagonist}看着前方那扇半开的门，“现在不去，线索就没了。”",
-            f"门内传来瓷器碎裂声，紧接着是短促的呼救。围在外面的人齐齐后退，只有她往前走了一步。",
-            f"{previous}",
-            f"她知道这不是逞强。{safe_goal}",
-            "有人伸手拦她，“进去就是惹祸。”",
-            f"{protagonist}避开那只手，“我已经在祸里了。”",
-            f"{note_line}",
-            f"{ally}咬了咬牙，跟在她身后，“那我陪你。”",
-            f"门轴发出一声刺耳的响。屋里没有灯，只有地上的水迹一直延到屏风后面。",
-            f"{protagonist}蹲下，用指腹碰了碰水迹。水还是温的。",
-            f"屏风后忽然有人笑了一声。",
-            f"{safe_twist}",
-            f"{protagonist}抬起眼，手指慢慢收紧。",
-            _next_episode_preview(book, hook, protagonist),
-        ]
+        shrine_terms = any(token in " ".join([
+            _text(book.get("title")),
+            _text(book.get("hook")),
+            _text(_dict(book.get("core_design")).get("平台标签")),
+        ]) for token in ["香火", "庙", "祈愿", "神道", "玄学", "修仙"])
+        if shrine_terms:
+            shrine = _text(_dict(book.get("world_setting")).get("time_background"), "青石镇外的破庙")
+            paragraphs = [
+                f"第一声哭喊传进破庙时，供桌上的残香忽然自己亮了。",
+                f"{protagonist}正跪在裂开的神像前，指尖还沾着灰。庙外雨声很急，檐角的水线像刀一样劈在青石阶上。",
+                "他抬头看了一眼。",
+                "香火明明已经断了三年。",
+                f"门外有人踉跄撞进来，怀里抱着一个脸色发青的孩子。女人膝盖一软，几乎是爬到供桌前的。",
+                "“神仙，求你救救他。”",
+                "她把额头磕在地上，声音哑得像被砂纸磨过，“我家只剩这一个孩子了。”",
+                f"{protagonist}没有动。这里没有神仙，只有一座塌了半边墙的荒庙，还有一个连明日口粮都不知道去哪找的人。",
+                "可那炷残香又亮了一寸。",
+                "烟气没有往上散，反而像一根细线，慢慢缠上孩子的手腕。",
+                f"{protagonist}看见了一行极淡的字。",
+                "寿尽于今夜，魂归槐井。",
+                "他后背一寒。",
+                "女人还在磕头，血从额角渗出来，混着雨水落在地砖缝里。孩子胸口起伏越来越轻，像下一口气随时会断。",
+                f"{ally}站在门边，脸色发白，“云临，别碰。这孩子不是病，是被东西扣了命。”",
+                f"{protagonist}低声问：“什么东西？”",
+                "“镇北那口老井。”",
+                "话音刚落，庙外忽然传来一阵水声。",
+                "不是雨声。",
+                "像有人拖着湿透的衣摆，一步一步踩过泥地，往庙门口走来。",
+                "女人猛地回头，脸上最后一点血色也没了。",
+                "“它来了。”",
+                f"{protagonist}握紧供桌边缘，木刺扎进掌心。他本该把人赶出去，关上门，当作自己什么都没看见。",
+                f"{previous}",
+                "可那孩子的手忽然动了一下，冰凉的小指勾住了他的袖口。",
+                "很轻。",
+                "轻得像一根快断的线。",
+                f"{protagonist}闭了闭眼，再睁开时，供桌上的残香已经烧到第三寸。",
+                "烟气在他眼前凝成一个字。",
+                "愿。",
+                "他伸手握住那缕香烟。",
+                "一瞬间，庙里所有声音都远了。雨声、哭声、井水拖地的声音，全被压到耳膜之外。",
+                "他听见一个稚嫩的声音在黑暗里发抖。",
+                "我想回家。",
+                f"{protagonist}胸口像被什么东西撞了一下。",
+                "下一刻，剧痛从掌心钻进骨缝。那不是灵气，也不是寻常法力，而是一股带着千百人叹息的热流，蛮横地冲进他的经脉。",
+                f"{ally}惊声道：“你疯了？凡人接香火，会被愿力烧死！”",
+                f"{protagonist}没有松手。",
+                "门槛外，一只湿漉漉的手搭了上来。那手指节细长，指甲里全是黑泥，水珠滴在地上，立刻腐出一圈白烟。",
+                "女人尖叫着抱紧孩子。",
+                f"{protagonist}抬手，把那炷残香插回香炉。",
+                "“他还没答应跟你走。”",
+                "门外的东西停住了。",
+                "雨幕里慢慢抬起一张没有五官的脸。",
+                "庙里的神像忽然震了一下，大片泥壳从脸上剥落。供桌下，一块被灰尘埋住的木牌翻了出来。",
+                f"{protagonist}低头，看见木牌上刻着两个旧字。",
+                "听愿。",
+                f"{safe_twist}",
+                "那无脸之物像是被这两个字激怒，猛地撞向庙门。",
+                "破门板当场裂开。",
+                f"{protagonist}把孩子推回女人怀里，掌心的香火烧得皮肉发红。",
+                "他终于明白，自己不是捡到了一座庙。",
+                "是这座庙，等到了一个愿意替人接下因果的人。",
+                "门外黑水漫过门槛。",
+                "香炉里，第二缕香火亮了。",
+                _next_episode_preview(book, hook, protagonist),
+            ]
+        else:
+            paragraphs = [
+                f"风从街口卷过来时，{protagonist}听见身后有人喊她的名字。",
+                f"她没有回头，先把手里的东西压进袖中。{safe_conflict}",
+                f"{ally}追上来，声音压得很低：“你真要现在去？”",
+                f"{protagonist}看着前方那扇半开的门，“现在不去，线索就没了。”",
+                f"门内传来瓷器碎裂声，紧接着是短促的呼救。围在外面的人齐齐后退，只有她往前走了一步。",
+                f"{previous}",
+                f"她知道这不是逞强。{safe_goal}",
+                "有人伸手拦她，“进去就是惹祸。”",
+                f"{protagonist}避开那只手，“我已经在祸里了。”",
+                f"{note_line}",
+                f"{ally}咬了咬牙，跟在她身后，“那我陪你。”",
+                f"门轴发出一声刺耳的响。屋里没有灯，只有地上的水迹一直延到屏风后面。",
+                f"{protagonist}蹲下，用指腹碰了碰水迹。水还是温的。",
+                f"屏风后忽然有人笑了一声。",
+                f"{safe_twist}",
+                f"{protagonist}抬起眼，手指慢慢收紧。",
+                _next_episode_preview(book, hook, protagonist),
+            ]
     return _replace_role_tokens(_clean_chapter_text("\n\n".join(paragraphs)), protagonist)
 
 

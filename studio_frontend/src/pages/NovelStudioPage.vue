@@ -1704,15 +1704,18 @@ export default {
             placeholder="例：女主每一卷都要在爱情、命运和自我选择之间付出代价，并逐步夺回主动权。"
           ></textarea>
         </label>
-        <div class="blueprint-questions">
-          <span v-for="q in blueprint.questions" :key="q">{{ q }}</span>
-        </div>
-        <div class="chapter-outline">
-          <div v-for="item in blueprint.chapter_outline" :key="item.chapter">
-            <b>第 {{ item.chapter }} 章</b>
-            <span>{{ item.goal }}</span>
+        <details v-if="userMode === 'professional'" class="blueprint-debug-details">
+          <summary>专业调试资料：旧版校准问题与开篇预览</summary>
+          <div class="blueprint-questions">
+            <span v-for="q in blueprint.questions" :key="q">{{ q }}</span>
           </div>
-        </div>
+          <div class="chapter-outline">
+            <div v-for="item in blueprint.chapter_outline" :key="item.chapter">
+              <b>第 {{ item.chapter }} 章</b>
+              <span>{{ item.goal }}</span>
+            </div>
+          </div>
+        </details>
         <div class="novel-actions compact">
           <button class="btn primary small" :disabled="!currentBookId" @click="getStoryArchive()">
             刷新当前书档案
