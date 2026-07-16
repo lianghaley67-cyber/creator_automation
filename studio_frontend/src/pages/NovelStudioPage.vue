@@ -263,6 +263,10 @@ export default {
       return `${start}-${Math.max(start, end)}`;
     }
 
+    function normalizeVolumeCount(value) {
+      return Math.max(1, Math.min(50, Math.floor(Number(value) || 5)));
+    }
+
     function makeEmptyVolumePlan(index = 0) {
       return {
         volume_name: `第${index + 1}卷`,
@@ -289,8 +293,8 @@ export default {
       };
     }
 
-    function syncVolumePlanCount() {
-      const count = Math.max(1, Math.min(12, Number(blueprintForm.phase_count) || 5));
+    function syncVolumePlanCount({ redistributeRanges = true } = {}) {
+      const count = normalizeVolumeCount(blueprintForm.phase_count);
       blueprintForm.phase_count = count;
       while (blueprintForm.volume_plans.length < count) {
         blueprintForm.volume_plans.push(makeEmptyVolumePlan(blueprintForm.volume_plans.length));
@@ -300,7 +304,9 @@ export default {
       }
       blueprintForm.volume_plans.forEach((plan, index) => {
         if (!plan.volume_name) plan.volume_name = `第${index + 1}卷`;
-        if (!plan.chapter_range) plan.chapter_range = chapterRangeForPhase(blueprintForm.chapter_count, count, index);
+        if (redistributeRanges || !plan.chapter_range) {
+          plan.chapter_range = chapterRangeForPhase(blueprintForm.chapter_count, count, index);
+        }
       });
     }
 
@@ -308,7 +314,7 @@ export default {
       if (!blueprintForm.story_mainline) {
         blueprintForm.story_mainline = "一个普通人穿过现实压力和关系考验，最终夺回人生主动权并帮助身边人一起重新开始。";
       }
-      syncVolumePlanCount();
+      syncVolumePlanCount({ redistributeRanges: false });
       if (!blueprintForm.story_units.length) {
         blueprintForm.story_units.push({
           ...makeEmptyStoryUnit(),
@@ -334,7 +340,7 @@ export default {
     }
 
     function normalizedLongFormPlan() {
-      syncVolumePlanCount();
+      syncVolumePlanCount({ redistributeRanges: false });
       const volume_plans = blueprintForm.volume_plans.map((plan, index) => ({
         volume_name: String(plan.volume_name || `第${index + 1}卷`).trim(),
         chapter_range: String(plan.chapter_range || chapterRangeForPhase(blueprintForm.chapter_count, blueprintForm.phase_count, index)).trim(),
@@ -360,7 +366,7 @@ export default {
       return {
         total_chapters: Math.max(1, Number(blueprintForm.chapter_count) || 500),
         story_mainline: String(blueprintForm.story_mainline || "").trim(),
-        phase_count: Math.max(1, Number(blueprintForm.phase_count) || 5),
+        phase_count: normalizeVolumeCount(blueprintForm.phase_count),
         volume_plans,
         story_units,
       };
@@ -1329,7 +1335,7 @@ export default {
           <div class="long-plan-header">
             <div>
               <strong>长篇结构设计</strong>
-              <span>用于控制每卷主题、每个故事单元主线和后续章节生成，不再用零散问题代替规划。</span>
+              <span>先确定总章节数和分卷数量，再按卷填写主题、目标、冲突和卷末钩子。</span>
             </div>
           </div>
           <div class="novel-form-grid nested">
@@ -1338,8 +1344,8 @@ export default {
               <input v-model.number="blueprintForm.chapter_count" inputmode="numeric" placeholder="500" />
             </label>
             <label class="field">
-              <span>阶段数量</span>
-              <input v-model.number="blueprintForm.phase_count" inputmode="numeric" min="1" max="12" placeholder="5" />
+              <span>分为多少卷</span>
+              <input v-model.number="blueprintForm.phase_count" inputmode="numeric" min="1" placeholder="5" />
             </label>
             <label class="field wide">
               <span>全书主线</span>
@@ -1349,12 +1355,12 @@ export default {
           <details class="long-plan-block" open>
             <summary>
               <strong>阶段/卷规划</strong>
-              <span>每一卷回答：这一阶段要解决什么问题，卷末把读者带到哪里。</span>
+              <span>系统会根据“分为多少卷”生成对应卷数，并按总章节数自动分配章节范围。</span>
             </summary>
             <div class="volume-plan-list">
               <article v-for="(volume, index) in blueprintForm.volume_plans" :key="`volume-${index}`" class="volume-plan-card">
                 <div class="volume-plan-title">
-                  <strong>阶段 {{ index + 1 }}</strong>
+                  <strong>第 {{ index + 1 }} 卷</strong>
                   <input v-model="volume.volume_name" placeholder="卷名" />
                   <input v-model="volume.chapter_range" placeholder="章节范围：1-100" />
                 </div>
@@ -1485,7 +1491,7 @@ export default {
               <strong>{{ blueprint.long_form_plan.total_chapters || blueprint.volume_plan?.planned_chapters }}</strong>
             </span>
             <span>
-              阶段数量
+              分卷数量
               <strong>{{ blueprint.long_form_plan.phase_count || 5 }}</strong>
             </span>
             <span class="wide">

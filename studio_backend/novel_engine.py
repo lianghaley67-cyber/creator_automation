@@ -123,7 +123,7 @@ def _parse_chapter_range(value: Any, default_start: int, default_end: int) -> tu
 def normalize_long_form_plan(raw: Any, *, chapter_count: int = 500, phase_count: int = 5) -> dict[str, Any]:
     data = raw if isinstance(raw, dict) else {}
     total = max(1, min(_safe_int(data.get("total_chapters"), chapter_count), 500))
-    phases = max(1, min(_safe_int(data.get("phase_count"), phase_count), 12))
+    phases = max(1, min(_safe_int(data.get("phase_count"), phase_count), 50))
     volume_plans: list[dict[str, Any]] = []
     for index, item in enumerate(_list(data.get("volume_plans"))):
         if not isinstance(item, dict):
@@ -445,7 +445,7 @@ def build_book_blueprint(input_data: dict[str, Any]) -> dict[str, Any]:
     if not book_id:
         raise ValueError("bookId is required")
     chapter_count = max(1, min(_safe_int(input_data.get("chapter_count"), 500), 500))
-    phase_count = max(1, min(_safe_int(input_data.get("phase_count"), 5), 12))
+    phase_count = max(1, min(_safe_int(input_data.get("phase_count"), 5), 50))
     long_form_input = input_data.get("long_form_plan") if isinstance(input_data.get("long_form_plan"), dict) else {
         "total_chapters": chapter_count,
         "story_mainline": input_data.get("story_mainline"),
