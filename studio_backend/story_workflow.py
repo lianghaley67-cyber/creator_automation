@@ -888,9 +888,16 @@ def build_story_blueprint(seed: dict[str, Any]) -> dict[str, Any]:
     worldview_seed = str(seed.get("worldview_seed") or "").strip()
     protagonist_seed = str(seed.get("protagonist_seed") or "").strip()
 
-    chapter_count = int(seed.get("chapter_count") or 30)
-    chapter_count = min(max(chapter_count, 30), 100)
-    first_volume_count = min(max(int(seed.get("first_volume_count") or 10), 6), chapter_count)
+    chapter_count = int(seed.get("chapter_count") or 500)
+    chapter_count = min(max(chapter_count, 30), 500)
+    long_form_plan = seed.get("long_form_plan") if isinstance(seed.get("long_form_plan"), dict) else {}
+    volume_plans = long_form_plan.get("volume_plans") if isinstance(long_form_plan.get("volume_plans"), list) else []
+    first_range = str(volume_plans[0].get("chapter_range") if volume_plans and isinstance(volume_plans[0], dict) else "")
+    try:
+        first_volume_count = int(first_range.replace("－", "-").replace("—", "-").split("-", 1)[1]) if "-" in first_range else int(seed.get("first_volume_count") or 20)
+    except (TypeError, ValueError, IndexError):
+        first_volume_count = int(seed.get("first_volume_count") or 20)
+    first_volume_count = min(max(first_volume_count, 6), chapter_count)
 
     opening_question = idea or "主角在一个无法回头的选择前，必须在感情和命运之间做决定。"
     outline = []
@@ -936,6 +943,7 @@ def build_story_blueprint(seed: dict[str, Any]) -> dict[str, Any]:
             "first_volume_chapters": first_volume_count,
             "first_volume_goal": "先完成读者能理解、能追下去的第一卷闭环。",
         },
+        "long_form_plan": long_form_plan,
         "chapter_outline": outline,
         "hundred_chapter_plan": _build_hundred_chapter_plan(chapter_count),
         "editorial_agents": EDITOR_AGENTS,

@@ -76,7 +76,12 @@ export function novelOsModuleStatus({ blueprint, diagnosis, chapterBrief }) {
 }
 
 export function novelOsPlanPreview(plan = [], limit = 12) {
-  return (Array.isArray(plan) ? plan : []).slice(0, limit);
+  return (Array.isArray(plan) ? plan : []).slice(0, limit).map((item) => ({
+    ...item,
+    chapter_goal: item.chapter_goal || item.goal || "",
+    plot_conflict: item.plot_conflict || item.conflict || "",
+    hook: item.hook || item.suspense || "",
+  }));
 }
 
 export function storyProductionStatus(story) {
@@ -88,7 +93,7 @@ export function storyProductionStatus(story) {
 }
 
 export function commandCenterMetrics({ book, archive, latestChapter, diagnosis, chapterBrief, blueprint }) {
-  const planned = Number(book?.plot_outline?.length || blueprint?.volume_plan?.planned_chapters || 100);
+  const planned = Number(book?.plot_outline?.length || book?.chapter_count || blueprint?.volume_plan?.planned_chapters || blueprint?.long_form_plan?.total_chapters || 100);
   const completed = Number(archive?.chapters?.length || 0);
   const quality = latestChapter?.quality?.score || book?.commercial_analysis?.score || diagnosis?.score || 0;
   const qualityScore = quality ? `${quality}分` : "--";

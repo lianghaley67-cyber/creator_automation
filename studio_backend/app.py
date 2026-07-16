@@ -2033,13 +2033,22 @@ def _normalize_book_payload(body: dict[str, Any], *, generated: dict[str, Any] |
         "hook": hook,
         "core_design": _as_dict(body.get("core_design") or generated.get("core_design")),
         "real_event_strategy": _as_dict(body.get("real_event_strategy") or generated.get("real_event_strategy")),
+        "long_form_plan": _as_dict(body.get("long_form_plan") or generated.get("long_form_plan")),
+        "volume_plans": _as_list(body.get("volume_plans") or generated.get("volume_plans")),
+        "story_units": _as_list(body.get("story_units") or generated.get("story_units")),
         "world_setting": _as_dict(body.get("world_setting") or generated.get("world_setting")),
         "characters": _as_list(body.get("characters") or generated.get("characters")),
         "plot_outline": _as_list(body.get("plot_outline") or generated.get("plot_outline")),
         "pipeline_trace": _as_list(body.get("pipeline_trace") or generated.get("pipeline_trace")),
         "commercial_analysis": _as_dict(body.get("commercial_analysis") or generated.get("commercial_analysis")),
         "chapter_generation_rule": _as_dict(body.get("chapter_generation_rule") or generated.get("chapter_generation_rule")),
-        "chapter_count": int(body.get("chapter_count") or generated.get("chapter_count") or len(_as_list(body.get("plot_outline") or generated.get("plot_outline"))) or 100),
+        "chapter_count": int(
+            body.get("chapter_count")
+            or generated.get("chapter_count")
+            or _as_dict(body.get("long_form_plan") or generated.get("long_form_plan")).get("total_chapters")
+            or len(_as_list(body.get("plot_outline") or generated.get("plot_outline")))
+            or 100
+        ),
         "created_at": created_at,
         "updated_at": now_iso(),
         "blueprint": _as_dict(body.get("blueprint") or generated.get("blueprint")),

@@ -63,8 +63,11 @@ export default {
         读者画像: "喜欢强情绪、快节奏、女性成长和关系拉扯的连载读者",
         平台标签: "番茄,女频,成长,逆袭,强钩子",
       },
-      chapter_count: 100,
-      first_volume_count: 10,
+      chapter_count: 500,
+      phase_count: 5,
+      story_mainline: "",
+      volume_plans: [],
+      story_units: [],
     });
     const blueprint = ref(null);
     const blueprintPromise = ref("");
@@ -143,6 +146,7 @@ export default {
         },
         { label: "核心设计", value: book.core_design || {} },
         { label: "真实事件改编策略", value: book.real_event_strategy || {} },
+        { label: "长篇结构设计", value: book.long_form_plan || {} },
         { label: "世界观设定", value: book.world_setting || {} },
         { label: "人物生命系统", value: book.characters || [] },
         { label: "章节规划", value: book.plot_outline || [] },
@@ -250,6 +254,117 @@ export default {
       return window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     }
 
+    function chapterRangeForPhase(total = 500, count = 5, index = 0) {
+      const safeTotal = Math.max(1, Number(total) || 500);
+      const safeCount = Math.max(1, Number(count) || 5);
+      const start = Math.floor(index * safeTotal / safeCount) + 1;
+      const end = Math.floor((index + 1) * safeTotal / safeCount);
+      return `${start}-${Math.max(start, end)}`;
+    }
+
+    function makeEmptyVolumePlan(index = 0) {
+      return {
+        volume_name: `第${index + 1}卷`,
+        chapter_range: chapterRangeForPhase(blueprintForm.chapter_count, blueprintForm.phase_count, index),
+        theme: "",
+        stage_goal: "",
+        core_conflict: "",
+        protagonist_growth: "",
+        ending_result: "",
+        ending_hook: "",
+      };
+    }
+
+    function makeEmptyStoryUnit() {
+      return {
+        start_chapter: "",
+        end_chapter: "",
+        unit_name: "",
+        main_event: "",
+        stage_conflict: "",
+        payoff_emotion: "",
+        foreshadowing: "",
+        payoff: "",
+      };
+    }
+
+    function syncVolumePlanCount() {
+      const count = Math.max(1, Math.min(12, Number(blueprintForm.phase_count) || 5));
+      blueprintForm.phase_count = count;
+      while (blueprintForm.volume_plans.length < count) {
+        blueprintForm.volume_plans.push(makeEmptyVolumePlan(blueprintForm.volume_plans.length));
+      }
+      if (blueprintForm.volume_plans.length > count) {
+        blueprintForm.volume_plans.splice(count);
+      }
+      blueprintForm.volume_plans.forEach((plan, index) => {
+        if (!plan.volume_name) plan.volume_name = `第${index + 1}卷`;
+        if (!plan.chapter_range) plan.chapter_range = chapterRangeForPhase(blueprintForm.chapter_count, count, index);
+      });
+    }
+
+    function ensureLongPlanDefaults() {
+      if (!blueprintForm.story_mainline) {
+        blueprintForm.story_mainline = "一个普通人穿过现实压力和关系考验，最终夺回人生主动权并帮助身边人一起重新开始。";
+      }
+      syncVolumePlanCount();
+      if (!blueprintForm.story_units.length) {
+        blueprintForm.story_units.push({
+          ...makeEmptyStoryUnit(),
+          start_chapter: 1,
+          end_chapter: 20,
+          unit_name: "开局危机",
+          main_event: "用一次具体事件把人物困境、世界规则和第一目标推到台前。",
+          stage_conflict: "外部压力逼近，内部选择尚未统一。",
+          payoff_emotion: "压抑后的第一次行动感。",
+          foreshadowing: "一个暂时解释不了的细节指向更大的问题。",
+          payoff: "回收开篇危机，同时打开下一阶段入口。",
+        });
+      }
+    }
+
+    function addStoryUnit() {
+      blueprintForm.story_units.push(makeEmptyStoryUnit());
+    }
+
+    function removeStoryUnit(index) {
+      blueprintForm.story_units.splice(index, 1);
+      if (!blueprintForm.story_units.length) addStoryUnit();
+    }
+
+    function normalizedLongFormPlan() {
+      syncVolumePlanCount();
+      const volume_plans = blueprintForm.volume_plans.map((plan, index) => ({
+        volume_name: String(plan.volume_name || `第${index + 1}卷`).trim(),
+        chapter_range: String(plan.chapter_range || chapterRangeForPhase(blueprintForm.chapter_count, blueprintForm.phase_count, index)).trim(),
+        theme: String(plan.theme || "").trim(),
+        stage_goal: String(plan.stage_goal || "").trim(),
+        core_conflict: String(plan.core_conflict || "").trim(),
+        protagonist_growth: String(plan.protagonist_growth || "").trim(),
+        ending_result: String(plan.ending_result || "").trim(),
+        ending_hook: String(plan.ending_hook || "").trim(),
+      }));
+      const story_units = blueprintForm.story_units
+        .map((unit) => ({
+          start_chapter: Number(unit.start_chapter) || "",
+          end_chapter: Number(unit.end_chapter) || "",
+          unit_name: String(unit.unit_name || "").trim(),
+          main_event: String(unit.main_event || "").trim(),
+          stage_conflict: String(unit.stage_conflict || "").trim(),
+          payoff_emotion: String(unit.payoff_emotion || "").trim(),
+          foreshadowing: String(unit.foreshadowing || "").trim(),
+          payoff: String(unit.payoff || "").trim(),
+        }))
+        .filter((unit) => unit.unit_name || unit.main_event || unit.start_chapter || unit.end_chapter);
+      return {
+        total_chapters: Math.max(1, Number(blueprintForm.chapter_count) || 500),
+        story_mainline: String(blueprintForm.story_mainline || "").trim(),
+        phase_count: Math.max(1, Number(blueprintForm.phase_count) || 5),
+        volume_plans,
+        story_units,
+      };
+    }
+
     function resetBlueprintForm() {
       blueprintForm.title = "";
       blueprintForm.genre = "romance_fantasy";
@@ -274,8 +389,12 @@ export default {
         读者画像: "喜欢强情绪、快节奏、女性成长和关系拉扯的连载读者",
         平台标签: "番茄,女频,成长,逆袭,强钩子",
       };
-      blueprintForm.chapter_count = 100;
-      blueprintForm.first_volume_count = 10;
+      blueprintForm.chapter_count = 500;
+      blueprintForm.phase_count = 5;
+      blueprintForm.story_mainline = "";
+      blueprintForm.volume_plans = [];
+      blueprintForm.story_units = [];
+      ensureLongPlanDefaults();
       blueprint.value = null;
       blueprintPromise.value = "";
     }
@@ -313,6 +432,7 @@ export default {
     }
 
     function collectBookBlueprintInput() {
+      const longFormPlan = normalizedLongFormPlan();
       return {
         bookId: editingBookId.value || freshBookId(),
         title: blueprintForm.title.trim(),
@@ -326,8 +446,12 @@ export default {
         emotional_core: blueprintForm.emotional_core,
         worldview_seed: blueprintForm.worldview_seed,
         protagonist_seed: blueprintForm.protagonist_seed,
-        chapter_count: blueprintForm.chapter_count,
-        first_volume_count: blueprintForm.first_volume_count,
+        chapter_count: longFormPlan.total_chapters,
+        phase_count: longFormPlan.phase_count,
+        story_mainline: longFormPlan.story_mainline,
+        volume_plans: longFormPlan.volume_plans,
+        story_units: longFormPlan.story_units,
+        long_form_plan: longFormPlan,
         real_event_strategy: normalizedRealEventStrategy(),
         core_design: { ...blueprintForm.core_design },
       };
@@ -362,6 +486,7 @@ export default {
           commercial_potential: coreValue(book?.core_design, "爽点设计", "satisfaction_design", ""),
         },
         world_bible: book?.world_setting || {},
+        long_form_plan: book?.long_form_plan || {},
         character_life_system: {
           protagonist: Array.isArray(book?.characters) ? book.characters[0] : null,
           supporting_cast: Array.isArray(book?.characters) ? book.characters.slice(1) : [],
@@ -378,6 +503,12 @@ export default {
       blueprintForm.title = book.title || "";
       blueprintForm.genre = normalizeStoryGenre(book.genre);
       blueprintForm.idea = book.hook || "";
+      blueprintForm.chapter_count = Number(book.chapter_count || book.long_form_plan?.total_chapters || book.plot_outline?.length || 500);
+      blueprintForm.phase_count = Number(book.long_form_plan?.phase_count || book.phase_count || 5);
+      blueprintForm.story_mainline = book.long_form_plan?.story_mainline || book.story_mainline || "";
+      blueprintForm.volume_plans = Array.isArray(book.long_form_plan?.volume_plans) ? book.long_form_plan.volume_plans.map((item) => ({ ...makeEmptyVolumePlan(), ...item })) : [];
+      blueprintForm.story_units = Array.isArray(book.long_form_plan?.story_units) ? book.long_form_plan.story_units.map((item) => ({ ...makeEmptyStoryUnit(), ...item })) : [];
+      ensureLongPlanDefaults();
       blueprintForm.worldview_seed = book.world_setting?.time_background || book.world_setting?.power_system || "";
       const protagonist = Array.isArray(book.characters) ? book.characters[0] : null;
       blueprintForm.protagonist_seed = protagonist?.name || protagonist?.background || "";
@@ -438,6 +569,9 @@ export default {
             ...generated,
             core_design: generated.core_design || input.core_design,
             real_event_strategy: generated.real_event_strategy || input.real_event_strategy,
+            long_form_plan: generated.long_form_plan || input.long_form_plan,
+            volume_plans: generated.volume_plans || input.volume_plans,
+            story_units: generated.story_units || input.story_units,
           }),
         }, 15000);
         blueprint.value = bookToBlueprint(saved);
@@ -721,6 +855,13 @@ export default {
       () => syncSkillWithGenre({ force: true }),
     );
 
+    watch(
+      () => [blueprintForm.phase_count, blueprintForm.chapter_count],
+      () => syncVolumePlanCount(),
+    );
+
+    ensureLongPlanDefaults();
+
     return {
       ...ctx,
       workflow,
@@ -754,6 +895,8 @@ export default {
       projectCards,
       formatBookDetail,
       bookDetailSections,
+      addStoryUnit,
+      removeStoryUnit,
       storyProductionStatus,
       uploadNovelSkill,
       startCreateBook,
@@ -1164,14 +1307,118 @@ export default {
           <span>主角生命种子</span>
           <input v-model="blueprintForm.protagonist_seed" placeholder="背景、缺陷、心理矛盾或成长方向" />
         </label>
-        <label class="field">
-          <span>规划章节数</span>
-          <input v-model.number="blueprintForm.chapter_count" inputmode="numeric" placeholder="100" />
-        </label>
-        <label class="field">
-          <span>第一卷章数</span>
-          <input v-model.number="blueprintForm.first_volume_count" inputmode="numeric" placeholder="20" />
-        </label>
+        <div class="long-plan-editor wide">
+          <div class="long-plan-header">
+            <div>
+              <strong>长篇结构设计</strong>
+              <span>用于控制每卷主题、每个故事单元主线和后续章节生成，不再用零散问题代替规划。</span>
+            </div>
+          </div>
+          <div class="novel-form-grid nested">
+            <label class="field">
+              <span>总章节数</span>
+              <input v-model.number="blueprintForm.chapter_count" inputmode="numeric" placeholder="500" />
+            </label>
+            <label class="field">
+              <span>阶段数量</span>
+              <input v-model.number="blueprintForm.phase_count" inputmode="numeric" min="1" max="12" placeholder="5" />
+            </label>
+            <label class="field wide">
+              <span>全书主线</span>
+              <input v-model="blueprintForm.story_mainline" placeholder="一句话写清楚最终目标：例如，林小满从普通打工人一步步完成自救，并带动身边人重新开始。" />
+            </label>
+          </div>
+          <details class="long-plan-block" open>
+            <summary>
+              <strong>阶段/卷规划</strong>
+              <span>每一卷回答：这一阶段要解决什么问题，卷末把读者带到哪里。</span>
+            </summary>
+            <div class="volume-plan-list">
+              <article v-for="(volume, index) in blueprintForm.volume_plans" :key="`volume-${index}`" class="volume-plan-card">
+                <div class="volume-plan-title">
+                  <strong>阶段 {{ index + 1 }}</strong>
+                  <input v-model="volume.volume_name" placeholder="卷名" />
+                  <input v-model="volume.chapter_range" placeholder="章节范围：1-100" />
+                </div>
+                <div class="novel-form-grid nested">
+                  <label class="field">
+                    <span>卷主题</span>
+                    <input v-model="volume.theme" placeholder="例：凡人入局 / 宗门修炼 / 城市自救" />
+                  </label>
+                  <label class="field">
+                    <span>阶段目标</span>
+                    <input v-model="volume.stage_goal" placeholder="这一卷必须完成的明确目标" />
+                  </label>
+                  <label class="field">
+                    <span>核心冲突</span>
+                    <input v-model="volume.core_conflict" placeholder="外部阻力 + 内在选择" />
+                  </label>
+                  <label class="field">
+                    <span>人物成长</span>
+                    <input v-model="volume.protagonist_growth" placeholder="角色从什么状态变成什么状态" />
+                  </label>
+                  <label class="field">
+                    <span>卷末结果</span>
+                    <input v-model="volume.ending_result" placeholder="本卷问题如何阶段性收束" />
+                  </label>
+                  <label class="field">
+                    <span>卷末钩子</span>
+                    <input v-model="volume.ending_hook" placeholder="引向下一卷的更大问题" />
+                  </label>
+                </div>
+              </article>
+            </div>
+          </details>
+          <details class="long-plan-block" open>
+            <summary>
+              <strong>故事单元规划</strong>
+              <span>每几个章节一个小主线，生成章节时会优先按对应单元推进。</span>
+            </summary>
+            <div class="story-unit-list">
+              <article v-for="(unit, index) in blueprintForm.story_units" :key="`unit-${index}`" class="story-unit-card">
+                <div class="story-unit-title">
+                  <strong>故事单元 {{ index + 1 }}</strong>
+                  <button type="button" class="btn secondary small danger" @click="removeStoryUnit(index)">删除</button>
+                </div>
+                <div class="novel-form-grid nested">
+                  <label class="field">
+                    <span>起始章</span>
+                    <input v-model.number="unit.start_chapter" inputmode="numeric" placeholder="1" />
+                  </label>
+                  <label class="field">
+                    <span>结束章</span>
+                    <input v-model.number="unit.end_chapter" inputmode="numeric" placeholder="20" />
+                  </label>
+                  <label class="field">
+                    <span>小主线名称</span>
+                    <input v-model="unit.unit_name" placeholder="例：村庄危机 / 第一份订单 / 旧案重启" />
+                  </label>
+                  <label class="field">
+                    <span>主要事件</span>
+                    <input v-model="unit.main_event" placeholder="这组章节连续推进的主要事件" />
+                  </label>
+                  <label class="field">
+                    <span>阶段冲突</span>
+                    <input v-model="unit.stage_conflict" placeholder="这一小主线的核心阻碍" />
+                  </label>
+                  <label class="field">
+                    <span>爽点/情绪点</span>
+                    <input v-model="unit.payoff_emotion" placeholder="读者在这里获得什么释放" />
+                  </label>
+                  <label class="field">
+                    <span>伏笔</span>
+                    <input v-model="unit.foreshadowing" placeholder="埋下但暂不解释的信息" />
+                  </label>
+                  <label class="field">
+                    <span>回收点</span>
+                    <input v-model="unit.payoff" placeholder="预计如何回收或兑现" />
+                  </label>
+                </div>
+              </article>
+            </div>
+            <button type="button" class="btn secondary small" @click="addStoryUnit">+ 添加故事单元</button>
+          </details>
+        </div>
       </div>
       <div v-if="blueprint" class="blueprint-card">
         <strong>{{ blueprint.book_profile.title }} · {{ blueprint.book_profile.genre }}</strong>
@@ -1210,6 +1457,40 @@ export default {
               情绪价值
               <strong>{{ blueprint.topic_center.emotion_value }}</strong>
             </span>
+          </div>
+        </div>
+        <div v-if="blueprint.long_form_plan" class="novel-os-section">
+          <div class="novel-section-title">长篇结构设计</div>
+          <div class="novel-insight-grid">
+            <span>
+              总章节数
+              <strong>{{ blueprint.long_form_plan.total_chapters || blueprint.volume_plan?.planned_chapters }}</strong>
+            </span>
+            <span>
+              阶段数量
+              <strong>{{ blueprint.long_form_plan.phase_count || 5 }}</strong>
+            </span>
+            <span class="wide">
+              全书主线
+              <strong>{{ blueprint.long_form_plan.story_mainline || blueprint.book_profile.one_sentence }}</strong>
+            </span>
+          </div>
+          <div class="long-plan-readonly-grid">
+            <article v-for="volume in blueprint.long_form_plan.volume_plans || []" :key="volume.volume_name">
+              <strong>{{ volume.volume_name }} · {{ volume.chapter_range }}</strong>
+              <p>{{ volume.theme || "卷主题待细化" }}</p>
+              <span>目标：{{ volume.stage_goal || "待补充" }}</span>
+              <span>冲突：{{ volume.core_conflict || "待补充" }}</span>
+              <span>卷末：{{ volume.ending_result || "待补充" }} / {{ volume.ending_hook || "待补充" }}</span>
+            </article>
+          </div>
+          <div class="long-plan-readonly-grid compact">
+            <article v-for="unit in blueprint.long_form_plan.story_units || []" :key="`${unit.start_chapter}-${unit.end_chapter}-${unit.unit_name}`">
+              <strong>{{ unit.start_chapter }}-{{ unit.end_chapter }}章 · {{ unit.unit_name }}</strong>
+              <p>{{ unit.main_event }}</p>
+              <span>{{ unit.stage_conflict }}</span>
+              <span>{{ unit.payoff_emotion }}</span>
+            </article>
           </div>
         </div>
         <div v-if="blueprint.social_emotion_database?.length" class="novel-os-section">

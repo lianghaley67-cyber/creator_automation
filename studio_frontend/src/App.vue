@@ -7765,6 +7765,138 @@ textarea {
   grid-column: 1 / -1;
 }
 
+.novel-form-grid.nested {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.long-plan-editor {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(0, 213, 232, 0.18);
+  border-radius: 10px;
+  padding: 14px;
+  background: rgba(0, 213, 232, 0.05);
+}
+
+.long-plan-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #d8e7f7;
+}
+
+.long-plan-header strong,
+.long-plan-block summary strong,
+.volume-plan-title strong,
+.story-unit-title strong {
+  color: #f7fbff;
+  font-weight: 900;
+}
+
+.long-plan-header span,
+.long-plan-block summary span {
+  display: block;
+  margin-top: 4px;
+  color: #9fb6d1;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.long-plan-block {
+  border: 1px solid rgba(142, 171, 205, 0.16);
+  border-radius: 8px;
+  background: rgba(3, 11, 20, 0.22);
+  overflow: hidden;
+}
+
+.long-plan-block summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.long-plan-block[open] summary {
+  border-bottom: 1px solid rgba(142, 171, 205, 0.14);
+}
+
+.volume-plan-list,
+.story-unit-list {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.volume-plan-card,
+.story-unit-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(142, 171, 205, 0.14);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(13, 31, 51, 0.5);
+}
+
+.volume-plan-title,
+.story-unit-title {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) minmax(120px, 0.6fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.story-unit-title {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.volume-plan-title input {
+  min-height: 34px;
+  border: 1px solid rgba(142, 171, 205, 0.24);
+  border-radius: 7px;
+  padding: 0 10px;
+  background: #071726;
+  color: #f7fbff;
+  font-weight: 800;
+}
+
+.long-plan-block > .btn {
+  margin: 0 12px 12px;
+}
+
+.long-plan-readonly-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.long-plan-readonly-grid.compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.long-plan-readonly-grid article {
+  display: grid;
+  gap: 5px;
+  border: 1px solid rgba(142, 171, 205, 0.14);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(13, 31, 51, 0.5);
+}
+
+.long-plan-readonly-grid strong {
+  color: #7ee8a2;
+}
+
+.long-plan-readonly-grid p,
+.long-plan-readonly-grid span {
+  margin: 0;
+  color: #b7c7da;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .blueprint-card,
 .diagnosis-card,
 .brief-card {

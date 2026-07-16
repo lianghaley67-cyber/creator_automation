@@ -99,6 +99,91 @@ def _list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _safe_int(value: Any, fallback: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _parse_chapter_range(value: Any, default_start: int, default_end: int) -> tuple[int, int]:
+    text = _text(value)
+    if not text:
+        return default_start, default_end
+    for sep in ["-", "－", "—", "到", "~"]:
+        if sep in text:
+            left, right = text.split(sep, 1)
+            start = _safe_int(left.strip(), default_start)
+            end = _safe_int(right.strip(), default_end)
+            return min(start, end), max(start, end)
+    chapter = _safe_int(text, default_start)
+    return chapter, chapter
+
+
+def normalize_long_form_plan(raw: Any, *, chapter_count: int = 500, phase_count: int = 5) -> dict[str, Any]:
+    data = raw if isinstance(raw, dict) else {}
+    total = max(1, min(_safe_int(data.get("total_chapters"), chapter_count), 500))
+    phases = max(1, min(_safe_int(data.get("phase_count"), phase_count), 12))
+    volume_plans: list[dict[str, Any]] = []
+    for index, item in enumerate(_list(data.get("volume_plans"))):
+        if not isinstance(item, dict):
+            continue
+        default_start = (index * total) // phases + 1
+        default_end = ((index + 1) * total) // phases
+        start, end = _parse_chapter_range(item.get("chapter_range"), default_start, default_end)
+        volume_plans.append({
+            "volume_name": _text(item.get("volume_name"), f"第{index + 1}卷"),
+            "chapter_range": f"{max(1, start)}-{min(total, max(start, end))}",
+            "theme": _text(item.get("theme")),
+            "stage_goal": _text(item.get("stage_goal")),
+            "core_conflict": _text(item.get("core_conflict")),
+            "protagonist_growth": _text(item.get("protagonist_growth")),
+            "ending_result": _text(item.get("ending_result")),
+            "ending_hook": _text(item.get("ending_hook")),
+        })
+    if not volume_plans:
+        for index in range(phases):
+            start = (index * total) // phases + 1
+            end = ((index + 1) * total) // phases
+            volume_plans.append({
+                "volume_name": f"第{index + 1}卷",
+                "chapter_range": f"{start}-{max(start, end)}",
+                "theme": "",
+                "stage_goal": "",
+                "core_conflict": "",
+                "protagonist_growth": "",
+                "ending_result": "",
+                "ending_hook": "",
+            })
+    story_units: list[dict[str, Any]] = []
+    for item in _list(data.get("story_units")):
+        if not isinstance(item, dict):
+            continue
+        start = _safe_int(item.get("start_chapter"), 0)
+        end = _safe_int(item.get("end_chapter"), start)
+        if not start and item.get("chapter_range"):
+            start, end = _parse_chapter_range(item.get("chapter_range"), 1, min(total, 20))
+        if not start:
+            continue
+        story_units.append({
+            "start_chapter": max(1, min(start, total)),
+            "end_chapter": max(1, min(max(start, end), total)),
+            "unit_name": _text(item.get("unit_name"), "故事单元"),
+            "main_event": _text(item.get("main_event")),
+            "stage_conflict": _text(item.get("stage_conflict")),
+            "payoff_emotion": _text(item.get("payoff_emotion")),
+            "foreshadowing": _text(item.get("foreshadowing")),
+            "payoff": _text(item.get("payoff")),
+        })
+    return {
+        "total_chapters": total,
+        "story_mainline": _text(data.get("story_mainline")),
+        "phase_count": phases,
+        "volume_plans": volume_plans,
+        "story_units": story_units,
+    }
+
+
 def _story_safe_line(value: Any, fallback: str) -> str:
     """Convert planning language into a line that can safely appear in prose."""
     text = _text(value)
@@ -198,11 +283,53 @@ def build_chapter_plans(raw_plan: list[Any], target_count: int = 100) -> list[di
     return plans[:target_count]
 
 
+def expand_story_units_to_raw_plans(units: list[Any], target_count: int) -> list[dict[str, Any]]:
+    raw: list[dict[str, Any]] = []
+    for unit in units:
+        if not isinstance(unit, dict):
+            continue
+        start = max(1, _safe_int(unit.get("start_chapter"), 0))
+        end = max(start, _safe_int(unit.get("end_chapter"), start))
+        end = min(end, target_count)
+        if start > target_count:
+            continue
+        unit_name = _text(unit.get("unit_name"), "故事单元")
+        main_event = _text(unit.get("main_event"), "推进这一组章节的主要事件")
+        conflict = _text(unit.get("stage_conflict"), "外部阻碍与内心选择同时出现。")
+        emotion = _text(unit.get("payoff_emotion"), "压抑后的确认、理解、反击或希望。")
+        foreshadowing = _text(unit.get("foreshadowing"), "")
+        payoff = _text(unit.get("payoff"), "")
+        for chapter in range(start, end + 1):
+            if chapter == start:
+                goal = f"开启【{unit_name}】：{main_event}"
+                suspense = foreshadowing or "一个暂时解释不了的细节压到眼前。"
+            elif chapter == end:
+                goal = f"收束【{unit_name}】：{payoff or main_event}"
+                suspense = payoff or foreshadowing or "阶段性结果背后露出新的代价。"
+            else:
+                goal = f"推进【{unit_name}】：{main_event}，释放{emotion}"
+                suspense = foreshadowing or "新的阻碍让选择更难。"
+            raw.append({
+                "chapter": chapter,
+                "goal": goal,
+                "conflict": conflict,
+                "suspense": suspense,
+            })
+    return raw
+
+
 def skill_plot_design(ctx: dict[str, Any]) -> dict[str, Any]:
     blueprint = _dict(ctx.get("blueprint"))
-    chapter_count = int(ctx.get("chapter_count") or 100)
-    raw_plan = _list(blueprint.get("hundred_chapter_plan") or blueprint.get("chapter_outline"))
-    return {**ctx, "plot_outline": build_chapter_plans(raw_plan, max(1, min(chapter_count, 100)))}
+    chapter_count = _safe_int(ctx.get("chapter_count"), 500)
+    target_count = max(1, min(chapter_count, 500))
+    long_form = _dict(ctx.get("long_form_plan"))
+    unit_plan = expand_story_units_to_raw_plans(_list(long_form.get("story_units") or ctx.get("story_units")), target_count)
+    blueprint_plan = _list(blueprint.get("hundred_chapter_plan") or blueprint.get("chapter_outline"))
+    plans_by_chapter = {int(item.get("chapter") or 0): item for item in blueprint_plan if isinstance(item, dict)}
+    for item in unit_plan:
+        plans_by_chapter[int(item.get("chapter") or 0)] = item
+    raw_plan = [plans_by_chapter[key] for key in sorted(plans_by_chapter) if key > 0]
+    return {**ctx, "plot_outline": build_chapter_plans(raw_plan, target_count)}
 
 
 def skill_chapter_write(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -317,10 +444,26 @@ def build_book_blueprint(input_data: dict[str, Any]) -> dict[str, Any]:
     book_id = _text(input_data.get("bookId") or input_data.get("id"))
     if not book_id:
         raise ValueError("bookId is required")
+    chapter_count = max(1, min(_safe_int(input_data.get("chapter_count"), 500), 500))
+    phase_count = max(1, min(_safe_int(input_data.get("phase_count"), 5), 12))
+    long_form_input = input_data.get("long_form_plan") if isinstance(input_data.get("long_form_plan"), dict) else {
+        "total_chapters": chapter_count,
+        "story_mainline": input_data.get("story_mainline"),
+        "phase_count": phase_count,
+        "volume_plans": input_data.get("volume_plans"),
+        "story_units": input_data.get("story_units"),
+    }
+    long_form_plan = normalize_long_form_plan(long_form_input, chapter_count=chapter_count, phase_count=phase_count)
     normalized_input = {
         **input_data,
         "bookId": book_id,
         "id": book_id,
+        "chapter_count": long_form_plan["total_chapters"],
+        "phase_count": long_form_plan["phase_count"],
+        "story_mainline": long_form_plan["story_mainline"],
+        "volume_plans": long_form_plan["volume_plans"],
+        "story_units": long_form_plan["story_units"],
+        "long_form_plan": long_form_plan,
         "real_event_strategy": normalize_real_event_strategy(input_data.get("real_event_strategy")),
         "core_design": normalize_core_design(input_data.get("core_design")),
     }
@@ -337,6 +480,10 @@ def build_book_blueprint(input_data: dict[str, Any]) -> dict[str, Any]:
         "hook": _text(input_data.get("hook") or input_data.get("idea"), ""),
         "core_design": normalized_input["core_design"],
         "real_event_strategy": normalized_input["real_event_strategy"],
+        "long_form_plan": long_form_plan,
+        "volume_plans": long_form_plan["volume_plans"],
+        "story_units": long_form_plan["story_units"],
+        "chapter_count": long_form_plan["total_chapters"],
         "commercial_analysis": analysis,
     }
 
