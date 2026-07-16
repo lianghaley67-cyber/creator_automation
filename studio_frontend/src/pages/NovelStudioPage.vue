@@ -24,6 +24,7 @@ export default {
     const books = ref([]);
     const currentBookId = ref("");
     const selectedBookId = currentBookId;
+    const plannerBookId = ref("");
     const editingBookId = ref("");
     const plannerPanel = ref(null);
     const loading = reactive({
@@ -433,8 +434,9 @@ export default {
 
     function collectBookBlueprintInput() {
       const longFormPlan = normalizedLongFormPlan();
+      const existingBookId = editingBookId.value || plannerBookId.value;
       return {
-        bookId: editingBookId.value || freshBookId(),
+        bookId: existingBookId || freshBookId(),
         title: blueprintForm.title.trim(),
         genre: normalizeStoryGenre(blueprintForm.genre),
         hook: blueprintForm.idea.trim(),
@@ -498,6 +500,8 @@ export default {
 
     function fillFormFromBook(book) {
       if (!book) return;
+      resetBlueprintForm();
+      plannerBookId.value = book.id || "";
       const sourceType = String(book.real_event_strategy?.source_type || "个人");
       const sourcePresets = ["新闻", "历史", "个人"];
       blueprintForm.title = book.title || "";
@@ -528,6 +532,7 @@ export default {
 
     function resetBookScopedMemory(bookId) {
       currentBookId.value = bookId || "";
+      plannerBookId.value = bookId || "";
       ctx.selectedStoryId.value = "";
       diagnosis.value = null;
       chapterBrief.value = null;
@@ -536,8 +541,11 @@ export default {
 
     async function getStoryArchive(bookId = currentBookId.value) {
       if (!bookId) return null;
-      storyArchive.value = await ctx.requestApi(`/books/${encodeURIComponent(bookId)}/archive`, {}, 10000);
-      return storyArchive.value;
+      const archive = await ctx.requestApi(`/books/${encodeURIComponent(bookId)}/archive`, {}, 10000);
+      if (bookId === currentBookId.value) {
+        storyArchive.value = archive;
+      }
+      return archive;
     }
 
     async function updateStoryArchive(bookId = currentBookId.value, archive = storyArchive.value) {
@@ -557,13 +565,15 @@ export default {
         ctx.setError("请先填写书名和一句话想法。");
         return;
       }
-      if (!editingBookId.value) resetBookScopedMemory(input.bookId);
+      const targetBookId = editingBookId.value || plannerBookId.value;
+      const isUpdatingExistingBook = Boolean(targetBookId);
+      if (!isUpdatingExistingBook) resetBookScopedMemory(input.bookId);
       loading.blueprint = true;
       try {
         const generated = await generateBlueprint(input);
-        const savePath = editingBookId.value ? `/books/${encodeURIComponent(editingBookId.value)}` : "/books";
+        const savePath = isUpdatingExistingBook ? `/books/${encodeURIComponent(targetBookId)}` : "/books";
         const saved = await ctx.requestApi(savePath, {
-          method: editingBookId.value ? "PATCH" : "POST",
+          method: isUpdatingExistingBook ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...generated,
@@ -577,12 +587,13 @@ export default {
         blueprint.value = bookToBlueprint(saved);
         blueprintPromise.value = coreValue(saved.core_design, "爽点设计", "satisfaction_design", blueprint.value?.book_profile?.promise || "");
         currentBookId.value = saved.id;
+        plannerBookId.value = saved.id;
         editingBookId.value = "";
         storyDraft.name = saved.title || input.title;
         storyDraft.genre = normalizeStoryGenre(saved.genre || input.genre);
         await loadBooks();
         await getStoryArchive(saved.id);
-        ctx.setNotice(editingBookId.value ? "小说编辑已保存，蓝图已更新。" : "小说创建成功，开书蓝图已写入数据库。");
+        ctx.setNotice(isUpdatingExistingBook ? `《${saved.title || input.title}》蓝图已更新。` : "小说创建成功，开书蓝图已写入数据库。");
         editingBookId.value = "";
       } catch (err) {
         ctx.setError(`开书蓝图生成失败：${err.message}`);
@@ -597,6 +608,7 @@ export default {
 
     function continueBook(book) {
       resetBookScopedMemory(book.id);
+      editingBookId.value = "";
       fillFormFromBook(book);
       getStoryArchive(book.id).catch((err) => ctx.setError(`故事档案读取失败：${err.message}`));
       ctx.setNotice(`已载入「${book.title}」，可以继续生成章节 Brief 或编辑蓝图。`);
@@ -616,8 +628,13 @@ export default {
       if (!window.confirm(`确定删除《${book.title || "未命名小说"}》吗？此操作会从数据库移除该小说项目。`)) return;
       loading.deleteBook = book.id;
       try {
+        const deletingPlannerBook = plannerBookId.value === book.id;
         await ctx.requestApi(`/books/${encodeURIComponent(book.id)}`, { method: "DELETE" }, 10000);
         if (currentBookId.value === book.id) resetBookScopedMemory("");
+        if (deletingPlannerBook) {
+          plannerBookId.value = "";
+          resetBlueprintForm();
+        }
         await loadBooks();
         ctx.setNotice("小说已删除。");
       } catch (err) {
@@ -872,6 +889,7 @@ export default {
       currentBookId,
       selectedBookId,
       selectedBook,
+      plannerBookId,
       latestBookChapter,
       sortedBookChapters,
       editingBookId,
@@ -1200,7 +1218,7 @@ export default {
           </div>
         </div>
         <button class="btn accent" :disabled="loading.blueprint" @click="createBookBlueprint">
-          {{ loading.blueprint ? "生成中..." : editingBookId ? "保存编辑并重新生成蓝图" : "生成开书蓝图" }}
+          {{ loading.blueprint ? "生成中..." : (editingBookId || plannerBookId) ? "更新当前书蓝图" : "生成开书蓝图" }}
         </button>
       </div>
       <div class="novel-form-grid">
