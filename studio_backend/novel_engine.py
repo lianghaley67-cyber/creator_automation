@@ -6,6 +6,7 @@ scoped by book_id so one novel never inherits another novel's memory.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 from .story_workflow import build_story_blueprint
@@ -196,6 +197,62 @@ def _story_safe_line(value: Any, fallback: str) -> str:
     return text
 
 
+def _clean_title_fragment(value: Any, *, limit: int = 10) -> str:
+    text = _text(value)
+    if not text:
+        return ""
+    text = re.sub(r"^第\s*\d+\s*[章节回]?[：:、\s-]*", "", text)
+    text = re.sub(r"^(开启|推进|收束|开篇|开局|本章)\s*", "", text)
+    bracket = re.search(r"【([^】]{2,12})】", text)
+    if bracket:
+        text = bracket.group(1)
+    else:
+        text = re.split(r"[：:，,。；;！!？?\n\r]", text, 1)[0]
+    text = re.sub(r"[《》“”\"'`*_#\[\]{}()（）]", "", text).strip()
+    text = re.sub(r"^(用|让|把|将|以|通过|围绕)", "", text).strip()
+    banned = ["主角", "读者", "剧情", "章节", "本章", "目标", "悬念", "人物困境", "世界规则"]
+    if any(token in text for token in banned):
+        return ""
+    return text[:limit].strip("：:，,。；;、 ")
+
+
+def _chapter_title_phrase(chapter_number: int, plan: dict[str, Any]) -> str:
+    explicit = _clean_title_fragment(
+        plan.get("title") or plan.get("chapter_title") or plan.get("name"),
+        limit=12,
+    )
+    if explicit:
+        return explicit
+
+    goal = _text(plan.get("goal") or plan.get("chapter_goal"))
+    conflict = _text(plan.get("conflict") or plan.get("plot_conflict"))
+    suspense = _text(plan.get("suspense") or plan.get("hook"))
+    source = " ".join([goal, conflict, suspense])
+    bracket = _clean_title_fragment(goal, limit=10)
+    if bracket:
+        return bracket
+
+    keyword_titles = [
+        (["香火", "残香"], "残香自燃"),
+        (["破庙", "庙"], "破庙求救"),
+        (["老井", "槐井"], "井中索命"),
+        (["外卖", "送餐", "订单"], "雨中送餐"),
+        (["陌生人", "善意", "帮眼前的人"], "雨中援手"),
+        (["视频", "摆拍", "投诉"], "善意成疑"),
+        (["房租", "岗位", "临时登记"], "雨里机会"),
+        (["献祭", "神殿"], "祭台逃生"),
+        (["身份", "隐瞒"], "身份疑云"),
+    ]
+    for tokens, title in keyword_titles:
+        if any(token in source for token in tokens):
+            return title
+    return f"新的选择" if chapter_number == 1 else "风波再起"
+
+
+def _format_chapter_title(chapter_number: int, plan: dict[str, Any]) -> str:
+    return f"第{chapter_number}章：{_chapter_title_phrase(chapter_number, plan)}"
+
+
 def _is_generic_role_name(name: str) -> bool:
     return _text(name) in {"", "主角", "女主", "男主", "核心视角", "主人公", "视角人物"}
 
@@ -268,6 +325,7 @@ def build_chapter_plans(raw_plan: list[Any], target_count: int = 100) -> list[di
         plans.append(
             {
                 "chapter": chapter,
+                "title": _chapter_title_phrase(chapter, item),
                 "goal": _story_safe_line(item.get("goal") or item.get("chapter_goal"), "她必须先帮眼前的人解决一件急事，才可能抓住自己的机会。"),
                 "conflict": _story_safe_line(item.get("conflict") or item.get("plot_conflict"), "自己的麻烦还没解决，别人的求助已经压到眼前。"),
                 "suspense": _story_safe_line(item.get("suspense") or item.get("hook"), "一段偷拍视频被发进群里，善意突然变成了质疑。"),
@@ -278,6 +336,7 @@ def build_chapter_plans(raw_plan: list[Any], target_count: int = 100) -> list[di
         plans.append(
             {
                 "chapter": chapter,
+                "title": "雨中援手",
                 "goal": "她必须先帮眼前的人解决一件急事，才可能抓住自己的机会。",
                 "conflict": "自己的麻烦还没解决，别人的求助已经压到眼前。",
                 "suspense": "一段偷拍视频被发进群里，善意突然变成了质疑。",
@@ -314,6 +373,7 @@ def expand_story_units_to_raw_plans(units: list[Any], target_count: int) -> list
                 suspense = foreshadowing or "新的阻碍让选择更难。"
             raw.append({
                 "chapter": chapter,
+                "title": unit_name,
                 "goal": goal,
                 "conflict": conflict,
                 "suspense": suspense,
@@ -523,6 +583,7 @@ def build_chapter_brief_from_book(
     if not chapter_plan:
         chapter_plan = {
             "chapter": next_number,
+            "title": "雨中援手",
             "goal": "她必须先帮眼前的人解决一件急事，才可能抓住自己的机会。",
             "conflict": "自己的麻烦还没解决，别人的求助已经压到眼前。",
             "suspense": "一段偷拍视频被发进群里，善意突然变成了质疑。",
@@ -535,7 +596,7 @@ def build_chapter_brief_from_book(
         "story_name": book.get("title"),
         "chapter_number": next_number,
         "chapterPlan": chapter_plan,
-        "title_hint": f"第{next_number}章：{chapter_plan.get('goal')}",
+        "title_hint": _format_chapter_title(next_number, chapter_plan),
         "world_state": {
             "title": book.get("title"),
             "genre": book.get("genre"),
@@ -910,7 +971,7 @@ def _chapter_summary(content: str) -> str:
 def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any]) -> dict[str, Any]:
     plan = _dict(brief.get("chapterPlan"))
     chapter_number = int(brief.get("chapter_number") or plan.get("chapter") or 1)
-    title = f"第{chapter_number}章：{_text(plan.get('goal'), '新的选择')[:24]}"
+    title = _format_chapter_title(chapter_number, plan)
     director = _director_step(book, archive, brief)
     plot = _plot_designer_step(brief)
     character = _character_manager_step(book, archive)

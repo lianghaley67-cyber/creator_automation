@@ -105,6 +105,29 @@ def test_book_chapter_brief_contains_world_simulator_contract():
     assert brief["chapter_mission"]["goal"] == "让主角帮助陌生人，获得一次新的机会。"
 
 
+def test_book_chapter_title_uses_short_publishable_name():
+    book = {
+        "id": "book-title",
+        "title": "香火簿",
+        "genre": "eastern_mysticism",
+        "characters": [{"name": "云栖"}, {"name": "周望"}],
+        "plot_outline": [{
+            "chapter": 1,
+            "goal": "开启【开局危机】：用一次具体事件把人物困境、世界规则和核心悬念同时压到眼前。",
+            "conflict": "供桌残香忽然复燃，有人抱着孩子闯进破庙求救。",
+            "suspense": "槐井里的东西已经追到庙门口。",
+        }],
+    }
+
+    brief = build_chapter_brief_from_book(book, {"chapters": []})
+    chapter = generate_chapter_from_plan(book, {"chapters": []}, brief)
+
+    assert brief["title_hint"] == "第1章：开局危机"
+    assert chapter["title"] == "第1章：开局危机"
+    assert "用一次具体事件" not in chapter["title"]
+    assert len(chapter["title"]) <= 30
+
+
 def test_generate_modern_chapter_uses_grounded_scene_not_template_alarm():
     book = {
         "id": "book-1",
@@ -127,6 +150,7 @@ def test_generate_modern_chapter_uses_grounded_scene_not_template_alarm():
     chapter = generate_chapter_from_plan(book, archive, brief)
     content = chapter["content"]
 
+    assert chapter["title"] == "第1章：雨中援手"
     assert "林小满" in content
     assert "周望" in content
     assert "房东" in content or "房租" in content
