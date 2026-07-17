@@ -122,9 +122,33 @@ def test_book_chapter_title_uses_short_publishable_name():
     brief = build_chapter_brief_from_book(book, {"chapters": []})
     chapter = generate_chapter_from_plan(book, {"chapters": []}, brief)
 
-    assert brief["title_hint"] == "第1章：开局危机"
-    assert chapter["title"] == "第1章：开局危机"
+    assert brief["title_hint"] == "第1章：残香复燃，槐井索命"
+    assert chapter["title"] == "第1章：残香复燃，槐井索命"
+    assert "开局危机" not in chapter["title"]
     assert "用一次具体事件" not in chapter["title"]
+    assert len(chapter["title"]) <= 30
+
+
+def test_chapter_title_rewrites_stage_label_into_reader_hook():
+    book = {
+        "id": "book-title-2",
+        "title": "香火簿",
+        "genre": "eastern_mysticism",
+        "characters": [{"name": "云栖"}, {"name": "周望"}],
+        "plot_outline": [{
+            "chapter": 2,
+            "goal": "推进【开局危机】：用一次具体事件把人物困境、世界规则和核心悬念同时压到眼前。",
+            "conflict": "庙门外再次传来求救声，槐井里的东西已经追到门口。",
+            "suspense": "供桌残香忽然复燃，木牌背面露出一个旧名字。",
+        }],
+    }
+
+    brief = build_chapter_brief_from_book(book, {"chapters": [{"chapter_number": 1, "title": "第1章：残香复燃，槐井索命"}]})
+    chapter = generate_chapter_from_plan(book, {"chapters": []}, brief)
+
+    assert chapter["title"] == "第2章：残香复燃，槐井索命"
+    assert "推进" not in chapter["title"]
+    assert "开局危机" not in chapter["title"]
     assert len(chapter["title"]) <= 30
 
 
@@ -150,7 +174,7 @@ def test_generate_modern_chapter_uses_grounded_scene_not_template_alarm():
     chapter = generate_chapter_from_plan(book, archive, brief)
     content = chapter["content"]
 
-    assert chapter["title"] == "第1章：雨中援手"
+    assert chapter["title"] == "第1章：她帮一单，命运改写"
     assert "林小满" in content
     assert "周望" in content
     assert "房东" in content or "房租" in content

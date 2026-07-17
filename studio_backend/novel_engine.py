@@ -210,13 +210,60 @@ def _clean_title_fragment(value: Any, *, limit: int = 10) -> str:
         text = re.split(r"[：:，,。；;！!？?\n\r]", text, 1)[0]
     text = re.sub(r"[《》“”\"'`*_#\[\]{}()（）]", "", text).strip()
     text = re.sub(r"^(用|让|把|将|以|通过|围绕)", "", text).strip()
-    banned = ["主角", "读者", "剧情", "章节", "本章", "目标", "悬念", "人物困境", "世界规则"]
+    banned = [
+        "主角", "读者", "剧情", "章节", "本章", "目标", "悬念", "人物困境", "世界规则",
+        "开局危机", "推进危机", "阶段危机", "故事单元",
+    ]
     if any(token in text for token in banned):
         return ""
     return text[:limit].strip("：:，,。；;、 ")
 
 
+def _title_by_keywords(source: str) -> str:
+    title_rules = [
+        (["残香", "槐井"], "残香复燃，槐井索命"),
+        (["香火", "槐井"], "香火一亮，井鬼上门"),
+        (["破庙", "孩子"], "破庙求救，孩子断魂"),
+        (["残香", "孩子"], "残香救命，代价上门"),
+        (["老井", "索命"], "井中索命"),
+        (["外卖", "摆拍"], "善意被拍成罪证"),
+        (["视频", "投诉"], "一段视频，把她推上风口"),
+        (["陌生人", "机会"], "她帮一单，命运改写"),
+        (["送餐", "质疑"], "雨中送餐，善意成疑"),
+        (["房租", "岗位"], "快交不起房租时，机会来了"),
+        (["献祭", "神殿"], "祭台逃生，神殿追来"),
+        (["身份", "隐瞒"], "他藏的身份，终于露痕"),
+        (["偷拍视频", "群"], "偷拍视频进群后"),
+        (["求救", "门口"], "求救声到了门口"),
+    ]
+    for tokens, title in title_rules:
+        if all(token in source for token in tokens):
+            return title
+    single_keyword_titles = [
+        (["槐井"], "槐井里的东西来了"),
+        (["残香"], "残香突然亮了"),
+        (["破庙"], "破庙来了不速之客"),
+        (["摆拍"], "善意成了摆拍"),
+        (["投诉"], "她被投诉了"),
+        (["偷拍视频"], "偷拍视频出现了"),
+        (["房租"], "房租催到眼前"),
+        (["陌生人"], "陌生人递来转机"),
+    ]
+    for tokens, title in single_keyword_titles:
+        if any(token in source for token in tokens):
+            return title
+    return ""
+
+
 def _chapter_title_phrase(chapter_number: int, plan: dict[str, Any]) -> str:
+    goal = _text(plan.get("goal") or plan.get("chapter_goal"))
+    conflict = _text(plan.get("conflict") or plan.get("plot_conflict"))
+    suspense = _text(plan.get("suspense") or plan.get("hook"))
+    source = " ".join([goal, conflict, suspense])
+    keyword_title = _title_by_keywords(source)
+    if keyword_title:
+        return keyword_title[:16]
+
     explicit = _clean_title_fragment(
         plan.get("title") or plan.get("chapter_title") or plan.get("name"),
         limit=12,
@@ -224,29 +271,11 @@ def _chapter_title_phrase(chapter_number: int, plan: dict[str, Any]) -> str:
     if explicit:
         return explicit
 
-    goal = _text(plan.get("goal") or plan.get("chapter_goal"))
-    conflict = _text(plan.get("conflict") or plan.get("plot_conflict"))
-    suspense = _text(plan.get("suspense") or plan.get("hook"))
-    source = " ".join([goal, conflict, suspense])
     bracket = _clean_title_fragment(goal, limit=10)
     if bracket:
         return bracket
 
-    keyword_titles = [
-        (["香火", "残香"], "残香自燃"),
-        (["破庙", "庙"], "破庙求救"),
-        (["老井", "槐井"], "井中索命"),
-        (["外卖", "送餐", "订单"], "雨中送餐"),
-        (["陌生人", "善意", "帮眼前的人"], "雨中援手"),
-        (["视频", "摆拍", "投诉"], "善意成疑"),
-        (["房租", "岗位", "临时登记"], "雨里机会"),
-        (["献祭", "神殿"], "祭台逃生"),
-        (["身份", "隐瞒"], "身份疑云"),
-    ]
-    for tokens, title in keyword_titles:
-        if any(token in source for token in tokens):
-            return title
-    return f"新的选择" if chapter_number == 1 else "风波再起"
+    return "危机已经上门" if chapter_number == 1 else "新的麻烦来了"
 
 
 def _format_chapter_title(chapter_number: int, plan: dict[str, Any]) -> str:
