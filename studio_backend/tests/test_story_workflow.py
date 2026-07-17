@@ -143,13 +143,40 @@ def test_chapter_title_rewrites_stage_label_into_reader_hook():
         }],
     }
 
-    brief = build_chapter_brief_from_book(book, {"chapters": [{"chapter_number": 1, "title": "第1章：残香复燃，槐井索命"}]})
-    chapter = generate_chapter_from_plan(book, {"chapters": []}, brief)
+    archive = {"chapters": [{"chapter_number": 1, "title": "第1章：残香复燃，槐井索命"}]}
+    brief = build_chapter_brief_from_book(book, archive)
+    chapter = generate_chapter_from_plan(book, archive, brief)
 
-    assert chapter["title"] == "第2章：残香复燃，槐井索命"
+    assert brief["title_hint"] == "第2章：求救声到了门口"
+    assert chapter["title"] == "第2章：求救声到了门口"
     assert "推进" not in chapter["title"]
     assert "开局危机" not in chapter["title"]
     assert len(chapter["title"]) <= 30
+
+
+def test_chapter_generation_avoids_duplicate_title_from_archive():
+    book = {
+        "id": "book-title-3",
+        "title": "香火簿",
+        "genre": "eastern_mysticism",
+        "characters": [{"name": "云栖"}, {"name": "周望"}],
+        "plot_outline": [{
+            "chapter": 2,
+            "goal": "推进【开局危机】：用一次具体事件把人物困境、世界规则和核心悬念同时压到眼前。",
+            "conflict": "槐井里的东西追到庙门口。",
+            "suspense": "供桌残香忽然复燃。",
+        }],
+    }
+    archive = {"chapters": [{"chapter_number": 1, "title": "第1章：残香复燃，槐井索命"}]}
+    brief = {
+        "chapter_number": 2,
+        "chapterPlan": book["plot_outline"][0],
+    }
+
+    chapter = generate_chapter_from_plan(book, archive, brief)
+
+    assert chapter["title"] != "第2章：残香复燃，槐井索命"
+    assert chapter["title"] == "第2章：槐井里的东西来了"
 
 
 def test_generate_modern_chapter_uses_grounded_scene_not_template_alarm():

@@ -219,7 +219,7 @@ def _clean_title_fragment(value: Any, *, limit: int = 10) -> str:
     return text[:limit].strip("：:，,。；;、 ")
 
 
-def _title_by_keywords(source: str) -> str:
+def _title_candidates_by_keywords(source: str) -> list[str]:
     title_rules = [
         (["残香", "槐井"], "残香复燃，槐井索命"),
         (["香火", "槐井"], "香火一亮，井鬼上门"),
@@ -236,9 +236,10 @@ def _title_by_keywords(source: str) -> str:
         (["偷拍视频", "群"], "偷拍视频进群后"),
         (["求救", "门口"], "求救声到了门口"),
     ]
+    candidates: list[str] = []
     for tokens, title in title_rules:
         if all(token in source for token in tokens):
-            return title
+            candidates.append(title)
     single_keyword_titles = [
         (["槐井"], "槐井里的东西来了"),
         (["残香"], "残香突然亮了"),
@@ -251,35 +252,74 @@ def _title_by_keywords(source: str) -> str:
     ]
     for tokens, title in single_keyword_titles:
         if any(token in source for token in tokens):
-            return title
-    return ""
+            candidates.append(title)
+    return candidates
 
 
-def _chapter_title_phrase(chapter_number: int, plan: dict[str, Any]) -> str:
+def _title_phrase_from_full_title(value: Any) -> str:
+    text = _text(value)
+    if "：" in text:
+        return text.split("：", 1)[1].strip()
+    if ":" in text:
+        return text.split(":", 1)[1].strip()
+    return text.strip()
+
+
+def _used_chapter_title_phrases(chapters: list[Any], *, exclude_chapter: int | None = None) -> set[str]:
+    used: set[str] = set()
+    for item in chapters:
+        if not isinstance(item, dict):
+            continue
+        if exclude_chapter is not None and int(item.get("chapter_number") or 0) == int(exclude_chapter):
+            continue
+        phrase = _title_phrase_from_full_title(item.get("title"))
+        if phrase:
+            used.add(phrase)
+    return used
+
+
+def _chapter_title_candidates(chapter_number: int, plan: dict[str, Any]) -> list[str]:
     goal = _text(plan.get("goal") or plan.get("chapter_goal"))
     conflict = _text(plan.get("conflict") or plan.get("plot_conflict"))
     suspense = _text(plan.get("suspense") or plan.get("hook"))
     source = " ".join([goal, conflict, suspense])
-    keyword_title = _title_by_keywords(source)
-    if keyword_title:
-        return keyword_title[:16]
+    candidates = _title_candidates_by_keywords(source)
 
     explicit = _clean_title_fragment(
         plan.get("title") or plan.get("chapter_title") or plan.get("name"),
         limit=12,
     )
     if explicit:
-        return explicit
+        candidates.append(explicit)
 
     bracket = _clean_title_fragment(goal, limit=10)
     if bracket:
-        return bracket
+        candidates.append(bracket)
 
-    return "危机已经上门" if chapter_number == 1 else "新的麻烦来了"
+    candidates.extend([
+        "危机已经上门" if chapter_number == 1 else "新的麻烦来了",
+        f"第{chapter_number}个转机出现",
+        f"这一次，不能后退",
+    ])
+    deduped: list[str] = []
+    for title in candidates:
+        title = title[:16].strip()
+        if title and title not in deduped:
+            deduped.append(title)
+    return deduped
 
 
-def _format_chapter_title(chapter_number: int, plan: dict[str, Any]) -> str:
-    return f"第{chapter_number}章：{_chapter_title_phrase(chapter_number, plan)}"
+def _chapter_title_phrase(chapter_number: int, plan: dict[str, Any], used_phrases: set[str] | None = None) -> str:
+    used = used_phrases or set()
+    candidates = _chapter_title_candidates(chapter_number, plan)
+    for candidate in candidates:
+        if candidate not in used:
+            return candidate
+    return f"第{chapter_number}章新危机"
+
+
+def _format_chapter_title(chapter_number: int, plan: dict[str, Any], used_phrases: set[str] | None = None) -> str:
+    return f"第{chapter_number}章：{_chapter_title_phrase(chapter_number, plan, used_phrases)}"
 
 
 def _is_generic_role_name(name: str) -> bool:
@@ -617,6 +657,9 @@ def build_chapter_brief_from_book(
             "conflict": "自己的麻烦还没解决，别人的求助已经压到眼前。",
             "suspense": "一段偷拍视频被发进群里，善意突然变成了质疑。",
         }
+    used_title_phrases = _used_chapter_title_phrases(chapters, exclude_chapter=next_number)
+    title_phrase = _chapter_title_phrase(next_number, chapter_plan, used_title_phrases)
+    chapter_plan = {**chapter_plan, "title": title_phrase}
     characters = _list(book.get("characters") or archive.get("characters"))
     protagonist = characters[0] if characters and isinstance(characters[0], dict) else {}
     recent_chapters = sorted(_list(archive.get("chapters")), key=lambda item: int(item.get("chapter_number") or 0))[-3:]
@@ -625,7 +668,7 @@ def build_chapter_brief_from_book(
         "story_name": book.get("title"),
         "chapter_number": next_number,
         "chapterPlan": chapter_plan,
-        "title_hint": _format_chapter_title(next_number, chapter_plan),
+        "title_hint": _format_chapter_title(next_number, chapter_plan, used_title_phrases),
         "world_state": {
             "title": book.get("title"),
             "genre": book.get("genre"),
@@ -1000,7 +1043,8 @@ def _chapter_summary(content: str) -> str:
 def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any]) -> dict[str, Any]:
     plan = _dict(brief.get("chapterPlan"))
     chapter_number = int(brief.get("chapter_number") or plan.get("chapter") or 1)
-    title = _format_chapter_title(chapter_number, plan)
+    used_title_phrases = _used_chapter_title_phrases(_list(archive.get("chapters")), exclude_chapter=chapter_number)
+    title = _format_chapter_title(chapter_number, plan, used_title_phrases)
     director = _director_step(book, archive, brief)
     plot = _plot_designer_step(brief)
     character = _character_manager_step(book, archive)
