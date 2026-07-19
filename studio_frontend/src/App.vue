@@ -3039,7 +3039,7 @@ body {
   margin: 0;
   background: var(--app-bg);
   color: var(--app-text);
-  font-family: "Inter", "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif;
+  font-family: "Microsoft YaHei", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", "Segoe UI", Arial, sans-serif;
   font-size: 15px;
   line-height: 1.55;
   text-rendering: optimizeLegibility;
@@ -8599,6 +8599,11 @@ textarea {
 
 body,
 .studio-page {
+  font-family: "Microsoft YaHei", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", "Segoe UI", Arial, sans-serif !important;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
   background:
     radial-gradient(circle at 18% 8%, rgba(218, 235, 249, 0.88), transparent 34%),
@@ -9205,5 +9210,74 @@ body,
 .studio-page .progress-fill {
   background: #26b9d0 !important;
   color: #ffffff !important;
+}
+
+.studio-page,
+.studio-page button,
+.studio-page input,
+.studio-page textarea,
+.studio-page select {
+  font-family: "Microsoft YaHei", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", "Segoe UI", Arial, sans-serif !important;
+  letter-spacing: 0 !important;
+}
+
+.studio-page .trend-card,
+.studio-page .trend-search-box,
+.studio-page .question-card {
+  color: #263b53 !important;
+}
+
+.studio-page .trend-card p,
+.studio-page .trend-card li,
+.studio-page .trend-card li span,
+.studio-page .trend-news-main,
+.studio-page .trend-news-main span,
+.studio-page .trend-news-main small,
+.studio-page .trend-angles span,
+.studio-page .trend-flow-hint,
+.studio-page .summary-plain,
+.studio-page .summary-key-points,
+.studio-page .summary-key-points li,
+.studio-page .question-card p,
+.studio-page .question-card span {
+  color: #314960 !important;
+  opacity: 1 !important;
+  font-weight: 500 !important;
+}
+
+.studio-page .trend-news-main strong,
+.studio-page .trend-card li strong,
+.studio-page .trend-card a,
+.studio-page .summary-key-points strong,
+.studio-page .question-card strong,
+.studio-page .question-card h3 {
+  color: #102033 !important;
+  opacity: 1 !important;
+  font-weight: 700 !important;
+}
+
+.studio-page .trend-news-main small,
+.studio-page .trend-card small,
+.studio-page .trend-card .meta {
+  color: #5a6f86 !important;
+  opacity: 1 !important;
+  font-weight: 500 !important;
+}
+
+.studio-page .trend-card li.trend-news-item {
+  border-bottom-color: rgba(124, 151, 178, 0.22) !important;
+}
+
+.studio-page .trend-angles,
+.studio-page .summary-key-points {
+  background: #fff8ee !important;
+  color: #314960 !important;
+}
+
+.studio-page input::placeholder,
+.studio-page textarea::placeholder {
+  color: #6f8196 !important;
+  opacity: 1 !important;
+  font-weight: 500 !important;
 }
 </style>
