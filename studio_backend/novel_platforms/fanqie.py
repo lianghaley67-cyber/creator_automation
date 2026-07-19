@@ -883,11 +883,32 @@ def _push_via_playwright_browser(
                 )
                 page.wait_for_timeout(500)
                 if not isinstance(title_filled, dict) or not title_filled.get("ok"):
-                    _screenshot(page, RESULT_SCREENSHOT)
-                    raise RuntimeError(
-                        f"未能写入番茄章节标题「{chapter_title}」，"
-                        f"页面标题控件识别结果：{title_filled}"
-                    )
+                    # 番茄新版标题框有时把“请输入标题”做成独立占位节点，
+                    # 真实编辑器没有 placeholder。此时点击占位文本后用键盘输入。
+                    keyboard_title_ok = False
+                    try:
+                        placeholder = _first_visible_text(page, ["请输入标题", "章节标题", "标题"])
+                        if placeholder:
+                            placeholder.click()
+                            page.wait_for_timeout(200)
+                            page.keyboard.press("Control+A")
+                            page.keyboard.type(chapter_title, delay=12)
+                            page.keyboard.press("Tab")
+                            page.wait_for_timeout(500)
+                            keyboard_title_ok = bool(page.evaluate(
+                                """(title) => document.body.innerText.includes(String(title || '').trim())""",
+                                chapter_title,
+                            ))
+                            if keyboard_title_ok:
+                                title_filled = {"ok": True, "method": "placeholder-keyboard", "value": chapter_title}
+                    except Exception:
+                        keyboard_title_ok = False
+                    if not keyboard_title_ok:
+                        _screenshot(page, RESULT_SCREENSHOT)
+                        raise RuntimeError(
+                            f"未能写入番茄章节标题「{chapter_title}」，"
+                            f"页面标题控件识别结果：{title_filled}"
+                        )
 
                 # ── 5. 找到正文编辑器并填入内容 ──
                 # 用 JS 区分标题 contenteditable 与正文 contenteditable：
