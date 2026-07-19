@@ -9281,6 +9281,61 @@ body,
   color: #314960 !important;
 }
 
+.studio-page .novel-story-panel .diagnosis-card {
+  border-color: rgba(124, 151, 178, 0.22) !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: #263b53 !important;
+  box-shadow: 0 14px 36px rgba(50, 87, 124, 0.08) !important;
+}
+
+.studio-page .novel-story-panel .diagnosis-score strong {
+  color: #102033 !important;
+  font-weight: 800 !important;
+}
+
+.studio-page .novel-story-panel .diagnosis-score span,
+.studio-page .novel-story-panel .diagnosis-score em {
+  color: #4d6680 !important;
+  opacity: 1 !important;
+  font-weight: 600 !important;
+}
+
+.studio-page .novel-story-panel .next-actions,
+.studio-page .novel-story-panel .diagnosis-issues {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(124, 151, 178, 0.18) !important;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(247, 251, 255, 0.86) !important;
+}
+
+.studio-page .novel-story-panel .diagnosis-issues {
+  border-color: rgba(242, 138, 75, 0.24) !important;
+  background: #fff8ee !important;
+}
+
+.studio-page .novel-story-panel .next-actions b,
+.studio-page .novel-story-panel .diagnosis-issues b {
+  color: #102033 !important;
+  font-weight: 700 !important;
+}
+
+.studio-page .novel-story-panel .next-actions span,
+.studio-page .novel-story-panel .diagnosis-issues span {
+  border: 1px solid rgba(124, 151, 178, 0.2) !important;
+  border-radius: 7px;
+  background: #f8fbff !important;
+  color: #314960 !important;
+  opacity: 1 !important;
+  font-weight: 500 !important;
+}
+
+.studio-page .novel-story-panel .diagnosis-issues span {
+  border-color: rgba(242, 138, 75, 0.22) !important;
+  background: #fffdf8 !important;
+}
+
 .studio-page input::placeholder,
 .studio-page textarea::placeholder {
   color: #6f8196 !important;
