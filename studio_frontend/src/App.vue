@@ -8574,4 +8574,383 @@ textarea {
     justify-content: center;
   }
 }
+
+/* Light workspace theme */
+:root {
+  --app-bg: #edf5fb;
+  --app-surface: #ffffff;
+  --app-surface-strong: #f7fbff;
+  --app-surface-soft: rgba(255, 255, 255, 0.76);
+  --app-border: rgba(124, 151, 178, 0.2);
+  --app-border-strong: rgba(103, 135, 166, 0.32);
+  --app-text: #172334;
+  --app-text-strong: #0f1c2b;
+  --app-muted: #65778c;
+  --app-muted-strong: #42566d;
+  --app-input: #ffffff;
+  --app-input-hover: #f7fbff;
+  --app-accent: #2f96d4;
+  --app-accent-soft: rgba(47, 150, 212, 0.12);
+  --app-orange: #f28a4b;
+  --text: var(--app-text);
+  --muted: var(--app-muted);
+  --border: var(--app-border);
+}
+
+body,
+.studio-page {
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at 18% 8%, rgba(218, 235, 249, 0.88), transparent 34%),
+    radial-gradient(circle at 88% 24%, rgba(255, 255, 255, 0.78), transparent 28%),
+    linear-gradient(180deg, #f7fbff 0%, #eef6fc 46%, #e9f2f8 100%) !important;
+  color: var(--app-text);
+}
+
+.studio-page.module-mode {
+  padding-left: 0 !important;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.88) 0 220px, transparent 220px),
+    radial-gradient(circle at 26% 9%, rgba(215, 234, 248, 0.86), transparent 34%),
+    linear-gradient(180deg, #f8fbff 0%, #eef6fc 50%, #e8f1f8 100%) !important;
+}
+
+.studio-sidebar {
+  border-right: 1px solid rgba(124, 151, 178, 0.2);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 12px 0 36px rgba(55, 91, 124, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.sidebar-brand,
+.brand-mini {
+  color: var(--app-text-strong);
+}
+
+.sidebar-brand small,
+.sidebar-footer,
+.brand-mini small {
+  color: var(--app-muted);
+}
+
+.sidebar-nav button {
+  color: var(--app-muted-strong);
+}
+
+.sidebar-nav button:hover,
+.sidebar-nav button.active {
+  border-color: rgba(47, 150, 212, 0.24);
+  background: rgba(47, 150, 212, 0.1);
+  color: var(--app-text-strong);
+}
+
+.sidebar-nav span {
+  background: rgba(47, 150, 212, 0.12);
+  color: var(--app-accent);
+}
+
+.studio-header {
+  border-bottom: 1px solid rgba(124, 151, 178, 0.16);
+  background: rgba(248, 251, 255, 0.82);
+  box-shadow: 0 10px 30px rgba(55, 91, 124, 0.06);
+  backdrop-filter: blur(18px);
+}
+
+.app-shell {
+  color: var(--app-text);
+}
+
+.module-hero,
+.hero,
+.panel,
+.stat-card,
+.job-card,
+.upload-card,
+.trend-card,
+.core-card,
+.workflow-card,
+.metric-card,
+.launch-panel,
+.skill-card,
+.stock-module,
+.stock-control-panel,
+.stock-skill-panel,
+.stock-list-panel,
+.stock-analysis-panel,
+.stock-history-panel,
+.stock-market-card,
+.stock-watch-card,
+.stock-skill-card,
+.novel-project-card,
+.novel-step,
+.novel-charter-card,
+.blueprint-card,
+.diagnosis-card,
+.brief-card,
+.story-selector-block,
+.inline-story-form,
+.fanqie-panel,
+.publish-card,
+.distribution-card,
+.draft-card,
+.next-step-card,
+.modal-content,
+.analysis-modal {
+  border-color: var(--app-border) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 18px 50px rgba(50, 87, 124, 0.1) !important;
+  color: var(--app-text) !important;
+  backdrop-filter: blur(16px);
+}
+
+.module-hero,
+.hero {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 251, 255, 0.88)),
+    linear-gradient(135deg, rgba(211, 231, 247, 0.48), rgba(255, 255, 255, 0.65)) !important;
+}
+
+.studio-page h1,
+.studio-page h2,
+.studio-page h3,
+.studio-page h4,
+.studio-page strong,
+.studio-page label,
+.studio-page .field span,
+.studio-page .panel-header h2,
+.studio-page .panel-header h3 {
+  color: var(--app-text-strong) !important;
+}
+
+.studio-page p,
+.studio-page .meta,
+.studio-page small,
+.studio-page .field > span,
+.studio-page .modal-field > span,
+.studio-page .fanqie-field > span,
+.studio-page .rules,
+.studio-page .chat-role {
+  color: var(--app-muted) !important;
+}
+
+.tabs {
+  border-color: rgba(124, 151, 178, 0.18) !important;
+  background: rgba(255, 255, 255, 0.64) !important;
+  box-shadow: 0 12px 34px rgba(50, 87, 124, 0.08);
+  backdrop-filter: blur(16px);
+}
+
+.tab-btn,
+.btn.secondary,
+.btn-upload-skill {
+  border-color: rgba(124, 151, 178, 0.26) !important;
+  background: rgba(255, 255, 255, 0.74) !important;
+  color: var(--app-muted-strong) !important;
+}
+
+.tab-btn.active,
+.tab-btn:hover,
+.btn.secondary:hover:not(:disabled) {
+  border-color: rgba(47, 150, 212, 0.34) !important;
+  background: rgba(47, 150, 212, 0.1) !important;
+  color: var(--app-text-strong) !important;
+}
+
+.btn.primary,
+.btn.accent,
+.header-cta {
+  border-color: rgba(47, 150, 212, 0.36) !important;
+  background: linear-gradient(135deg, #48a7df, #2f86c5) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 26px rgba(47, 150, 212, 0.22);
+}
+
+.studio-page input:not([type="checkbox"]):not([type="radio"]),
+.studio-page select,
+.studio-page textarea,
+.studio-page .story-select,
+.studio-page .pgb-skill-pick,
+.studio-page .pgb-story-select,
+.studio-page .fanqie-cookie-input,
+.trend-chat-input,
+.topics-add-input {
+  border-color: rgba(124, 151, 178, 0.28) !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: var(--app-text) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.75), inset 0 1px 2px rgba(77, 109, 139, 0.04) !important;
+}
+
+.studio-page input:not([type="checkbox"]):not([type="radio"]):hover,
+.studio-page select:hover,
+.studio-page textarea:hover,
+.studio-page input:not([type="checkbox"]):not([type="radio"]):focus,
+.studio-page select:focus,
+.studio-page textarea:focus {
+  border-color: rgba(47, 150, 212, 0.48) !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 3px rgba(47, 150, 212, 0.12) !important;
+}
+
+.studio-page input::placeholder,
+.studio-page textarea::placeholder {
+  color: #9aaabe !important;
+}
+
+.studio-page select option {
+  background: #ffffff;
+  color: var(--app-text);
+}
+
+.content-workflow-panel,
+.trend-ai-summary-block,
+.trend-chat-block,
+.skill-selector-block,
+.skill-selector-head,
+.trend-direction-box,
+.workflow-review-panel,
+.workflow-step,
+.skill-example,
+.chat-message.assistant .chat-content,
+.detail-transcript,
+.detail-metric,
+.portrait-preview,
+.reference-audio {
+  border-color: rgba(124, 151, 178, 0.2) !important;
+  background: rgba(248, 251, 255, 0.82) !important;
+  color: var(--app-text) !important;
+}
+
+.workflow-step.done {
+  border-color: rgba(48, 166, 112, 0.28) !important;
+  background: rgba(236, 249, 241, 0.9) !important;
+}
+
+.workflow-step.active,
+.workflow-review-checks span,
+.skill-tag {
+  border-color: rgba(242, 138, 75, 0.28) !important;
+  background: rgba(255, 244, 236, 0.92) !important;
+  color: #b25e24 !important;
+}
+
+.chat-message.user .chat-content,
+.topic-chip.active,
+.skill-card.selected,
+.angle-chip {
+  border-color: rgba(47, 150, 212, 0.28) !important;
+  background: rgba(47, 150, 212, 0.1) !important;
+  color: #1f75a9 !important;
+}
+
+.topic-chip,
+.topic-chip-edit {
+  border-color: rgba(124, 151, 178, 0.22) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  color: var(--app-muted-strong) !important;
+}
+
+.notice {
+  border-color: rgba(47, 150, 212, 0.22) !important;
+  background: rgba(233, 246, 255, 0.92) !important;
+  color: #236f9e !important;
+}
+
+.notice.danger,
+.danger {
+  border-color: rgba(221, 104, 70, 0.28) !important;
+  background: rgba(255, 241, 236, 0.92) !important;
+  color: #ad4d29 !important;
+}
+
+.studio-footer {
+  color: var(--app-muted) !important;
+}
+
+.studio-page.module-mode .app-shell {
+  width: calc(100vw - 268px);
+  max-width: 1320px;
+  margin-left: 244px !important;
+  margin-right: 24px !important;
+}
+
+.studio-page.module-mode .module-hero,
+.studio-page.module-mode .panel,
+.studio-page.module-mode .tabs,
+.studio-page.module-mode .notice,
+.studio-page.module-mode .studio-footer {
+  width: 100% !important;
+  max-width: 100%;
+}
+
+.studio-page.module-mode .studio-header {
+  left: 220px;
+}
+
+.studio-page [class*="preview"],
+.studio-page [class*="result"],
+.studio-page [class*="draft"],
+.studio-page [class*="script"],
+.studio-page [class*="storyboard"],
+.studio-page [class*="caption"],
+.studio-page [class*="terminal"],
+.studio-page [class*="markdown"],
+.studio-page [class*="distribution"],
+.studio-page [class*="publish"] {
+  border-color: rgba(124, 151, 178, 0.2) !important;
+  background: rgba(255, 255, 255, 0.86) !important;
+  color: var(--app-text) !important;
+}
+
+.studio-page pre,
+.studio-page code,
+.studio-page .caption-box,
+.studio-page .script-text,
+.studio-page .script-preview,
+.studio-page .script-preview-card,
+.studio-page .storyboard-preview,
+.studio-page .storyboard-card,
+.studio-page .terminal-output,
+.studio-page .markdown-preview {
+  border-color: rgba(124, 151, 178, 0.22) !important;
+  background: rgba(248, 251, 255, 0.9) !important;
+  color: var(--app-text) !important;
+}
+
+.studio-page svg:not(.brand-logo-img) {
+  color: var(--app-accent);
+}
+
+@media (max-width: 980px) {
+  .studio-page.module-mode .app-shell {
+    width: calc(100vw - 24px);
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .studio-page.module-mode .studio-header {
+    left: 0;
+  }
+}
+
+.studio-page.module-mode > .app-shell {
+  position: relative !important;
+  left: 124px !important;
+}
+
+.studio-page.module-mode > .app-shell > .module-hero,
+.studio-page.module-mode > .app-shell > .tabs,
+.studio-page.module-mode > .app-shell > .notice,
+.studio-page.module-mode > .app-shell > .panel,
+.studio-page.module-mode > .app-shell > div:not(.dashboard) {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+@media (max-width: 980px) {
+  .studio-page.module-mode > .app-shell {
+    left: 0 !important;
+  }
+}
 </style>
