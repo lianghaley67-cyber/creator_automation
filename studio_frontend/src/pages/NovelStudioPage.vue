@@ -27,6 +27,7 @@ export default {
     const plannerBookId = ref("");
     const editingBookId = ref("");
     const plannerPanel = ref(null);
+    const plannerExpanded = ref(false);
     const loading = reactive({
       workflow: false,
       diagnosis: false,
@@ -407,12 +408,14 @@ export default {
     }
 
     async function scrollToPlanner() {
+      plannerExpanded.value = true;
       await nextTick();
       plannerPanel.value?.scrollIntoView?.({ behavior: "smooth", block: "start" });
     }
 
     function startCreateBook() {
       editingBookId.value = "";
+      plannerExpanded.value = true;
       resetBookScopedMemory("");
       resetBlueprintForm();
       scrollToPlanner();
@@ -566,6 +569,7 @@ export default {
 
     async function createBookBlueprint() {
       if (loading.blueprint) return;
+      plannerExpanded.value = true;
       const input = collectBookBlueprintInput();
       if (!input.title || !input.hook) {
         ctx.setError("请先填写书名和一句话想法。");
@@ -615,6 +619,7 @@ export default {
     function continueBook(book) {
       resetBookScopedMemory(book.id);
       editingBookId.value = "";
+      plannerExpanded.value = false;
       fillFormFromBook(book);
       getStoryArchive(book.id).catch((err) => ctx.setError(`故事档案读取失败：${err.message}`));
       ctx.setNotice(`已载入「${book.title}」，可以继续生成章节 Brief 或编辑蓝图。`);
@@ -900,6 +905,7 @@ export default {
       sortedBookChapters,
       editingBookId,
       plannerPanel,
+      plannerExpanded,
       loading,
       blueprintForm,
       blueprint,
@@ -1223,11 +1229,16 @@ export default {
             {{ editingBookId ? "正在编辑当前小说，修改后会更新这本书的蓝图。" : "先手动填写创意和定位，再生成开书蓝图。" }}
           </div>
         </div>
-        <button class="btn accent" :disabled="loading.blueprint" @click="createBookBlueprint">
-          {{ loading.blueprint ? "生成中..." : (editingBookId || plannerBookId) ? "更新当前书蓝图" : "生成开书蓝图" }}
-        </button>
+        <div class="panel-actions">
+          <button class="btn secondary" type="button" @click="plannerExpanded = !plannerExpanded">
+            {{ plannerExpanded ? "收起开书策划" : "展开开书策划" }}
+          </button>
+          <button v-if="plannerExpanded" class="btn accent" :disabled="loading.blueprint" @click="createBookBlueprint">
+            {{ loading.blueprint ? "生成中..." : (editingBookId || plannerBookId) ? "更新当前书蓝图" : "生成开书蓝图" }}
+          </button>
+        </div>
       </div>
-      <div class="novel-form-grid">
+      <div v-show="plannerExpanded" class="novel-form-grid">
         <label class="field">
           <span>书名</span>
           <input v-model="blueprintForm.title" :placeholder="selectedStoryName || '例：烬月灯'" />

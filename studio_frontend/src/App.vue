@@ -3780,6 +3780,13 @@ body {
   margin-bottom: 12px;
 }
 
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 h1,
 h2,
 p {
