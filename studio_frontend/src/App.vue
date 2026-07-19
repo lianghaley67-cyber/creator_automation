@@ -125,6 +125,13 @@ const skillSelectorVisible = ref(false); // 是否展开 skill 选择面板
 const stories = ref([]);
 const selectedStoryId = ref(localStorage.getItem("selectedStoryId") || "");
 const storyManageModal = reactive({ visible: false, chapters: [], bible: null, loading: false, storyId: "", expandedChapterId: null, regenChapter: null });
+const savedFanqieChapterTarget = (() => {
+  try {
+    return JSON.parse(localStorage.getItem("fanqieChapterTarget") || "{}");
+  } catch {
+    return {};
+  }
+})();
 const fanqie = reactive({
   status: "not_started",
   logged_in: false,
@@ -138,7 +145,7 @@ const fanqie = reactive({
   bookId: "",   // FanQie book_id，从章节管理 URL 获取，优先于按名称查找
   works: [],
   workDraft: { id: "", work_name: "", book_id: "" },
-  chapterTarget: {},
+  chapterTarget: savedFanqieChapterTarget,
   loginVisible: false,
   cookieInput: "",
   importingCookies: false,
@@ -2369,6 +2376,7 @@ async function fanqieDeleteWorkTarget(workId) {
   Object.entries(fanqie.chapterTarget || {}).forEach(([key, value]) => {
     if (value === workId) delete fanqie.chapterTarget[key];
   });
+  localStorage.setItem("fanqieChapterTarget", JSON.stringify(fanqie.chapterTarget || {}));
   fanqie.bookId = fanqie.works[0]?.book_id || "";
   fanqie.workName = fanqie.works[0]?.work_name || "";
   await fanqieSaveSettings();
@@ -2381,7 +2389,8 @@ function fanqieChapterKey(chapter) {
 function fanqieResolveChapterTarget(chapter, explicitTarget = null) {
   if (explicitTarget?.book_id || explicitTarget?.work_name) return explicitTarget;
   const key = fanqieChapterKey(chapter);
-  const selectedId = fanqie.chapterTarget?.[key];
+  const bookKey = chapter?.book_id ? `book:${chapter.book_id}` : "";
+  const selectedId = fanqie.chapterTarget?.[bookKey] || fanqie.chapterTarget?.[key];
   return fanqie.works.find((work) => work.id === selectedId) || fanqie.works[0] || {
     book_id: fanqie.bookId,
     work_name: fanqie.workName,
@@ -9114,6 +9123,43 @@ body,
 .studio-page [class*=" novel-"] strong,
 .chapter-collapse-item summary span {
   color: var(--app-text-strong) !important;
+}
+
+.studio-page .novel-project-card.active {
+  position: relative;
+  border-color: rgba(47, 150, 212, 0.72) !important;
+  background: linear-gradient(180deg, rgba(47, 150, 212, 0.16), rgba(255, 255, 255, 0.94)) !important;
+  box-shadow: 0 18px 42px rgba(47, 150, 212, 0.18) !important;
+}
+
+.studio-page .novel-project-card.active::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  border-radius: 8px 0 0 8px;
+  background: #2f96d4;
+}
+
+.studio-page .novel-selected-badge {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: rgba(47, 150, 212, 0.14);
+  color: #168fc4 !important;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.studio-page .chapter-push-global {
+  margin: 12px 0;
+  border-color: rgba(47, 150, 212, 0.24) !important;
+  background: rgba(47, 150, 212, 0.08) !important;
+}
+
+.studio-page .chapter-push-row.compact-result {
+  margin-top: 8px;
+  padding: 8px 10px;
 }
 
 .studio-page .module-icon,

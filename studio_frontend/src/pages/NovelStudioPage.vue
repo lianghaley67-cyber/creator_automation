@@ -118,6 +118,27 @@ export default {
       const chapters = Array.isArray(storyArchive.value?.chapters) ? storyArchive.value.chapters : [];
       return [...chapters].sort((a, b) => Number(a.chapter_number || 0) - Number(b.chapter_number || 0));
     });
+    const currentBookFanqieTargetKey = computed(() => currentBookId.value ? `book:${currentBookId.value}` : "");
+    const selectedFanqieTargetId = computed({
+      get() {
+        const key = currentBookFanqieTargetKey.value;
+        if (!key) return "";
+        const saved = ctx.fanqie.chapterTarget?.[key];
+        if (saved) return saved;
+        const bookTitle = String(selectedBook.value?.title || "").trim();
+        const matched = (ctx.fanqie.works || []).find((work) => {
+          const workName = String(work.work_name || "").trim();
+          return bookTitle && (workName.includes(bookTitle) || bookTitle.includes(workName));
+        });
+        return matched?.id || ctx.fanqie.works?.[0]?.id || "";
+      },
+      set(value) {
+        const key = currentBookFanqieTargetKey.value;
+        if (!key) return;
+        ctx.fanqie.chapterTarget[key] = value;
+        localStorage.setItem("fanqieChapterTarget", JSON.stringify(ctx.fanqie.chapterTarget || {}));
+      },
+    });
     const projectCards = computed(() => (books.value || []).map((book) => ({
       ...book,
       name: book.title,
@@ -815,6 +836,7 @@ export default {
       loading.regenerateChapter = String(chapterNumber);
       try {
         const plan = chapter.chapterPlan || (selectedBook.value?.plot_outline || []).find((item) => Number(item.chapter) === chapterNumber) || {};
+        const originalExcerpt = String(chapter.content || chapter.content_markdown || "").slice(0, 260);
         const result = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapters/${chapterNumber}/regenerate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -824,7 +846,7 @@ export default {
               story_name: selectedBook.value?.title,
               chapter_number: chapterNumber,
               chapterPlan: plan,
-              user_note: `${chapterNote.value || ""}\n不合规范，按小说世界模拟器规则重写：直接入场、动作对话推进、不要说明腔。`.trim(),
+              user_note: `${chapterNote.value || ""}\n不合规范，按小说世界模拟器规则重写：直接入场、动作对话推进、不要说明腔。必须避开原文开头和原事件节奏，原文片段：${originalExcerpt}`.trim(),
             },
             user_note: chapterNote.value,
           }),
@@ -903,6 +925,7 @@ export default {
       plannerBookId,
       latestBookChapter,
       sortedBookChapters,
+      selectedFanqieTargetId,
       editingBookId,
       plannerPanel,
       plannerExpanded,
@@ -1000,6 +1023,7 @@ export default {
           :class="{ active: selectedBookId === book.id }"
           @click="continueBook(book)"
         >
+          <div v-if="selectedBookId === book.id" class="novel-selected-badge">当前选中</div>
           <div>
             <strong>{{ book.title }}</strong>
             <span>{{ book.genre || "未分类" }} · {{ book.production_status }}</span>
@@ -1842,6 +1866,19 @@ export default {
       <div v-if="sortedBookChapters.length" class="brief-card chapter-output-card">
         <strong>已生成章节</strong>
         <p>默认合并收起，点击任意章节展开查看完整正文。</p>
+        <div class="chapter-push-row chapter-push-global">
+          <label>
+            <span>当前小说推送目标</span>
+            <select v-model="selectedFanqieTargetId">
+              <option value="">选择番茄作品</option>
+              <option v-for="work in fanqie.works" :key="work.id" :value="work.id">
+                {{ work.work_name }} · {{ work.book_id }}
+              </option>
+            </select>
+          </label>
+          <span v-if="!fanqie.works.length" class="chapter-push-hint">先在下方录入番茄 Book ID 和书名。</span>
+          <span v-else class="chapter-push-hint">选一次后，本小说所有章节默认使用这个推送目标。</span>
+        </div>
         <details v-for="chapter in sortedBookChapters" :key="chapter.id || chapter.chapter_number" class="chapter-collapse-item">
           <summary>
             <span>{{ chapter.title || `第 ${chapter.chapter_number} 章` }}</span>
@@ -1872,27 +1909,18 @@ export default {
             >
               {{ loading.deleteChapter === String(chapter.chapter_number) ? "删除中..." : "删除" }}
             </button>
-          </div>
-          <div class="chapter-push-row">
-            <label>
-              <span>推送目标</span>
-              <select v-model="fanqie.chapterTarget[fanqieChapterKey(chapter)]">
-                <option value="">选择番茄作品</option>
-                <option v-for="work in fanqie.works" :key="work.id" :value="work.id">
-                  {{ work.work_name }} · {{ work.book_id }}
-                </option>
-              </select>
-            </label>
             <button
               class="btn accent small"
               :disabled="!fanqie.works.length || fanqie.pushingChapter === fanqieChapterKey(chapter)"
-              @click="fanqiePushChapter(chapter)"
+              @click="fanqiePushChapter(chapter, fanqie.works.find((work) => work.id === selectedFanqieTargetId))"
             >
               {{ fanqie.pushingChapter === fanqieChapterKey(chapter) ? "推送中..." : "推送到草稿箱" }}
             </button>
+          </div>
+          <div v-if="fanqie.pushResult[fanqieChapterKey(chapter)]" class="chapter-push-row compact-result">
             <span v-if="!fanqie.works.length" class="chapter-push-hint">先在下方录入番茄 Book ID 和书名。</span>
             <span
-              v-else-if="fanqie.pushResult[fanqieChapterKey(chapter)]"
+              v-else
               class="chapter-push-hint"
               :class="{ err: !fanqie.pushResult[fanqieChapterKey(chapter)].ok }"
             >

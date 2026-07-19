@@ -865,7 +865,47 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
     note_line = "她把快到嘴边的解释咽了回去。"
 
     if _is_modern_realist_book(book):
-        paragraphs = [
+        rewrite_mode = any(token in user_note for token in ["重写", "重新生成", "不合规范", "避开原文"])
+        if chapter_number > 1:
+            scene_openings = [
+                f"雨停后的{place}有股潮味，公告栏前挤着三个人。",
+                f"{protagonist}赶到{place}时，墙上的电子钟刚跳过八点四十。",
+                f"服务站玻璃门被人从里面推开，冷气和争吵声一起扑到{protagonist}脸上。",
+                f"{place}外的台阶还湿着，{protagonist}刚站稳，就听见有人叫她的名字。",
+            ]
+            opening = scene_openings[(chapter_number + (1 if rewrite_mode else 0)) % len(scene_openings)]
+            trigger = "桌上的投诉表被人翻得哗啦响" if not rewrite_mode else "一只录音笔被推到桌边，红灯还亮着"
+            paragraphs = [
+                opening,
+                f"{previous_memory}",
+                f"{protagonist}把伞收紧，水珠顺着伞骨砸在地砖上。她原本以为上一章的麻烦已经暂时按住，至少能给自己换来一次解释机会。",
+                f"可她刚走近，就看见{trigger}。",
+                f"{ally}站在走廊尽头，脸色难看。他没有立刻开口，只用眼神示意她看会议室里的人。",
+                "里面坐着两个人。一个穿着深色外套，手边放着手机；另一个低头翻资料，像是已经准备好把结论写下来。",
+                f"“你就是{protagonist}？”深色外套的人抬眼。",
+                f"{protagonist}点头，“是。”",
+                "“昨天的视频，是你让人拍的？”",
+                f"这句话落下来，{protagonist}心里那点侥幸彻底没了。{safe_conflict}",
+                f"{ally}往前半步，“她不是那种人。”",
+                "“你替她保证？”对方笑了一下，“那你也解释解释，为什么视频只拍到她帮人，没拍到前面发生了什么？”",
+                f"{protagonist}没有急着辩。她看见桌角压着一张打印截图，截图下面有一行小字，正好是{safe_goal}",
+                "她伸手拿起那张纸。",
+                "“可以给我三分钟吗？”",
+                "“你想说什么？”",
+                f"“我想先确认一件事。”{protagonist}把截图转向众人，“这个账号发视频的时间，比我离开现场还早两分钟。”",
+                "会议室里静了一下。",
+                f"{ally}猛地抬头，“也就是说，有人提前等在那里？”",
+                f"{protagonist}看着截图右下角的时间，声音很稳，“不是等我，是等任何一个会伸手的人。”",
+                "深色外套的人皱起眉，“你有证据？”",
+                "她把手机放到桌上，点开刚才在走廊里收到的一条消息。消息只有一张照片，照片里是雨棚下的监控探头。",
+                f"{safe_twist}",
+                "照片下面还有一句话。",
+                "想查真相，就别从正门进。",
+                f"{protagonist}抬起头，第一次觉得这件事不是一场误会，而是有人把她推到了一个早就搭好的局里。",
+                _next_episode_preview(book, hook, protagonist),
+            ]
+        else:
+            paragraphs = [
             f"雨水从雨棚边缘滴下来时，{protagonist}的手机第三次响起。",
             f"她站在{place}，一只手拎着还冒热气的早餐，另一只手按住帆布包里的缴费单。屏幕上跳着房东的名字，像一颗烫在掌心里的钉子。",
             "她没有立刻接。",
@@ -927,7 +967,7 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
             f"{protagonist}抬头，看见楼道墙角贴着一张刚被雨水洇开的通知。通知最下面，有人用黑笔补了一行字。",
             "别让她进服务站。",
             _next_episode_preview(book, hook, protagonist),
-        ]
+            ]
     else:
         shrine_terms = any(token in " ".join([
             _text(book.get("title")),
@@ -936,7 +976,42 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
         ]) for token in ["香火", "庙", "祈愿", "神道", "玄学", "修仙"])
         if shrine_terms:
             shrine = _text(_dict(book.get("world_setting")).get("time_background"), "青石镇外的破庙")
-            paragraphs = [
+            if chapter_number > 1:
+                shrine_places = ["镇北槐井边", "破庙后的荒坟坡", "青石镇义庄门口", "旧河堤下的水神龛"]
+                shrine_place = shrine_places[(chapter_number - 2) % len(shrine_places)]
+                omen = "井绳自己绷直了" if "井" in safe_conflict or "井" in hook else "香炉里的灰倒着往上飘"
+                paragraphs = [
+                    f"天还没亮，{protagonist}就被一阵湿冷的铃声惊醒。",
+                    f"那声音不是从庙门外传来的，而是从他昨夜救下孩子时留下的那缕香火里传出来的。香火只剩半寸，却照得供桌下一片发青。",
+                    f"{ally}靠在门边守了一夜，听见动静立刻睁眼，“又来了？”",
+                    f"{protagonist}没有回答。他看见香灰在桌面上排成一行字。",
+                    f"{safe_goal}",
+                    f"上一章留下的余痛还没退，掌心被愿力烧出的红痕仍在跳。{previous_memory}",
+                    f"可庙外已经有人敲门。敲门声很轻，三下之后停一停，像怕惊醒什么东西。",
+                    "门开时，一个老更夫站在雨雾里，怀里抱着一只湿透的铜铃。",
+                    f"“听愿的人在不在？”老更夫嗓子哑得厉害，“{shrine_place}出事了。”",
+                    f"{ally}脸色一变，“那里不能去。”",
+                    f"{protagonist}抬眼，“为什么？”",
+                    f"“昨夜那孩子的命，是从那里被借走的。”{ally}压低声音，“你救回来一口气，就等于把欠账记到了自己名下。”",
+                    f"老更夫把铜铃放到供桌上。铃舌没有动，却自己响了一声。",
+                    f"{omen}。",
+                    f"{protagonist}伸手按住铜铃，掌心的红痕瞬间被烫亮。他看见一幅极短的画面：黑水、槐根、一个跪在井边写名字的人。",
+                    "名字写到一半，那人回头。",
+                    f"那张脸，竟和{protagonist}有七分相似。",
+                    f"{protagonist}猛地松手，铜铃滚到地上，铃声在庙里转了三圈才停。",
+                    "老更夫跪了下去，“今晚子时前，若不把井里的名册取出来，镇上还会死三个人。”",
+                    f"{ally}一把拦住{protagonist}，“这是引你过去。”",
+                    f"{protagonist}看向庙外。雨雾深处，像有一排看不见的人站在路边，安静等着他做选择。",
+                    f"他想起昨夜那孩子勾住他袖口时的力气。很轻，却让人没法装作不知道。",
+                    f"“如果是引我过去，”{protagonist}说，“那就说明它怕我不去。”",
+                    f"{safe_twist}",
+                    f"他把那半寸残香插进袖中，跨出庙门。第一步落下时，身后的破神像忽然裂开一道缝。",
+                    "缝里掉出一枚旧木签。",
+                    "木签上写着：第二愿，槐井取名。",
+                    _next_episode_preview(book, hook, protagonist),
+                ]
+            else:
+                paragraphs = [
                 f"第一声哭喊传进破庙时，供桌上的残香忽然自己亮了。",
                 f"{protagonist}正跪在裂开的神像前，指尖还沾着灰。庙外雨声很急，檐角的水线像刀一样劈在青石阶上。",
                 "他抬头看了一眼。",
@@ -993,7 +1068,7 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
                 "门外黑水漫过门槛。",
                 "香炉里，第二缕香火亮了。",
                 _next_episode_preview(book, hook, protagonist),
-            ]
+                ]
         else:
             paragraphs = [
                 f"风从街口卷过来时，{protagonist}听见身后有人喊她的名字。",
