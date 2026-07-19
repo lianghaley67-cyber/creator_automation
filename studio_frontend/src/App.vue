@@ -8953,4 +8953,176 @@ body,
     left: 0 !important;
   }
 }
+
+/* Final readability pass */
+.studio-page {
+  --app-text: #122033;
+  --app-text-strong: #071525;
+  --app-muted: #496078;
+  --app-muted-strong: #31465e;
+}
+
+.dashboard,
+.landing-copy,
+.core-section,
+.workflow-section,
+.launch-panel {
+  color: var(--app-text) !important;
+}
+
+.landing-copy p,
+.core-section > p,
+.workflow-section small,
+.core-card p,
+.core-card li,
+.metric-card small,
+.hero-stats small,
+.launch-panel p,
+.module-hero p,
+.panel p {
+  color: var(--app-muted-strong) !important;
+  font-weight: 650;
+}
+
+.dashboard-kicker,
+.version-pill,
+.module-link,
+.coverage-pill {
+  color: #168fc4 !important;
+  font-weight: 900;
+}
+
+.hero-console,
+.signal-list,
+.console-grid .mini-widget {
+  border-color: rgba(124, 151, 178, 0.22) !important;
+  background: rgba(255, 255, 255, 0.88) !important;
+  color: var(--app-text) !important;
+  box-shadow: 0 18px 48px rgba(50, 87, 124, 0.12) !important;
+}
+
+.console-bar small,
+.signal-list p,
+.signal-list p strong,
+.mini-widget strong,
+.mini-widget small {
+  color: var(--app-muted-strong) !important;
+  opacity: 1 !important;
+}
+
+.signal-list div span,
+.hero-console strong {
+  color: var(--app-text-strong) !important;
+}
+
+.core-card,
+.workflow-card,
+.metric-card,
+.launch-panel {
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: var(--app-text) !important;
+}
+
+.core-card > small,
+.workflow-card small,
+.metric-card small {
+  color: #4b637c !important;
+}
+
+.core-card > strong,
+.workflow-card strong,
+.metric-card strong {
+  color: var(--app-text-strong) !important;
+}
+
+.studio-page [class^="novel-"][class*="card"],
+.studio-page [class*=" novel-"][class*="card"],
+.studio-page [class^="novel-"][class*="panel"],
+.studio-page [class*=" novel-"][class*="panel"],
+.studio-page [class^="novel-"][class*="row"],
+.studio-page [class*=" novel-"][class*="row"],
+.studio-page [class^="novel-"][class*="item"],
+.studio-page [class*=" novel-"][class*="item"],
+.studio-page [class^="novel-"][class*="module"],
+.studio-page [class*=" novel-"][class*="module"],
+.volume-plan-card,
+.story-unit-card,
+.chapter-collapse-item,
+.brief-columns > div,
+.chapter-output-card details,
+.novel-plan-row,
+.novel-plan-head,
+.novel-os-card,
+.ai-team-card {
+  border-color: rgba(124, 151, 178, 0.22) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  color: var(--app-text) !important;
+}
+
+.studio-page.module-mode article,
+.studio-page .novel-mode-switch,
+.studio-page .novel-current-book,
+.studio-page .novel-current-book span {
+  border-color: rgba(124, 151, 178, 0.22) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  color: var(--app-text) !important;
+}
+
+.studio-page .novel-dashboard-grid span,
+.studio-page .long-plan-block {
+  border-color: rgba(124, 151, 178, 0.22) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  color: var(--app-text) !important;
+}
+
+.studio-page.module-mode article p,
+.studio-page.module-mode article span,
+.studio-page.module-mode article small,
+.studio-page .novel-current-book span {
+  color: var(--app-muted-strong) !important;
+}
+
+.studio-page.module-mode article strong,
+.studio-page.module-mode article b {
+  color: var(--app-text-strong) !important;
+}
+
+.studio-page [class^="novel-"] p,
+.studio-page [class*=" novel-"] p,
+.studio-page [class^="novel-"] span,
+.studio-page [class*=" novel-"] span,
+.studio-page [class^="novel-"] small,
+.studio-page [class*=" novel-"] small,
+.chapter-collapse-item em,
+.chapter-collapse-item p {
+  color: var(--app-muted-strong) !important;
+}
+
+.studio-page [class^="novel-"] strong,
+.studio-page [class*=" novel-"] strong,
+.chapter-collapse-item summary span {
+  color: var(--app-text-strong) !important;
+}
+
+.studio-page .module-icon,
+.studio-page .module-icon.compact {
+  background: rgba(47, 150, 212, 0.12) !important;
+  color: #168fc4 !important;
+}
+
+.studio-page .module-icon::before {
+  color: inherit !important;
+}
+
+.studio-page .btn.secondary,
+.studio-page .tab-btn {
+  color: #263b53 !important;
+  font-weight: 850;
+}
+
+.studio-page input::placeholder,
+.studio-page textarea::placeholder {
+  color: #8293a8 !important;
+  font-weight: 650;
+}
 </style>
