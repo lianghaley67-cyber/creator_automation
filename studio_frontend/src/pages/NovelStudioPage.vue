@@ -155,6 +155,13 @@ export default {
       return String(value);
     }
 
+    function chapterDisplayContent(chapter) {
+      const title = String(chapter?.title || `第${chapter?.chapter_number || ""}章`).trim();
+      const content = String(chapter?.content || chapter?.content_markdown || "").trim();
+      if (!title) return content;
+      return content.startsWith(title) ? content : `${title}\n\n${content}`.trim();
+    }
+
     function bookDetailSections(book) {
       return [
         {
@@ -846,6 +853,7 @@ export default {
               story_name: selectedBook.value?.title,
               chapter_number: chapterNumber,
               chapterPlan: plan,
+              regenerate_seed: Date.now(),
               user_note: `${chapterNote.value || ""}\n不合规范，按小说世界模拟器规则重写：直接入场、动作对话推进、不要说明腔。必须避开原文开头和原事件节奏，原文片段：${originalExcerpt}`.trim(),
             },
             user_note: chapterNote.value,
@@ -947,6 +955,7 @@ export default {
       aiTeam,
       projectCards,
       formatBookDetail,
+      chapterDisplayContent,
       bookDetailSections,
       addStoryUnit,
       removeStoryUnit,
@@ -1927,7 +1936,7 @@ export default {
               {{ fanqie.pushResult[fanqieChapterKey(chapter)].message || fanqie.pushResult[fanqieChapterKey(chapter)].error }}
             </span>
           </div>
-          <pre>{{ chapter.content }}</pre>
+          <pre>{{ chapterDisplayContent(chapter) }}</pre>
         </details>
       </div>
     </section>

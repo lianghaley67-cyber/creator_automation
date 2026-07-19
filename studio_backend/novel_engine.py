@@ -977,39 +977,86 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
         if shrine_terms:
             shrine = _text(_dict(book.get("world_setting")).get("time_background"), "青石镇外的破庙")
             if chapter_number > 1:
-                shrine_places = ["镇北槐井边", "破庙后的荒坟坡", "青石镇义庄门口", "旧河堤下的水神龛"]
-                shrine_place = shrine_places[(chapter_number - 2) % len(shrine_places)]
-                omen = "井绳自己绷直了" if "井" in safe_conflict or "井" in hook else "香炉里的灰倒着往上飘"
-                paragraphs = [
-                    f"天还没亮，{protagonist}就被一阵湿冷的铃声惊醒。",
-                    f"那声音不是从庙门外传来的，而是从他昨夜救下孩子时留下的那缕香火里传出来的。香火只剩半寸，却照得供桌下一片发青。",
-                    f"{ally}靠在门边守了一夜，听见动静立刻睁眼，“又来了？”",
-                    f"{protagonist}没有回答。他看见香灰在桌面上排成一行字。",
-                    f"{safe_goal}",
-                    f"上一章留下的余痛还没退，掌心被愿力烧出的红痕仍在跳。{previous_memory}",
-                    f"可庙外已经有人敲门。敲门声很轻，三下之后停一停，像怕惊醒什么东西。",
-                    "门开时，一个老更夫站在雨雾里，怀里抱着一只湿透的铜铃。",
-                    f"“听愿的人在不在？”老更夫嗓子哑得厉害，“{shrine_place}出事了。”",
-                    f"{ally}脸色一变，“那里不能去。”",
-                    f"{protagonist}抬眼，“为什么？”",
-                    f"“昨夜那孩子的命，是从那里被借走的。”{ally}压低声音，“你救回来一口气，就等于把欠账记到了自己名下。”",
-                    f"老更夫把铜铃放到供桌上。铃舌没有动，却自己响了一声。",
-                    f"{omen}。",
-                    f"{protagonist}伸手按住铜铃，掌心的红痕瞬间被烫亮。他看见一幅极短的画面：黑水、槐根、一个跪在井边写名字的人。",
-                    "名字写到一半，那人回头。",
-                    f"那张脸，竟和{protagonist}有七分相似。",
-                    f"{protagonist}猛地松手，铜铃滚到地上，铃声在庙里转了三圈才停。",
-                    "老更夫跪了下去，“今晚子时前，若不把井里的名册取出来，镇上还会死三个人。”",
-                    f"{ally}一把拦住{protagonist}，“这是引你过去。”",
-                    f"{protagonist}看向庙外。雨雾深处，像有一排看不见的人站在路边，安静等着他做选择。",
-                    f"他想起昨夜那孩子勾住他袖口时的力气。很轻，却让人没法装作不知道。",
-                    f"“如果是引我过去，”{protagonist}说，“那就说明它怕我不去。”",
-                    f"{safe_twist}",
-                    f"他把那半寸残香插进袖中，跨出庙门。第一步落下时，身后的破神像忽然裂开一道缝。",
-                    "缝里掉出一枚旧木签。",
-                    "木签上写着：第二愿，槐井取名。",
-                    _next_episode_preview(book, hook, protagonist),
-                ]
+                rewrite_seed = int(brief.get("regenerate_seed") or 0)
+                variant = (chapter_number + rewrite_seed) % 3
+                if variant == 0:
+                    paragraphs = [
+                        f"天还没亮，{protagonist}就被一阵湿冷的铃声惊醒。",
+                        f"那声音不是从庙门外传来的，而是从他昨夜救下孩子时留下的那缕香火里传出来的。香火只剩半寸，却照得供桌下一片发青。",
+                        f"{ally}靠在门边守了一夜，听见动静立刻睁眼，“又来了？”",
+                        f"{protagonist}没有回答。他看见香灰在桌面上排成一行字。",
+                        f"{safe_goal}",
+                        f"上一章留下的余痛还没退，掌心被愿力烧出的红痕仍在跳。{previous_memory}",
+                        "门开时，一个老更夫站在雨雾里，怀里抱着一只湿透的铜铃。",
+                        f"“听愿的人在不在？”老更夫嗓子哑得厉害，“镇北槐井出事了。”",
+                        f"{ally}脸色一变，“那里不能去。”",
+                        f"“昨夜那孩子的命，是从那里被借走的。”{ally}压低声音，“你救回来一口气，就等于把欠账记到了自己名下。”",
+                        "铜铃忽然自己响了一声，铃口渗出一缕黑水。",
+                        f"{protagonist}伸手按住铜铃，掌心红痕被烫亮。他看见黑水、槐根、一个跪在井边写名字的人。",
+                        "名字写到一半，那人回头。",
+                        f"那张脸，竟和{protagonist}有七分相似。",
+                        "老更夫跪了下去，“今晚子时前，若不把井里的名册取出来，镇上还会死三个人。”",
+                        f"{ally}一把拦住{protagonist}，“这是引你过去。”",
+                        f"“如果是引我过去，”{protagonist}说，“那就说明它怕我不去。”",
+                        f"{safe_twist}",
+                        "他跨出庙门时，身后的破神像裂开一道缝，掉出一枚旧木签。",
+                        "木签上写着：槐井取名。",
+                        _next_episode_preview(book, hook, protagonist),
+                    ]
+                elif variant == 1:
+                    paragraphs = [
+                        f"午后的青石镇忽然起了白雾，雾从义庄方向漫过来，贴着地面往{shrine}爬。",
+                        f"{protagonist}刚把昨夜救下的孩子安顿好，就听见庙外有人喊：“死人回来了！”",
+                        f"{ally}手里的水碗一晃，“别出去。”",
+                        f"{protagonist}看向供桌。残香没有亮，香灰却在桌上慢慢凹出一个掌印。",
+                        f"那掌印指向义庄，也指向本章必须完成的事：{safe_goal}",
+                        f"他想起上一章留下的警告。{previous_memory}",
+                        "义庄门口围满了人，却没有一个敢靠近门槛。",
+                        "门槛内躺着一具盖了白布的尸体。白布下面伸出一只手，手心里攥着半截烧黑的香。",
+                        f"{protagonist}刚走近，那只手忽然松开，香头滚到他脚边。",
+                        "香灰落地成字：借命者，偿愿。",
+                        f"{ally}低声道：“这是冲你来的。”",
+                        f"{protagonist}蹲下，没有碰尸体，只看见尸体袖口缝着一个小小的槐叶纹。",
+                        "槐叶纹旁边，还有新鲜的泥。",
+                        f"{safe_conflict}",
+                        "围观的人群里，有个瘦高男人悄悄后退。",
+                        f"{protagonist}抬头，“站住。”",
+                        "男人拔腿就跑，白雾像被他撞破，露出一条通往镇北的窄巷。",
+                        f"{ally}追出去两步，又猛地停住，“别追，他不是活人。”",
+                        f"{protagonist}看见男人脚下没有影子。",
+                        f"{safe_twist}",
+                        "义庄里的尸体突然坐了起来，白布滑落，露出一张没有五官的脸。",
+                        "那张脸朝着他，缓缓张开不存在的嘴。",
+                        "“第二个愿，换你来还。”",
+                        _next_episode_preview(book, hook, protagonist),
+                    ]
+                else:
+                    paragraphs = [
+                        f"傍晚，镇口的功德碑突然裂了。",
+                        f"{protagonist}赶到时，碑前已经跪了一地人。每个人手里都攥着一张红纸，红纸上写着同一个名字。",
+                        f"他的名字。",
+                        f"{ally}把其中一张抢过来，脸色当场沉下去，“有人在替你收愿。”",
+                        f"{protagonist}摸到袖中的残香。香没有热，反而冷得像一截冰。",
+                        f"上一章的痕迹还没有散去，{previous_memory}",
+                        "碑裂开的缝里夹着一片薄薄的木牌。",
+                        f"{protagonist}抽出来，木牌背面刻着：{safe_goal}",
+                        "跪在最前面的老妇抬头，眼睛浑浊，“你既然收了我们的愿，就该替我们办事。”",
+                        f"{ally}挡到{protagonist}身前，“他什么时候收过？”",
+                        "老妇把红纸举高。红纸边缘沾着香灰，香灰的颜色和破庙供桌上的一模一样。",
+                        f"{protagonist}忽然明白，有人偷了庙里的香灰，把所有人的愿都栽到他身上。",
+                        f"{safe_conflict}",
+                        "人群后方，有孩子哭了起来。",
+                        "哭声一起，功德碑的裂缝里渗出黑水，水面映出一座他从没见过的神龛。",
+                        "神龛上供着的不是神像。",
+                        "是一本翻开的名册。",
+                        f"{protagonist}盯着那本名册，发现第一页第一行，写的正是昨夜那个孩子的名字。",
+                        f"{safe_twist}",
+                        "他把红纸按在裂碑上，声音不高，却压住了满场哭求。",
+                        "“愿可以接，但账要先算清楚。”",
+                        "裂碑深处传来一声轻笑。",
+                        "那笑声像从井底冒出来。",
+                        _next_episode_preview(book, hook, protagonist),
+                    ]
             else:
                 paragraphs = [
                 f"第一声哭喊传进破庙时，供桌上的残香忽然自己亮了。",
@@ -1123,7 +1170,8 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
     director = _director_step(book, archive, brief)
     plot = _plot_designer_step(brief)
     character = _character_manager_step(book, archive)
-    content = _writer_step(book, archive, brief, director, plot, character)
+    body = _writer_step(book, archive, brief, director, plot, character)
+    content = f"{title}\n\n{body}".strip()
     editor = _editor_step(content)
     review = analyze_story({"plot_outline": [plan], "characters": book.get("characters"), "core_design": book.get("core_design"), "real_event_strategy": book.get("real_event_strategy")})
     review["editor_immersion_score"] = editor["immersion_score"]
