@@ -1149,8 +1149,8 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
 
 def _editor_step(content: str) -> dict[str, Any]:
     issues: list[str] = []
-    if len(content) < 900:
-        issues.append("正文长度偏短，连载沉浸感不足。")
+    if len(content) < 2000:
+        issues.append("正文长度低于2000字，连载沉浸感不足。")
     if any(word in content for word in [
         "总结", "本章讲述", "本文", "公众号", "提示词", "JSON", "章末留下", "具体问题",
         "更高层威胁", "主角", "世界观", "关键同盟", "感情线", "章节规划", "系统默认",
@@ -1168,6 +1168,118 @@ def _editor_step(content: str) -> dict[str, Any]:
     }
 
 
+def _expand_chapter_body(
+    body: str,
+    *,
+    book: dict[str, Any],
+    brief: dict[str, Any],
+    plot: dict[str, Any],
+    protagonist: str,
+    target_length: int = 2100,
+) -> str:
+    """Expand deterministic chapter prose until it meets the long-form target."""
+    text = _clean_chapter_text(body)
+    plan = _dict(brief.get("chapterPlan"))
+    chapter_number = int(brief.get("chapter_number") or plan.get("chapter") or 1)
+    ally = _supporting_name(book)
+    safe_goal = _story_safe_line(plot.get("chapter_goal"), "她必须在事情失控前抓住唯一的线索。")
+    safe_conflict = _story_safe_line(plot.get("opening_conflict"), "眼前的阻力比她预想得更早压了过来。")
+    safe_twist = _story_safe_line(plot.get("twist"), "真正的问题藏在众人都忽略的细节里。")
+    hook = _story_safe_line(plot.get("hook"), "门外又传来一声不该出现的响动。")
+    is_shrine = any(token in " ".join([
+        _text(book.get("title")),
+        _text(book.get("hook")),
+        _text(_dict(book.get("core_design")).get("平台标签")),
+    ]) for token in ["香火", "庙", "祈愿", "神道", "玄学", "修仙"])
+    expansion_sets = [
+        [
+            f"{protagonist}没有立刻往前走。他先把四周重新看了一遍：门槛上的水痕、墙角被蹭掉的灰、还有地面那道断断续续的脚印，每一样都像被人刻意摆在明处。",
+            f"{ally}压低声音，“你在看什么？”",
+            f"“看谁希望我只盯着眼前这件事。”{protagonist}说。",
+            f"{safe_conflict}",
+            "这句话说出口后，周围反而安静下来。安静不是安全，而是所有人都在等他先犯错。",
+            f"{protagonist}把掌心贴到袖口，那里还残留着上一场风波留下的痛感。他知道自己不能退，一退，刚刚理清的线就会重新乱成一团。",
+        ],
+        [
+            "人群里忽然有人咳了一声。",
+            "那人很快低下头，可声音已经暴露了位置。",
+            f"{protagonist}转过去时，对方正把一样东西塞进怀里。动作很快，却没有快过他的眼睛。",
+            f"“拿出来。”{protagonist}说。",
+            "对方脸色一白，“什么？”",
+            f"{ally}往前一步，挡住那人的退路。",
+            "那东西终于掉了出来，是一片被水泡软的纸角。纸角上只剩半个字，却和刚才出现的线索完全对得上。",
+            f"{safe_goal}",
+        ],
+        [
+            f"{protagonist}蹲下身，把那片纸角按在干净的石面上。水迹慢慢散开，露出更多细碎的墨痕。",
+            "墨不是普通的墨，颜色发暗，边缘带着一点灰白，像烧过的香灰混进去。",
+            f"{ally}看见后，呼吸明显停了一下。",
+            f"“这不是今天才写的。”{protagonist}说。",
+            "“那是什么时候？”",
+            f"“至少在上一件事发生之前。”",
+            "这意味着他们不是被意外卷进来，而是从一开始就被人算进了局里。",
+            f"{safe_twist}",
+        ],
+        [
+            "外面的风忽然重了。",
+            "门板被吹得轻轻一响，像有人用指节敲在背面。",
+            f"{protagonist}站起来，示意众人后退。",
+            f"{ally}低声问：“要不要先离开？”",
+            f"“现在离开，就等于把线索交回去。”{protagonist}看着门缝，“我只差一步。”",
+            "他走到门前，没有直接拉开，而是先听。",
+            "门外没有脚步声，只有某种潮湿的摩擦声，一下一下，贴着地面靠近。",
+            f"{hook}",
+        ],
+        [
+            f"{protagonist}忽然明白，对方要的不是一场胜负，而是让他在众人面前做一个无法解释的选择。",
+            "救人，就会被说成借机收买人心；不救，就会眼看着线索断掉。",
+            f"他看向{ally}，“如果我做错，你就把看到的全部记下来。”",
+            f"{ally}怔了一下，“你觉得我会让你一个人担？”",
+            f"{protagonist}笑了笑，没有回答。",
+            "下一刻，他伸手按住那道裂开的边缘。冰冷的触感钻进指缝，像有无数细小的针顺着骨头往上爬。",
+            "他忍住没有松手。",
+        ],
+        [
+            "所有声音都在这一瞬间退远。",
+            f"{protagonist}看见了一个短促的画面：有人在夜里搬动木箱，箱角滴着水；有人把名字从册页上划掉，又用另一种颜色补上；还有一只手，把半截香塞进门缝。",
+            "画面很乱，却足够说明一件事。",
+            "真正动手的人，还在他们身边。",
+            f"{protagonist}睁开眼时，第一眼看的不是门外，而是人群最后方那个始终没有说话的人。",
+            "那人也在看他。",
+            "四目相对的一刻，对方的袖口轻轻动了一下。",
+        ],
+        [
+            f"{ally}顺着他的目光看过去，脸色瞬间变了。",
+            "“是他？”",
+            f"{protagonist}没有点头。他还差最后一个证据。",
+            "于是他故意把那片纸角收进袖中，转身往外走。",
+            "身后果然响起急促的脚步声。",
+            "不是追赶，是拦截。",
+            "对方终于急了。",
+            f"{protagonist}在门槛前停住，轻声说：“现在，可以谈真正的条件了。”",
+        ],
+        [
+            "风把最后一点雾吹开，露出远处灰白的天光。",
+            f"{protagonist}知道，这一章的问题还没有彻底解决，但局面已经变了：他不再只是被推着走的人。",
+            f"{safe_goal}",
+            "他把找到的线索握紧，指腹被边缘硌得发疼。",
+            f"{ally}问：“下一步去哪？”",
+            f"{protagonist}看向那条被雾遮住的小路，“去找那个以为自己藏得很好的人。”",
+            _next_episode_preview(book, hook, protagonist),
+        ],
+    ]
+    if is_shrine:
+        expansion_sets[0][0] = f"{protagonist}没有立刻往前走。他先看香灰落下的方向，看门槛上逆流的水，看供桌底下那道新裂开的缝。"
+        expansion_sets[3][6] = "门外没有脚步声，只有水从井底翻上来的声音，一下又一下，像有人在黑暗里拖着湿透的衣摆。"
+    index = max(0, chapter_number - 1)
+    guard = 0
+    while len(text) < target_length and guard < 16:
+        block = expansion_sets[(index + guard) % len(expansion_sets)]
+        text = _clean_chapter_text(f"{text}\n\n" + "\n\n".join(block))
+        guard += 1
+    return text
+
+
 def _chapter_summary(content: str) -> str:
     compact = " ".join(part.strip() for part in content.splitlines() if part.strip())
     return compact[:180]
@@ -1182,6 +1294,13 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
     plot = _plot_designer_step(brief)
     character = _character_manager_step(book, archive)
     body = _writer_step(book, archive, brief, director, plot, character)
+    body = _expand_chapter_body(
+        body,
+        book=book,
+        brief=brief,
+        plot=plot,
+        protagonist=_character_name(book),
+    )
     content = f"{title}\n\n{body}".strip()
     editor = _editor_step(content)
     review = analyze_story({"plot_outline": [plan], "characters": book.get("characters"), "core_design": book.get("core_design"), "real_event_strategy": book.get("real_event_strategy")})
