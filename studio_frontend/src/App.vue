@@ -9162,6 +9162,26 @@ body,
   padding: 8px 10px;
 }
 
+.studio-page .chapter-review-issues {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+  border: 1px solid rgba(242, 138, 75, 0.26);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff8ee;
+  color: #314960;
+}
+
+.studio-page .chapter-review-issues strong {
+  color: #102033 !important;
+}
+
+.studio-page .chapter-review-issues span {
+  color: #5a3d26 !important;
+  font-weight: 500;
+}
+
 .studio-page .module-icon,
 .studio-page .module-icon.compact {
   background: rgba(47, 150, 212, 0.12) !important;

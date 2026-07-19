@@ -1936,6 +1936,10 @@ export default {
               {{ fanqie.pushResult[fanqieChapterKey(chapter)].message || fanqie.pushResult[fanqieChapterKey(chapter)].error }}
             </span>
           </div>
+          <div v-if="chapter.editorial_review?.issues?.length" class="chapter-review-issues">
+            <strong>审核提示</strong>
+            <span v-for="issue in chapter.editorial_review.issues" :key="issue">{{ issue }}</span>
+          </div>
           <pre>{{ chapterDisplayContent(chapter) }}</pre>
         </details>
       </div>

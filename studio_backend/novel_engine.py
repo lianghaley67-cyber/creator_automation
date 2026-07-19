@@ -191,8 +191,13 @@ def _story_safe_line(value: Any, fallback: str) -> str:
     meta_tokens = [
         "主角", "章末", "具体问题", "更高层威胁", "悬念", "读者", "本章", "剧情", "目标推进",
         "开局危机", "世界规则", "人物困境", "章节规划", "规则重写", "小说世界模拟器", "不合规范",
+        "世界观", "关键同盟", "感情线", "阶段目标", "卷主题", "人物成长", "设定", "系统",
     ]
     if not text or any(token in text for token in meta_tokens):
+        return fallback
+    if re.search(r"^[^，。！？]{1,12}[：:]", text):
+        return fallback
+    if len(re.findall(r"[、，,]", text)) >= 5:
         return fallback
     return text
 
@@ -817,6 +822,7 @@ def _clean_chapter_text(text: str) -> str:
     meta_fragments = [
         "章末留下", "具体问题", "更高层威胁", "目标推进", "本章目标", "本章冲突", "章节规划",
         "小说世界模拟器", "不合规范", "按小说", "规则重写", "开局危机", "人物困境", "世界规则", "主角",
+        "世界观", "关键同盟", "感情线", "阶段目标", "卷主题", "人物成长", "章节标题", "系统默认",
     ]
     for raw in (text or "").splitlines():
         line = raw.strip()
@@ -829,6 +835,8 @@ def _clean_chapter_text(text: str) -> str:
         if any(fragment in line for fragment in meta_fragments):
             continue
         if "公众号" in line or "提示词" in line or "JSON" in line:
+            continue
+        if re.search(r"^[^，。！？]{1,12}[：:]", line):
             continue
         lines.append(line)
     return "\n".join(lines).strip()
@@ -1143,7 +1151,10 @@ def _editor_step(content: str) -> dict[str, Any]:
     issues: list[str] = []
     if len(content) < 900:
         issues.append("正文长度偏短，连载沉浸感不足。")
-    if any(word in content for word in ["总结", "本章讲述", "本文", "公众号", "提示词", "JSON", "章末留下", "具体问题", "更高层威胁", "主角"]):
+    if any(word in content for word in [
+        "总结", "本章讲述", "本文", "公众号", "提示词", "JSON", "章末留下", "具体问题",
+        "更高层威胁", "主角", "世界观", "关键同盟", "感情线", "章节规划", "系统默认",
+    ]):
         issues.append("存在说明/总结/平台化表达。")
     if content.count("？") + content.count("?") < 2:
         issues.append("对话和问题牵引不足。")
