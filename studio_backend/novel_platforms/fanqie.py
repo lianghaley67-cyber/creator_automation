@@ -797,43 +797,97 @@ def _push_via_playwright_browser(
                 m = re.search(r"/publish/(\d+)", page.url)
                 item_id = m.group(1) if m else ""
 
-                # ── 4. 填写章节标题（JS 多策略注入，兼容 input 和 contenteditable）──
+                # ── 4. 填写章节标题（JS 多策略注入，兼容 input、富文本和 React 受控输入）──
                 title_filled = page.evaluate(
                     """(title) => {
-                        // 策略 1：普通 input（placeholder 含"标题"或"章节名"）
-                        const inputs = Array.from(document.querySelectorAll('input'));
-                        const inp = inputs.find(el => {
-                            const ph = el.placeholder || '';
-                            return ph.includes('标题') || ph.includes('章节名');
-                        });
-                        if (inp) {
-                            inp.focus();
-                            const setter = Object.getOwnPropertyDescriptor(
-                                window.HTMLInputElement.prototype, 'value'
-                            ).set;
-                            setter.call(inp, title);
-                            inp.dispatchEvent(new Event('input', { bubbles: true }));
-                            inp.dispatchEvent(new Event('change', { bubbles: true }));
-                            return 'input';
+                        const wanted = String(title || '').trim();
+                        const visible = (el) => {
+                            const rect = el.getBoundingClientRect();
+                            const style = window.getComputedStyle(el);
+                            return rect.width > 2 && rect.height > 2 &&
+                                style.visibility !== 'hidden' && style.display !== 'none';
+                        };
+                        const meta = (el) => [
+                            el.placeholder,
+                            el.getAttribute('placeholder'),
+                            el.getAttribute('data-placeholder'),
+                            el.getAttribute('aria-label'),
+                            el.getAttribute('title'),
+                            el.className,
+                            el.id,
+                            el.innerText,
+                            el.textContent,
+                        ].filter(Boolean).join(' ');
+                        const read = (el) => String(
+                            el.value !== undefined ? el.value : (el.innerText || el.textContent || '')
+                        ).trim();
+                        const score = (el) => {
+                            const m = meta(el);
+                            let s = 0;
+                            if (/标题|章节名/.test(m)) s += 80;
+                            if (/请输入标题/.test(m)) s += 80;
+                            if (el.matches('input,textarea,[role="textbox"],[contenteditable="true"]')) s += 20;
+                            const rect = el.getBoundingClientRect();
+                            const area = rect.width * rect.height;
+                            if (area < 90000) s += 12;
+                            if (/正文|内容|故事|作者|话说/.test(m)) s -= 120;
+                            if (area > 180000) s -= 40;
+                            return s;
+                        };
+                        const setValue = (el) => {
+                            el.scrollIntoView({ block: 'center', inline: 'nearest' });
+                            el.focus();
+                            el.click();
+                            if (el.matches('input,textarea')) {
+                                const proto = el.tagName === 'TEXTAREA'
+                                    ? window.HTMLTextAreaElement.prototype
+                                    : window.HTMLInputElement.prototype;
+                                const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                                if (setter) setter.call(el, wanted);
+                                else el.value = wanted;
+                            } else {
+                                const range = document.createRange();
+                                range.selectNodeContents(el);
+                                const selection = window.getSelection();
+                                selection.removeAllRanges();
+                                selection.addRange(range);
+                                document.execCommand('delete', false, null);
+                                document.execCommand('insertText', false, wanted);
+                                if (!read(el).includes(wanted)) {
+                                    el.textContent = wanted;
+                                }
+                            }
+                            for (const name of ['input', 'change', 'keyup', 'compositionend', 'blur']) {
+                                el.dispatchEvent(new Event(name, { bubbles: true }));
+                            }
+                            return read(el);
+                        };
+
+                        const candidates = Array.from(document.querySelectorAll(
+                            'input,textarea,[contenteditable="true"],[role="textbox"],[data-placeholder],[placeholder],.ProseMirror'
+                        ))
+                            .filter((el) => el !== document.body && visible(el))
+                            .map((el) => ({ el, score: score(el) }))
+                            .filter((item) => item.score > 0)
+                            .sort((a, b) => b.score - a.score);
+
+                        for (const item of candidates) {
+                            const value = setValue(item.el);
+                            if (value.includes(wanted)) {
+                                return { ok: true, method: item.el.tagName.toLowerCase(), score: item.score, value };
+                            }
                         }
-                        // 策略 2：contenteditable（placeholder / data-placeholder 含"标题"）
-                        const ces = Array.from(document.querySelectorAll('[contenteditable="true"]'));
-                        const tce = ces.find(el => {
-                            const ph = el.getAttribute('placeholder') ||
-                                       el.getAttribute('data-placeholder') || '';
-                            return ph.includes('标题') || ph.includes('章节名');
-                        });
-                        if (tce) {
-                            tce.focus();
-                            document.execCommand('selectAll', false, null);
-                            document.execCommand('insertText', false, title);
-                            return 'contenteditable';
-                        }
-                        return 'not found';
+                        return { ok: false, method: 'not found', value: '' };
                     }""",
                     chapter_title,
                 )
                 page.wait_for_timeout(500)
+                if not isinstance(title_filled, dict) or not title_filled.get("ok"):
+                    _screenshot(page, RESULT_SCREENSHOT)
+                    raise RuntimeError(
+                        f"未能写入番茄章节标题「{chapter_title}」，"
+                        f"页面标题控件识别结果：{title_filled}"
+                    )
 
                 # ── 5. 找到正文编辑器并填入内容 ──
                 # 用 JS 区分标题 contenteditable 与正文 contenteditable：
@@ -876,6 +930,20 @@ def _push_via_playwright_browser(
                         ta.fill(content)
 
                 page.wait_for_timeout(2000)
+                title_verified = page.evaluate(
+                    """(title) => {
+                        const text = Array.from(document.querySelectorAll(
+                            'input,textarea,[contenteditable="true"],[role="textbox"],[data-placeholder],[placeholder],.ProseMirror'
+                        )).map((el) => String(
+                            el.value !== undefined ? el.value : (el.innerText || el.textContent || '')
+                        )).join('\\n');
+                        return text.includes(String(title || '').trim());
+                    }""",
+                    chapter_title,
+                )
+                if not title_verified:
+                    _screenshot(page, RESULT_SCREENSHOT)
+                    raise RuntimeError(f"番茄章节标题写入后校验失败：{chapter_title}")
 
                 # ── 6. 点击「保存草稿」──
                 save_btn = _first_visible_text(page, [
@@ -981,9 +1049,10 @@ def push_chapter_draft(
             "请在前端填写 book_id（从章节管理 URL 获取）。"
         )
 
+    editor_title = _fanqie_editor_title(chapter_title, chapter_number)
     result = _push_via_playwright_browser(
         book_id=bid,
-        chapter_title=chapter_title,
+        chapter_title=editor_title,
         content=plain,
         author_note=author_note,
     )
@@ -1012,3 +1081,27 @@ def _md_to_plain(md: str) -> str:
     # 把所有连续空行压成单个换行，避免富文本编辑器产生空段落
     text = re.sub(r"\n{2,}", "\n", text)
     return text
+
+
+def _fanqie_editor_title(chapter_title: str, chapter_number: int | None = None) -> str:
+    """Return the subtitle text expected by FanQie's title field.
+
+    FanQie renders the chapter prefix itself as "第 章"; its editable field is
+    the subtitle after the chapter number. Sending "第2章：xxx" can leave the
+    platform title placeholder untouched, so strip that prefix before filling.
+    """
+    raw = re.sub(r"^#{1,6}\s*", "", str(chapter_title or "")).strip()
+    raw = raw.strip(" \t\r\n《》“”\"'")
+    if not raw:
+        return f"第{chapter_number or ''}章".strip()
+
+    match = re.search(
+        r"第\s*[0-9一二三四五六七八九十百千万]+\s*[章节回]\s*[：:、，,.\-\s]*(.+)$",
+        raw,
+    )
+    if match:
+        subtitle = match.group(1).strip(" \t\r\n《》“”\"'")
+        if subtitle:
+            return subtitle
+
+    return raw
