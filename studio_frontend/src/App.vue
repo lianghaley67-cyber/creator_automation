@@ -9125,4 +9125,85 @@ body,
   color: #8293a8 !important;
   font-weight: 650;
 }
+
+.studio-page .trend-search-box,
+.studio-page .trend-search-row,
+.studio-page .question-card,
+.studio-page .interview-panel,
+.studio-page .interview-turn,
+.studio-page .reference-card,
+.studio-page .reference-audio,
+.studio-page .portrait-preview,
+.studio-page .quality,
+.studio-page .script-preview-card,
+.studio-page .review-card,
+.studio-page .mail-list,
+.studio-page .mail-detail,
+.studio-page .notebooklm-box,
+.studio-page .callback-list,
+.studio-page .wechat-entry-card,
+.studio-page .chapter-manage-row,
+.studio-page .chapter-push-row,
+.studio-page .chapter-output-card pre,
+.studio-page .chapter-collapse-item pre,
+.studio-page .storyboard-head,
+.studio-page .storyboard,
+.studio-page .cover-modal,
+.studio-page .skill-upload-modal,
+.studio-page .story-modal,
+.studio-page .story-select {
+  border-color: rgba(124, 151, 178, 0.22) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  color: var(--app-text) !important;
+}
+
+.studio-page .trend-search-box p,
+.studio-page .trend-search-box span,
+.studio-page .question-card p,
+.studio-page .question-card h3,
+.studio-page .question-card span,
+.studio-page .interview-panel p,
+.studio-page .interview-turn p,
+.studio-page .reference-card p,
+.studio-page .quality span,
+.studio-page .quality p,
+.studio-page .chapter-push-row label,
+.studio-page .chapter-push-hint,
+.studio-page .storyboard-head span,
+.studio-page .storyboard p,
+.studio-page .cover-modal-hint,
+.studio-page .modal-field,
+.studio-page .fanqie-status-text,
+.studio-page .fanqie-msg,
+.studio-page .fanqie-tip {
+  color: var(--app-muted-strong) !important;
+}
+
+.studio-page .trend-search-box strong,
+.studio-page .question-card strong,
+.studio-page .question-card h3,
+.studio-page .reference-card strong,
+.studio-page .quality strong,
+.studio-page .chapter-push-row strong,
+.studio-page .storyboard-head strong,
+.studio-page .cover-modal-head strong,
+.studio-page .modal-head strong {
+  color: var(--app-text-strong) !important;
+}
+
+.studio-page .chapter-push-row select,
+.studio-page .interview-input,
+.studio-page .trend-search-row input,
+.studio-page .modal-field input[type="text"],
+.studio-page .modal-field input[type="file"] {
+  border-color: rgba(124, 151, 178, 0.28) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  color: var(--app-text) !important;
+}
+
+.studio-page .question-number,
+.studio-page .progress-fill {
+  background: #26b9d0 !important;
+  color: #ffffff !important;
+}
 </style>
