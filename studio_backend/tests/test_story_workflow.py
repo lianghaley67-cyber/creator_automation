@@ -224,6 +224,7 @@ def test_generated_second_chapter_continues_without_repeating_first_chapter():
     assert second["chapter_self_check"]["plot_paragraphs"] >= second["chapter_self_check"]["description_paragraphs"]
     assert second["chapter_self_check"]["dead_progress_windows"] == 0
     assert second["chapter_self_check"]["internal_repetition_count"] == 0
+    assert second["chapter_self_check"]["adjacent_similarity_count"] == 0
     assert second["continuity_review"]["shared_sentences"] == []
     assert "第一声哭喊传进破庙时" not in second["content"]
     assert "供桌上的残香忽然自己亮了" not in second["content"]
@@ -406,6 +407,34 @@ def test_paragraph_level_rules_remove_internal_repeated_events_and_dialogue():
     assert cleaned.count("你把纸从哪拿来的") == 1
     assert "铜铃忽然裂开" in cleaned
     assert "槐井水面浮出新的名字" in cleaned
+
+
+def test_adjacent_similar_paragraphs_jump_to_new_event():
+    archive = {"chapters": []}
+    plan = {
+        "chapter": 2,
+        "conflict": "村长拒绝带路去旧渡口。",
+        "suspense": "槐井边的功德簿翻到空白页。",
+        "new_clues": ["红纸姓名", "槐井水痕"],
+    }
+    book = {
+        "title": "香火成仙",
+        "genre": "玄幻",
+        "characters": [{"name": "云栖"}, {"name": "香火明"}],
+        "core_design": {"平台标签": "香火玄学"},
+    }
+    content = "\n\n".join([
+        "第2章：井边红纸",
+        "云栖把红纸按在石面上，盯住纸边渗出的香灰。",
+        "云栖又把红纸按到石面边缘，继续盯着纸边渗出的香灰。",
+        "铜铃忽然裂开，里面掉出一枚刻着生辰的木牌。",
+    ])
+
+    cleaned = _enforce_paragraph_level_rules(content, archive, 2, plan, book)
+
+    assert "继续盯着纸边渗出的香灰" not in cleaned
+    assert "纸铺学徒" in cleaned or "井亭方向" in cleaned or "新红线" in cleaned or "湿脚印" in cleaned
+    assert "铜铃忽然裂开" in cleaned
 
 
 def test_generic_protagonist_name_is_replaced_in_generated_chapter():

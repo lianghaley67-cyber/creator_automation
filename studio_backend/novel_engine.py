@@ -1150,8 +1150,9 @@ def _salient_tokens(part: str) -> set[str]:
     candidates = [
         "云栖", "香火明", "村人", "人群", "孩子", "女人", "汉子", "老人", "村长", "井口", "槐井",
         "红纸", "香灰", "铜铃", "木牌", "功德簿", "门", "后门", "门槛", "水痕", "脚印", "名字",
+        "石面", "纸边", "边缘",
         "求救", "质问", "逼问", "拦住", "追上", "裂开", "浮出", "渗出", "出现", "滑出", "按在",
-        "递出", "翻开", "堵住", "交代", "醒来",
+        "按到", "盯住", "盯着", "递出", "翻开", "堵住", "交代", "醒来",
     ]
     return {token for token in candidates if token in _text(part)}
 
@@ -1172,6 +1173,48 @@ def _shares_repeated_structure(part: str, kept_part: str) -> bool:
     if not current or not old:
         return False
     return len(current & old) / max(1, len(current)) > 0.24
+
+
+def _adjacent_paragraph_too_similar(part: str, previous_part: str) -> bool:
+    if not _text(part) or not _text(previous_part):
+        return False
+    if _normalize_paragraph_signature(part) == _normalize_paragraph_signature(previous_part):
+        return True
+    current = _chapter_shingles(part, size=8)
+    previous = _chapter_shingles(previous_part, size=8)
+    if current and previous and len(current & previous) / max(1, len(current)) > 0.28:
+        return True
+    if len(_salient_tokens(part) & _salient_tokens(previous_part)) >= 4:
+        return True
+    if _paragraph_structure_key(part) and _paragraph_structure_key(part) == _paragraph_structure_key(previous_part):
+        return len(_salient_tokens(part) & _salient_tokens(previous_part)) >= 3
+    return False
+
+
+def _new_event_interrupt(plan: dict[str, Any] | None = None, book: dict[str, Any] | None = None, index: int = 0) -> str:
+    plan = plan or {}
+    book = book or {}
+    protagonist = _character_name(book) if book else "他"
+    ally = _supporting_name(book) if book else "同伴"
+    clues = [_story_safe_line(item, "") for item in _list(plan.get("new_clues"))]
+    clues = [item for item in clues if item] or ["新的线索"]
+    conflict = _story_safe_line(plan.get("conflict"), "新的阻力当场压到眼前。")
+    hook = _story_safe_line(plan.get("suspense"), "更麻烦的变化已经出现。")
+    if book and _is_modern_realist_book(book):
+        options = [
+            f"{protagonist}的手机突然震动，一个陌生号码发来未公开视频，画面里多出一个刚才没人提过的人。",
+            f"门外有人递来一张新收据，收据上的时间和{protagonist}掌握的线索对不上。",
+            f"{ally}拦住准备离开的负责人，对方却拿出另一份名单，逼他们先解释名单里的空缺。",
+            f"群消息忽然刷屏，{hook}",
+        ]
+    else:
+        options = [
+            f"门外忽然响起铜锣声，一个从未露面的纸铺学徒冲进来，手里攥着半枚刻着{clues[0]}的木牌。",
+            f"{ally}刚要继续追问，井亭方向突然传来锁链拖地的声音，所有水痕同时转向门口。",
+            f"人群后方有人倒退一步，袖中掉出一截新红线，线头的死结和{clues[-1]}缠在一起。",
+            f"{protagonist}还没开口，村长身后的空位多出两只湿脚印，脚印正对着他说出的那句：{conflict}",
+        ]
+    return options[index % len(options)]
 
 
 def _paragraph_repeats_current(part: str, kept_parts: list[str], seen_events: set[str], seen_dialogues: set[str], seen_structures: set[str]) -> bool:
@@ -1218,7 +1261,27 @@ def _internal_repetition_count(content: str) -> int:
     return repeated
 
 
-def _enforce_paragraph_level_rules(content: str, archive: dict[str, Any], chapter_number: int) -> str:
+def _adjacent_similarity_count(content: str) -> int:
+    paragraphs = [item.strip() for item in _text(content).splitlines() if item.strip()]
+    repeated = 0
+    previous = ""
+    for part in paragraphs:
+        if re.match(r"^第\s*\d+\s*章", part):
+            previous = ""
+            continue
+        if previous and _adjacent_paragraph_too_similar(part, previous):
+            repeated += 1
+        previous = part
+    return repeated
+
+
+def _enforce_paragraph_level_rules(
+    content: str,
+    archive: dict[str, Any],
+    chapter_number: int,
+    plan: dict[str, Any] | None = None,
+    book: dict[str, Any] | None = None,
+) -> str:
     previous = _previous_chapter_text(archive) if chapter_number > 1 else ""
     previous_sentences = set(_chapter_sentences(previous))
     kept: list[str] = []
@@ -1228,6 +1291,7 @@ def _enforce_paragraph_level_rules(content: str, archive: dict[str, Any], chapte
     seen_structures: set[str] = set()
     memory_count = 0
     progress_window = 0
+    interrupt_count = 0
     for raw in _text(content).splitlines():
         line = raw.strip()
         if not line:
@@ -1246,6 +1310,19 @@ def _enforce_paragraph_level_rules(content: str, archive: dict[str, Any], chapte
             if memory_count > 1 or len(line) > 80:
                 continue
         is_title_line = re.match(r"^第\s*\d+\s*章", line) is not None
+        if (
+            not is_title_line
+            and kept_story_parts
+            and _adjacent_paragraph_too_similar(line, kept_story_parts[-1])
+        ):
+            interrupt = _new_event_interrupt(plan, book, interrupt_count)
+            interrupt_count += 1
+            if not _paragraph_repeats_current(interrupt, kept_story_parts, seen_events, seen_dialogues, seen_structures):
+                kept.append(interrupt)
+                kept_story_parts.append(interrupt)
+                _remember_paragraph_signature(interrupt, seen_events, seen_dialogues, seen_structures)
+                progress_window = 0
+            continue
         if not is_title_line and _paragraph_repeats_current(line, kept_story_parts, seen_events, seen_dialogues, seen_structures):
             continue
         has_progress = _paragraph_has_progress(line)
@@ -1596,6 +1673,9 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
     internal_repetition_count = _internal_repetition_count(content)
     if internal_repetition_count:
         issues.append("本章内部存在重复段落、重复动作或重复对白，需要自动重写。")
+    adjacent_similarity_count = _adjacent_similarity_count(content)
+    if adjacent_similarity_count:
+        issues.append("连续两段内容相似度较高，需要立即跳转到新事件。")
     return {
         "pass": not issues,
         "issues": issues,
@@ -1604,6 +1684,7 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
         "description_paragraphs": metrics["description"],
         "dead_progress_windows": dead_windows,
         "internal_repetition_count": internal_repetition_count,
+        "adjacent_similarity_count": adjacent_similarity_count,
     }
 
 
@@ -2323,13 +2404,13 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
         )
         content = f"{title}\n\n{body}".strip()
         content = _remove_repeated_previous_lines(content, archive, chapter_number)
-        content = _enforce_paragraph_level_rules(content, archive, chapter_number)
+        content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
         content = _append_unique_continuation(content, book=book, plan=plan)
         content = _remove_repeated_previous_lines(content, archive, chapter_number)
-        content = _enforce_paragraph_level_rules(content, archive, chapter_number)
+        content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
         content = _append_unique_continuation(content, book=book, plan=plan)
         content = _remove_repeated_previous_lines(content, archive, chapter_number)
-        content = _enforce_paragraph_level_rules(content, archive, chapter_number)
+        content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
         continuity = _chapter_repetition_review(content, archive, chapter_number)
         editor = _editor_step(content)
         self_check = _chapter_self_check(content, archive, chapter_number, plan)
@@ -2340,10 +2421,10 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
             safe_body = _build_final_safe_chapter_body(book, plan, chapter_number)
             content = f"{title}\n\n{safe_body}".strip()
             content = _remove_repeated_previous_lines(content, archive, chapter_number)
-            content = _enforce_paragraph_level_rules(content, archive, chapter_number)
+            content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
             content = _append_unique_continuation(content, book=book, plan=plan)
             content = _remove_repeated_previous_lines(content, archive, chapter_number)
-            content = _enforce_paragraph_level_rules(content, archive, chapter_number)
+            content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
             continuity = _chapter_repetition_review(content, archive, chapter_number)
             editor = _editor_step(content)
             self_check = _chapter_self_check(content, archive, chapter_number, plan)
