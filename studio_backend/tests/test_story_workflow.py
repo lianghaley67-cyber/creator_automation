@@ -11,6 +11,7 @@ from studio_backend.novel_engine import (
     _editor_step,
     _enforce_paragraph_level_rules,
     _paragraph_similarity,
+    _chapter_rollback_review,
 )
 
 
@@ -226,6 +227,8 @@ def test_generated_second_chapter_continues_without_repeating_first_chapter():
     assert second["chapter_self_check"]["dead_progress_windows"] == 0
     assert second["chapter_self_check"]["internal_repetition_count"] == 0
     assert second["chapter_self_check"]["adjacent_similarity_count"] == 0
+    assert second["chapter_self_check"]["rollback_paragraphs"] == 0
+    assert second["chapter_self_check"]["scene_replays"] == 0
     assert second["continuity_review"]["shared_sentences"] == []
     assert "第一声哭喊传进破庙时" not in second["content"]
     assert "供桌上的残香忽然自己亮了" not in second["content"]
@@ -464,6 +467,33 @@ def test_generated_paragraph_pool_rewrites_similarity_over_point_eight():
     assert repeated not in cleaned
     assert "纸铺学徒" in cleaned or "井亭方向" in cleaned or "新红线" in cleaned or "湿脚印" in cleaned
     assert new_event in cleaned
+
+
+def test_chapter_rollback_review_rejects_replayed_previous_plot_and_scene():
+    archive = {
+        "chapters": [{
+            "chapter_number": 1,
+            "content": "\n\n".join([
+                "第1章：危机已经上门",
+                "云栖把红纸按在石面上，盯住纸边渗出的香灰。",
+                "香火明拦住退走的人，“你把纸从哪拿来的？”",
+                "槐井水面浮出新的名字，村长脸色当场变了。",
+            ]),
+        }]
+    }
+    content = "\n\n".join([
+        "第2章：新的麻烦来了",
+        "云栖将红纸按在石面边缘，继续盯着纸边渗出的香灰。",
+        "香火明追上那人，“你把纸从哪拿来的？”",
+        "槐井水面再次浮出名字，村长脸色又变了。",
+        "纸铺学徒突然冲进来，递出半枚新木牌。",
+    ])
+
+    review = _chapter_rollback_review(content, archive, 2)
+
+    assert not review["pass"]
+    assert review["rollback_paragraphs"] >= 2 or review["scene_replays"] >= 2
+    assert any("回滚" in issue for issue in review["issues"])
 
 
 def test_generic_protagonist_name_is_replaced_in_generated_chapter():

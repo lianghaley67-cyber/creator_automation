@@ -916,6 +916,17 @@ def _previous_chapter_text(archive: dict[str, Any]) -> str:
     return _text(latest.get("content") or latest.get("summary") or latest.get("context_summary"))
 
 
+def _previous_chapter_texts(archive: dict[str, Any], chapter_number: int) -> list[str]:
+    texts: list[str] = []
+    for chapter in sorted(_list(archive.get("chapters")), key=lambda item: int(item.get("chapter_number") or 0)):
+        if int(chapter.get("chapter_number") or 0) >= chapter_number:
+            continue
+        text = _text(chapter.get("content") or chapter.get("summary") or chapter.get("context_summary"))
+        if text:
+            texts.append(text)
+    return texts
+
+
 def _chapter_sentences(text: str) -> list[str]:
     compact = re.sub(r"\s+", "", _text(text))
     parts = re.split(r"[。！？!?；;]", compact)
@@ -989,6 +1000,82 @@ def _event_repeats_used_beat(event: str, previous: str) -> bool:
     if "求救" in event_text and "求救" in previous_text and ("孩子" in event_text or "破庙" in event_text):
         return True
     return False
+
+
+def _story_paragraphs(text: str) -> list[str]:
+    return [
+        part.strip()
+        for part in _text(text).splitlines()
+        if part.strip() and not re.match(r"^第\s*\d+\s*章", part.strip())
+    ]
+
+
+def _scene_rollback_key(part: str) -> str:
+    text = _text(part)
+    if len(text) < 18:
+        return ""
+    locations = [
+        "破庙", "荒庙", "供桌", "庙门", "门槛", "井口", "槐井", "井亭", "义庄",
+        "后门", "纸铺", "旧渡口", "石碑", "镇口", "巷口",
+    ]
+    objects = [
+        "红纸", "香灰", "残香", "铜铃", "木牌", "功德簿", "水痕", "脚印",
+        "孩子", "女人", "黑水", "红线", "木匣", "钥匙", "名字",
+    ]
+    actions = [
+        "求救", "磕头", "抱", "亮", "烧", "浮出", "渗出", "裂开", "敲", "推门",
+        "追", "拦", "质问", "递", "翻", "按", "写", "滑出", "醒来",
+    ]
+    found_locations = [token for token in locations if token in text][:2]
+    found_objects = [token for token in objects if token in text][:3]
+    found_actions = [token for token in actions if token in text][:2]
+    if not found_locations or len(found_objects) + len(found_actions) < 3:
+        return ""
+    return "|".join(found_locations + found_objects + found_actions)
+
+
+def _chapter_rollback_review(content: str, archive: dict[str, Any], chapter_number: int) -> dict[str, Any]:
+    if chapter_number <= 1:
+        return {"pass": True, "issues": [], "rollback_paragraphs": 0, "scene_replays": 0}
+    current_parts = [part for part in _story_paragraphs(content) if len(part) >= 18]
+    previous_texts = _previous_chapter_texts(archive, chapter_number)
+    if not current_parts or not previous_texts:
+        return {"pass": True, "issues": [], "rollback_paragraphs": 0, "scene_replays": 0}
+    previous_parts = [
+        part
+        for previous_text in previous_texts
+        for part in _story_paragraphs(previous_text)
+        if len(part) >= 18
+    ]
+    rollback_samples: list[str] = []
+    for part in current_parts:
+        if _max_similarity_to_generated(part, previous_parts) > 0.8:
+            rollback_samples.append(part)
+    previous_scene_keys = {
+        key
+        for part in previous_parts
+        for key in [_scene_rollback_key(part)]
+        if key
+    }
+    current_scene_keys = [
+        key
+        for part in current_parts
+        for key in [_scene_rollback_key(part)]
+        if key
+    ]
+    scene_replays = sum(1 for key in current_scene_keys if key in previous_scene_keys)
+    issues: list[str] = []
+    if len(rollback_samples) >= 2:
+        issues.append("内容回滚：已写过的剧情再次完整出现，需要整章重写。")
+    if scene_replays >= 2:
+        issues.append("场景回滚：已展开过的场景被重新展开，需要整章重写。")
+    return {
+        "pass": not issues,
+        "issues": issues,
+        "rollback_paragraphs": len(rollback_samples),
+        "scene_replays": scene_replays,
+        "samples": rollback_samples[:3],
+    }
 
 
 def _event_yes_no(value: Any, fallback: str) -> str:
@@ -1066,12 +1153,16 @@ def _chapter_repetition_review(content: str, archive: dict[str, Any], chapter_nu
         issues.append("疑似复述上一章：出现多句完全相同的长句。")
     if overlap > 0.18 and len(content) > 1200:
         issues.append("与上一章文本重合度过高，需要改写为后果承接和新事件推进。")
+    rollback = _chapter_rollback_review(content, archive, chapter_number)
+    issues.extend(_list(rollback.get("issues")))
     return {
         "pass": not issues,
         "issues": issues,
         "score": max(45, 100 - len(shared) * 15 - (20 if overlap > 0.18 else 0)),
         "shared_sentences": shared[:3],
         "shingle_overlap": round(overlap, 3),
+        "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
+        "scene_replays": rollback.get("scene_replays", 0),
     }
 
 
@@ -1712,6 +1803,8 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
     adjacent_similarity_count = _adjacent_similarity_count(content)
     if adjacent_similarity_count:
         issues.append("连续两段内容相似度较高，需要立即跳转到新事件。")
+    rollback = _chapter_rollback_review(content, archive, chapter_number)
+    issues.extend(_list(rollback.get("issues")))
     return {
         "pass": not issues,
         "issues": issues,
@@ -1721,6 +1814,8 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
         "dead_progress_windows": dead_windows,
         "internal_repetition_count": internal_repetition_count,
         "adjacent_similarity_count": adjacent_similarity_count,
+        "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
+        "scene_replays": rollback.get("scene_replays", 0),
     }
 
 
@@ -2424,6 +2519,7 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
     continuity = {"pass": True, "issues": [], "score": 100, "shared_sentences": []}
     editor = {"role": "Editor", "pass": False, "issues": ["尚未完成审核。"], "immersion_score": 60}
     self_check = {"pass": False, "issues": ["尚未完成自检。"], "similarity": 0}
+    rollback = {"pass": True, "issues": [], "rollback_paragraphs": 0, "scene_replays": 0}
     for attempt in range(6):
         if attempt:
             attempt_brief = {**attempt_brief, "regenerate_seed": attempt}
@@ -2439,6 +2535,31 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
             protagonist=_character_name(book),
         )
         content = f"{title}\n\n{body}".strip()
+        rollback = _chapter_rollback_review(content, archive, chapter_number)
+        if not rollback["pass"]:
+            continuity = {
+                "pass": False,
+                "issues": _list(rollback.get("issues")),
+                "score": 45,
+                "shared_sentences": [],
+                "shingle_overlap": 0,
+                "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
+                "scene_replays": rollback.get("scene_replays", 0),
+            }
+            editor = {
+                "role": "Editor",
+                "pass": False,
+                "issues": _list(rollback.get("issues")),
+                "immersion_score": 55,
+            }
+            self_check = {
+                "pass": False,
+                "issues": _list(rollback.get("issues")),
+                "similarity": 0,
+                "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
+                "scene_replays": rollback.get("scene_replays", 0),
+            }
+            continue
         content = _remove_repeated_previous_lines(content, archive, chapter_number)
         content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
         content = _append_unique_continuation(content, book=book, plan=plan)
@@ -2456,6 +2577,31 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
         for fallback_attempt in range(4):
             safe_body = _build_final_safe_chapter_body(book, plan, chapter_number)
             content = f"{title}\n\n{safe_body}".strip()
+            rollback = _chapter_rollback_review(content, archive, chapter_number)
+            if not rollback["pass"]:
+                continuity = {
+                    "pass": False,
+                    "issues": _list(rollback.get("issues")),
+                    "score": 45,
+                    "shared_sentences": [],
+                    "shingle_overlap": 0,
+                    "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
+                    "scene_replays": rollback.get("scene_replays", 0),
+                }
+                editor = {
+                    "role": "Editor",
+                    "pass": False,
+                    "issues": _list(rollback.get("issues")),
+                    "immersion_score": 55,
+                }
+                self_check = {
+                    "pass": False,
+                    "issues": _list(rollback.get("issues")),
+                    "similarity": 0,
+                    "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
+                    "scene_replays": rollback.get("scene_replays", 0),
+                }
+                continue
             content = _remove_repeated_previous_lines(content, archive, chapter_number)
             content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
             content = _append_unique_continuation(content, book=book, plan=plan)
