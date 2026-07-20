@@ -10,6 +10,7 @@ from studio_backend.novel_engine import (
     generate_chapter_from_plan,
     _editor_step,
     _enforce_paragraph_level_rules,
+    _paragraph_similarity,
 )
 
 
@@ -435,6 +436,34 @@ def test_adjacent_similar_paragraphs_jump_to_new_event():
     assert "继续盯着纸边渗出的香灰" not in cleaned
     assert "纸铺学徒" in cleaned or "井亭方向" in cleaned or "新红线" in cleaned or "湿脚印" in cleaned
     assert "铜铃忽然裂开" in cleaned
+
+
+def test_generated_paragraph_pool_rewrites_similarity_over_point_eight():
+    archive = {"chapters": []}
+    first = "云栖把红纸按在石面上，盯住纸边渗出的香灰。"
+    repeated = "云栖将红纸按在石面边缘，继续盯着纸边渗出的香灰。"
+    new_event = "铜铃忽然裂开，里面掉出一枚刻着生辰的木牌。"
+    content = "\n\n".join([
+        "第2章：井边红纸",
+        first,
+        repeated,
+        new_event,
+    ])
+
+    assert _paragraph_similarity(repeated, first) > 0.8
+
+    cleaned = _enforce_paragraph_level_rules(
+        content,
+        archive,
+        2,
+        {"chapter": 2, "new_clues": ["红纸姓名"], "conflict": "村长拒绝交代。"},
+        {"title": "香火成仙", "characters": [{"name": "云栖"}, {"name": "香火明"}]},
+    )
+
+    assert first in cleaned
+    assert repeated not in cleaned
+    assert "纸铺学徒" in cleaned or "井亭方向" in cleaned or "新红线" in cleaned or "湿脚印" in cleaned
+    assert new_event in cleaned
 
 
 def test_generic_protagonist_name_is_replaced_in_generated_chapter():

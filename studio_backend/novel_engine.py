@@ -7,6 +7,7 @@ scoped by book_id so one novel never inherits another novel's memory.
 from __future__ import annotations
 
 import re
+from difflib import SequenceMatcher
 from typing import Any, Callable
 
 from .story_workflow import build_story_blueprint
@@ -938,6 +939,37 @@ def _text_repeats_previous(text: str, previous: str) -> bool:
     return len(current & old) / max(1, len(current)) > 0.32
 
 
+def _paragraph_similarity(current_text: str, previous_text: str) -> float:
+    current_signature = _normalize_paragraph_signature(current_text)
+    previous_signature = _normalize_paragraph_signature(previous_text)
+    if not current_signature or not previous_signature:
+        return 0.0
+    if current_signature == previous_signature:
+        return 1.0
+    size = 6 if min(len(current_signature), len(previous_signature)) < 30 else 8
+    current = _chapter_shingles(current_signature, size=size)
+    previous = _chapter_shingles(previous_signature, size=size)
+    if not current or not previous:
+        shorter = min(len(current_signature), len(previous_signature))
+        longer = max(len(current_signature), len(previous_signature))
+        common_chars = sum(1 for char in set(current_signature) if char in previous_signature)
+        return common_chars / max(1, longer) if shorter >= 4 else 0.0
+    directional = len(current & previous) / max(1, len(current))
+    balanced = len(current & previous) / max(1, min(len(current), len(previous)))
+    sequence = SequenceMatcher(None, current_signature, previous_signature).ratio()
+    current_tokens = _salient_tokens(current_text)
+    previous_tokens = _salient_tokens(previous_text)
+    token_base = min(len(current_tokens), len(previous_tokens))
+    token_overlap = len(current_tokens & previous_tokens) / token_base if token_base >= 3 else 0.0
+    return max(directional, balanced, sequence, token_overlap)
+
+
+def _max_similarity_to_generated(part: str, generated_paragraphs: list[str]) -> float:
+    if not generated_paragraphs:
+        return 0.0
+    return max(_paragraph_similarity(part, previous) for previous in generated_paragraphs)
+
+
 def _event_repeats_used_beat(event: str, previous: str) -> bool:
     event_text = _text(event)
     previous_text = _text(previous)
@@ -1178,6 +1210,8 @@ def _shares_repeated_structure(part: str, kept_part: str) -> bool:
 def _adjacent_paragraph_too_similar(part: str, previous_part: str) -> bool:
     if not _text(part) or not _text(previous_part):
         return False
+    if _paragraph_similarity(part, previous_part) > 0.8:
+        return True
     if _normalize_paragraph_signature(part) == _normalize_paragraph_signature(previous_part):
         return True
     current = _chapter_shingles(part, size=8)
@@ -1220,6 +1254,8 @@ def _new_event_interrupt(plan: dict[str, Any] | None = None, book: dict[str, Any
 def _paragraph_repeats_current(part: str, kept_parts: list[str], seen_events: set[str], seen_dialogues: set[str], seen_structures: set[str]) -> bool:
     if not kept_parts:
         return False
+    if _max_similarity_to_generated(part, kept_parts) > 0.8:
+        return True
     signature = _normalize_paragraph_signature(part)
     if len(signature) >= 4 and signature in {_normalize_paragraph_signature(item) for item in kept_parts}:
         return True
