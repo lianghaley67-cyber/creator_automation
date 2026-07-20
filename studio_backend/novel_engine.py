@@ -401,27 +401,77 @@ def build_chapter_plans(raw_plan: list[Any], target_count: int = 100) -> list[di
         if not isinstance(item, dict):
             continue
         chapter = int(item.get("chapter") or len(plans) + 1)
+        goal = _story_safe_line(item.get("goal") or item.get("chapter_goal"), "她必须先帮眼前的人解决一件急事，才可能抓住自己的机会。")
+        conflict = _story_safe_line(item.get("conflict") or item.get("plot_conflict"), "自己的麻烦还没解决，别人的求助已经压到眼前。")
+        suspense = _story_safe_line(item.get("suspense") or item.get("hook"), "一段偷拍视频被发进群里，善意突然变成了质疑。")
         plans.append(
             {
                 "chapter": chapter,
                 "title": _chapter_title_phrase(chapter, item),
-                "goal": _story_safe_line(item.get("goal") or item.get("chapter_goal"), "她必须先帮眼前的人解决一件急事，才可能抓住自己的机会。"),
-                "conflict": _story_safe_line(item.get("conflict") or item.get("plot_conflict"), "自己的麻烦还没解决，别人的求助已经压到眼前。"),
-                "suspense": _story_safe_line(item.get("suspense") or item.get("hook"), "一段偷拍视频被发进群里，善意突然变成了质疑。"),
+                "goal": goal,
+                "conflict": conflict,
+                "suspense": suspense,
+                **_chapter_continuity_plan(chapter, item, goal=goal, conflict=conflict, suspense=suspense),
             }
         )
     while len(plans) < target_count:
         chapter = len(plans) + 1
+        goal = "她必须先帮眼前的人解决一件急事，才可能抓住自己的机会。"
+        conflict = "自己的麻烦还没解决，别人的求助已经压到眼前。"
+        suspense = "一段偷拍视频被发进群里，善意突然变成了质疑。"
         plans.append(
             {
                 "chapter": chapter,
                 "title": "雨中援手",
-                "goal": "她必须先帮眼前的人解决一件急事，才可能抓住自己的机会。",
-                "conflict": "自己的麻烦还没解决，别人的求助已经压到眼前。",
-                "suspense": "一段偷拍视频被发进群里，善意突然变成了质疑。",
+                "goal": goal,
+                "conflict": conflict,
+                "suspense": suspense,
+                **_chapter_continuity_plan(chapter, {}, goal=goal, conflict=conflict, suspense=suspense),
             }
         )
     return plans[:target_count]
+
+
+def _chapter_continuity_plan(
+    chapter: int,
+    item: dict[str, Any],
+    *,
+    goal: str,
+    conflict: str,
+    suspense: str,
+) -> dict[str, Any]:
+    """Normalize each chapter into one clear event and a finite scene ladder."""
+    raw_core = _text(item.get("core_event") or item.get("main_event") or item.get("unit_event"))
+    if not raw_core:
+        raw_core = goal
+    core_event = _story_safe_line(raw_core, goal)
+    raw_clues = _list(item.get("new_clues") or item.get("clues"))
+    clues = [_story_safe_line(clue, "") for clue in raw_clues if _story_safe_line(clue, "")]
+    if not clues:
+        clues = [
+            _clean_title_fragment(core_event, limit=14) or "现场异常",
+            _clean_title_fragment(conflict, limit=14) or "阻力压近",
+            _clean_title_fragment(suspense, limit=14) or "新悬念出现",
+        ]
+    clues = list(dict.fromkeys(clues))[:3]
+    consequence = item.get("previous_consequence") or "上一章的选择立刻产生代价。"
+    scene_beats = [
+        f"后果出现：{_story_safe_line(consequence, '上一章的选择立刻产生代价。')}",
+        f"外部冲突：{conflict}",
+        f"调查线索：围绕{clues[0]}推进，不再横向堆新元素。",
+        f"主动选择：角色必须采取一个会改变局面的行动，完成{core_event}",
+        f"章末钩子：{suspense}",
+    ]
+    return {
+        "core_event": core_event,
+        "scene_beats": scene_beats,
+        "new_clues": clues,
+        "irreversible_change": _story_safe_line(
+            item.get("irreversible_change") or item.get("payoff") or suspense,
+            "角色做出选择，局面不可逆地升级。",
+        ),
+        "planning_rule": "一章只围绕一个核心事件；最多3个新线索；每幕必须完成具体动作并产生不可逆变化。",
+    }
 
 
 def expand_story_units_to_raw_plans(units: list[Any], target_count: int) -> list[dict[str, Any]]:
@@ -690,6 +740,10 @@ def build_chapter_brief_from_book(
             "current_viewpoint": _character_name(book),
         },
         "chapter_mission": {
+            "core_event": chapter_plan.get("core_event"),
+            "scene_beats": _list(chapter_plan.get("scene_beats")),
+            "new_clues": _list(chapter_plan.get("new_clues"))[:3],
+            "irreversible_change": chapter_plan.get("irreversible_change"),
             "goal": chapter_plan.get("goal"),
             "conflict": chapter_plan.get("conflict"),
             "hook": chapter_plan.get("suspense"),
@@ -714,6 +768,10 @@ def build_chapter_brief_from_book(
             "只承接上一章结果，不复述上一章原文。",
             "本章必须形成4-5个递进场景，每一幕推进一个新信息：后果、冲突、线索、选择、钩子。",
             "若是第2章及以后，先写上一章造成的代价，再写新的危机和主动行动。",
+            f"本章核心事件：{chapter_plan.get('core_event')}",
+            f"五幕推进：{' / '.join(_list(chapter_plan.get('scene_beats')))}",
+            f"本章最多使用3个新线索：{'、'.join(_list(chapter_plan.get('new_clues'))[:3])}",
+            f"不可逆变化：{chapter_plan.get('irreversible_change')}",
             f"本章目标：{chapter_plan.get('goal')}",
             f"本章冲突：{chapter_plan.get('conflict')}",
             f"章末悬念：{chapter_plan.get('suspense')}",
@@ -773,6 +831,10 @@ def _plot_designer_step(brief: dict[str, Any]) -> dict[str, Any]:
     plan = _dict(brief.get("chapterPlan"))
     return {
         "role": "Plot Designer",
+        "core_event": _text(plan.get("core_event"), _text(plan.get("goal"), "推进一个具体事件。")),
+        "scene_beats": _list(plan.get("scene_beats")),
+        "new_clues": _list(plan.get("new_clues"))[:3],
+        "irreversible_change": _text(plan.get("irreversible_change"), "角色做出选择，局面不可逆地升级。"),
         "opening_conflict": _text(plan.get("conflict"), "旧问题未解决，新压力突然压上来。"),
         "chapter_goal": _text(plan.get("goal"), "推进一个具体行动，让主角获得线索、资源或关系变化。"),
         "twist": _text(brief.get("twist"), "看似能解决问题的线索，反而暴露出更大的风险。"),
@@ -1196,11 +1258,36 @@ def _expand_chapter_body(
     safe_conflict = _story_safe_line(plot.get("opening_conflict"), "眼前的阻力比她预想得更早压了过来。")
     safe_twist = _story_safe_line(plot.get("twist"), "真正的问题藏在众人都忽略的细节里。")
     hook = _story_safe_line(plot.get("hook"), "门外又传来一声不该出现的响动。")
+    scene_beats = []
+    for item in _list(plot.get("scene_beats")):
+        beat = re.sub(r"^[^：:]{1,8}[：:]\s*", "", _text(item)).strip()
+        if beat:
+            scene_beats.append(beat)
+    new_clues = [_story_safe_line(item, "") for item in _list(plot.get("new_clues"))]
+    new_clues = [item for item in new_clues if item][:3]
     is_shrine = any(token in " ".join([
         _text(book.get("title")),
         _text(book.get("hook")),
         _text(_dict(book.get("core_design")).get("平台标签")),
     ]) for token in ["香火", "庙", "祈愿", "神道", "玄学", "修仙"])
+    scene_actions = [
+        ("先处理后果", "确认谁受了伤、谁改了口、谁因为上一章的选择失去退路"),
+        ("正面应对阻力", "让反对的人当场说清理由，也逼出围观者真正害怕的事"),
+        ("核验关键线索", "只围着这一条线索查来源、时间和经手的人"),
+        ("做出主动选择", "把查到的证据换成一次行动，而不是停在猜测里"),
+        ("留下章末钩子", "让新的危险以一个具体物件、一句话或一次异动落到眼前"),
+    ]
+    planned_blocks: list[list[str]] = []
+    for idx, beat in enumerate(scene_beats[:5]):
+        clue = new_clues[idx % len(new_clues)] if new_clues else "眼前线索"
+        action_name, action_detail = scene_actions[idx] if idx < len(scene_actions) else scene_actions[-1]
+        planned_blocks.append([
+            f"{protagonist}把这一幕先压成一个必须完成的动作：{beat}",
+            f"他这次要{action_name}，具体做法是{action_detail}。",
+            f"{ally}指向{clue}，提醒他别被旁支牵走。",
+            f"{protagonist}顺着{clue}往下核，得到的不是完整答案，而是一个能推动下一步的变化。",
+            f"等这一幕结束，局面必须留下痕迹：{hook}",
+        ])
     expansion_sets = [
         [
             f"{protagonist}没有立刻往前走。他先把四周重新看了一遍：门槛上的水痕、墙角被蹭掉的灰、还有地面那道断断续续的脚印，每一样都像被人刻意摆在明处。",
@@ -1282,6 +1369,10 @@ def _expand_chapter_body(
         expansion_sets[0][0] = f"{protagonist}没有立刻往前走。他先看香灰落下的方向，看门槛上逆流的水，看供桌底下那道新裂开的缝。"
         expansion_sets[3][6] = "门外没有脚步声，只有水从井底翻上来的声音，一下又一下，像有人在黑暗里拖着湿透的衣摆。"
     index = max(0, chapter_number - 1)
+    planned_index = 0
+    while len(text) < target_length and planned_index < len(planned_blocks):
+        text = _clean_chapter_text(f"{text}\n\n" + "\n\n".join(planned_blocks[planned_index]))
+        planned_index += 1
     guard = 0
     while len(text) < target_length and guard < len(expansion_sets):
         block = expansion_sets[(index + guard) % len(expansion_sets)]
