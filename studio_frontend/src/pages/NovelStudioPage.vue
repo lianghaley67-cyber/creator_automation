@@ -74,6 +74,7 @@ export default {
     const blueprint = ref(null);
     const blueprintPromise = ref("");
     const chapterNote = ref("");
+    const chapterPlanDraft = ref("");
     const selectedNovelSkillId = ref("");
     const userMode = ref("novice");
     const storyDraft = reactive({
@@ -160,6 +161,62 @@ export default {
       const content = String(chapter?.content || chapter?.content_markdown || "").trim();
       if (!title) return content;
       return content.startsWith(title) ? content : `${title}\n\n${content}`.trim();
+    }
+
+    function formatChapterPlanDraft(brief) {
+      const plan = brief?.chapterPlan || {};
+      const events = Array.isArray(plan.event_plan) ? plan.event_plan : [];
+      if (events.length) {
+        return events.map((item, index) => {
+          const event = typeof item === "string" ? item : item?.event || "";
+          const advances = typeof item === "object" ? item.advances_mainline || "是" : "是";
+          const conflict = typeof item === "object" ? item.creates_conflict || "否" : "否";
+          const info = typeof item === "object" ? item.new_information || "是" : "是";
+          return `事件${index + 1}：${event}（推进主线：${advances}；制造冲突：${conflict}；新信息：${info}）`;
+        }).join("\n");
+      }
+      return [
+        plan.core_event ? `事件1：${plan.core_event}（推进主线：是；制造冲突：否；新信息：是）` : "",
+        plan.conflict ? `事件2：${plan.conflict}（推进主线：否；制造冲突：是；新信息：是）` : "",
+        plan.suspense ? `事件3：${plan.suspense}（推进主线：是；制造冲突：是；新信息：是）` : "",
+      ].filter(Boolean).join("\n");
+    }
+
+    function parseChapterPlanDraft() {
+      return String(chapterPlanDraft.value || "")
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line, index) => {
+          const event = line
+            .replace(/^事件\s*\d+\s*[：:]\s*/, "")
+            .replace(/（推进主线[：:].*$/, "")
+            .trim();
+          const advances = /推进主线[：:]\s*是/.test(line) ? "是" : (/推进主线[：:]\s*否/.test(line) ? "否" : (index === 1 ? "否" : "是"));
+          const conflict = /制造冲突[：:]\s*是/.test(line) ? "是" : (/制造冲突[：:]\s*否/.test(line) ? "否" : (index >= 1 ? "是" : "否"));
+          const info = /新信息[：:]\s*否/.test(line) ? "否" : "是";
+          const tags = [
+            advances === "是" ? "推进主线" : "",
+            conflict === "是" ? "冲突" : "",
+            index === 2 ? "伏笔" : "",
+          ].filter(Boolean);
+          return { event, tags, advances_mainline: advances, creates_conflict: conflict, new_information: info };
+        })
+        .filter((item) => item.event);
+    }
+
+    function syncEditedChapterPlan() {
+      if (!chapterBrief.value) return;
+      const eventPlan = parseChapterPlanDraft();
+      if (!eventPlan.length) return;
+      chapterBrief.value = {
+        ...chapterBrief.value,
+        chapterPlan: {
+          ...(chapterBrief.value.chapterPlan || {}),
+          event_plan: eventPlan,
+          scene_beats: eventPlan.map((item) => item.event),
+        },
+      };
     }
 
     function bookDetailSections(book) {
@@ -793,6 +850,7 @@ export default {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ user_note: chapterNote.value }),
         }, 15000);
+        chapterPlanDraft.value = formatChapterPlanDraft(chapterBrief.value);
         ctx.setNotice(`第 ${chapterBrief.value.chapter_number} 章 Brief 已生成，确认后再写正文。`);
       } catch (err) {
         ctx.setError(`章节 Brief 生成失败：${err.message}`);
@@ -808,6 +866,7 @@ export default {
       }
       loading.chapter = true;
       try {
+        syncEditedChapterPlan();
         const result = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapters/generate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -942,6 +1001,7 @@ export default {
       blueprint,
       blueprintPromise,
       chapterNote,
+      chapterPlanDraft,
       selectedNovelSkillId,
       userMode,
       storyDraft,
@@ -979,6 +1039,7 @@ export default {
       diagnoseStory,
       createChapterBrief,
       generateChapterFromBrief,
+      syncEditedChapterPlan,
       regenerateBookChapter,
       deleteBookChapter,
       runOneClickProduction,
@@ -1849,6 +1910,14 @@ export default {
       <label class="field">
         <span>这一章你的想法（可选）</span>
         <textarea v-model="chapterNote" rows="3" placeholder="例：这一章希望女主第一次意识到男主隐瞒了身份，但不要立刻揭穿。"></textarea>
+      </label>
+      <label v-if="chapterBrief" class="field chapter-plan-editor">
+        <span>剧情计划（可手动修改，不符合就先改这里）</span>
+        <textarea
+          v-model="chapterPlanDraft"
+          rows="5"
+          placeholder="事件1：新事件（推进主线：是；制造冲突：否；新信息：是）"
+        ></textarea>
       </label>
       <div v-if="chapterBrief" class="brief-card">
         <strong>{{ chapterBrief.story_name }} · 第 {{ chapterBrief.chapter_number }} 章</strong>

@@ -151,6 +151,108 @@ def _script_ai_error_detail(
     }
 
 
+def _chat_provider_config(provider: str) -> dict[str, str]:
+    normalized = str(provider or "deepseek").strip().lower()
+    if normalized in {"deepseek", "deepseek-chat"}:
+        endpoint = os.getenv("DEEPSEEK_CHAT_ENDPOINT", "https://api.deepseek.com/chat/completions").strip()
+        if endpoint.rstrip("/") in {"https://api.deepseek.com", "https://api.deepseek.com/v1"}:
+            endpoint = endpoint.rstrip("/") + "/chat/completions"
+        return {
+            "provider": "deepseek",
+            "api_key": os.getenv("DEEPSEEK_API_KEY", "").strip(),
+            "endpoint": endpoint,
+            "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat",
+        }
+    if normalized in {"qwen", "dashscope", "tongyi"}:
+        return {
+            "provider": "qwen",
+            "api_key": os.getenv("QWEN_API_KEY", os.getenv("DASHSCOPE_API_KEY", "")).strip(),
+            "endpoint": os.getenv("QWEN_CHAT_ENDPOINT", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions").strip(),
+            "model": os.getenv("QWEN_MODEL", "qwen-plus").strip() or "qwen-plus",
+        }
+    if normalized in {"zhipu", "glm"}:
+        return {
+            "provider": "zhipu",
+            "api_key": os.getenv("ZHIPU_API_KEY", "").strip(),
+            "endpoint": os.getenv("ZHIPU_CHAT_ENDPOINT", "https://open.bigmodel.cn/api/paas/v4/chat/completions").strip(),
+            "model": os.getenv("ZHIPU_MODEL", "glm-4-flash").strip() or "glm-4-flash",
+        }
+    if normalized in {"openai", "gpt"}:
+        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com").strip()
+        return {
+            "provider": "openai",
+            "api_key": os.getenv("OPENAI_API_KEY", "").strip(),
+            "endpoint": base_url.rstrip("/") + "/v1/chat/completions",
+            "model": os.getenv("OPENAI_MODEL", os.getenv("LLM_MODEL", "gpt-4o-mini")).strip() or "gpt-4o-mini",
+        }
+    return {"provider": "local", "api_key": "", "endpoint": "", "model": "local-plot-consultant"}
+
+
+def _local_story_chat_reply(messages: list[dict[str, Any]], context: str = "") -> str:
+    last = next((str(item.get("content") or "").strip() for item in reversed(messages) if item.get("role") == "user"), "")
+    context_hint = f"\n\n我会优先参考当前上下文：{context[:180]}" if context else ""
+    return (
+        "我先按剧情顾问的方式给你一个可执行建议：\n"
+        "1. 先确认上一章结尾留下的具体压力，不要从世界观重新讲起。\n"
+        "2. 下一场戏只做一件新事：引入新证据、新人物或新冲突，让主角处境发生变化。\n"
+        "3. 如果担心重复，把本章计划拆成3个事件：承接后果、冲突升级、结尾反转。\n"
+        f"你刚才的问题是：{last[:220] or '继续讨论当前剧情。'}"
+        f"{context_hint}"
+    )
+
+
+def _call_chat_completion(provider: str, messages: list[dict[str, Any]], context: str = "") -> dict[str, Any]:
+    config = _chat_provider_config(provider)
+    if config["provider"] == "local" or not config["api_key"]:
+        return {
+            "provider": config["provider"],
+            "model": config["model"],
+            "response": _local_story_chat_reply(messages, context),
+            "fallback": True,
+        }
+    system_prompt = (
+        "你是一个高水平网络小说剧情顾问，帮助作者实时讨论剧情、章节计划、冲突升级和去重问题。"
+        "回答必须中文，直接给可执行建议。不要写正文，除非用户明确要求。"
+        "重点检查：是否承接上一章、是否重复旧场景、是否有新事件、是否留钩子。"
+    )
+    if context:
+        system_prompt += f"\n\n【当前页面/小说上下文】\n{context[:2000]}"
+    safe_messages = [
+        {"role": str(item.get("role") or "user"), "content": str(item.get("content") or "")[:4000]}
+        for item in messages[-12:]
+        if str(item.get("content") or "").strip()
+    ]
+    payload = {
+        "model": config["model"],
+        "messages": [{"role": "system", "content": system_prompt}] + safe_messages,
+        "temperature": 0.65,
+        "max_tokens": 900,
+    }
+    req = urllib.request.Request(
+        config["endpoint"],
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {config['api_key']}"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return {
+            "provider": config["provider"],
+            "model": config["model"],
+            "response": str(data["choices"][0]["message"]["content"]).strip(),
+            "fallback": False,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "provider": config["provider"],
+            "model": config["model"],
+            "response": _local_story_chat_reply(messages, context),
+            "fallback": True,
+            "error": str(exc)[:300],
+        }
+
+
 app = FastAPI(title="Creator Digital Studio", version="0.1.0")
 store = StudioStore()
 SADTALKER_RENDER_LOCK = threading.Lock()
@@ -1104,6 +1206,17 @@ def on_shutdown() -> None:
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/ai-chat")
+async def api_ai_chat(request: Request) -> dict[str, Any]:
+    raw = await request.json()
+    messages = raw.get("messages") if isinstance(raw, dict) else []
+    if not isinstance(messages, list) or not messages:
+        raise HTTPException(status_code=400, detail="messages 不能为空。")
+    provider = str(raw.get("provider") or "deepseek")
+    context = str(raw.get("context") or "")
+    return _call_chat_completion(provider, messages, context)
 
 
 @app.get("/api/stocks/search")

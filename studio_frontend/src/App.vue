@@ -27,6 +27,7 @@ import {
 } from "./pages/StockAnalysisPage.logic.js";
 import StockAnalysisPage from "./pages/StockAnalysisPage.vue";
 import { normalizeErrorMessage } from "./utils/errors.js";
+import GlobalAiChat from "./components/GlobalAiChat.vue";
 
 const configuredApiBase = (import.meta.env.VITE_API_BASE || "").trim().replace(/\/$/, "");
 const browserApiBase = window.location.origin && window.location.protocol.startsWith("http")
@@ -3009,6 +3010,7 @@ onBeforeUnmount(() => {
         <span>© 2026 · AI 洞察 · 软件开发 · 职场成长 · 内容创作</span>
       </footer>
     </main>
+    <GlobalAiChat />
   </div>
 </template>
 
