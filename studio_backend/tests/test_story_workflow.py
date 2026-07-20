@@ -9,6 +9,7 @@ from studio_backend.novel_engine import (
     build_chapter_plans,
     generate_chapter_from_plan,
     _editor_step,
+    _enforce_paragraph_level_rules,
 )
 
 
@@ -221,6 +222,7 @@ def test_generated_second_chapter_continues_without_repeating_first_chapter():
     assert second["chapter_self_check"]["pass"]
     assert second["chapter_self_check"]["similarity"] <= 0.1
     assert second["chapter_self_check"]["plot_paragraphs"] >= second["chapter_self_check"]["description_paragraphs"]
+    assert second["chapter_self_check"]["dead_progress_windows"] == 0
     assert second["continuity_review"]["shared_sentences"] == []
     assert "第一声哭喊传进破庙时" not in second["content"]
     assert "供桌上的残香忽然自己亮了" not in second["content"]
@@ -353,6 +355,31 @@ def test_editor_rejects_template_phrase_and_overlong_memory():
     assert any("模板化" in issue for issue in result["issues"])
     assert any("回忆" in issue for issue in result["issues"])
     assert any("多处回忆" in issue or "不能多段展开" in issue for issue in result["issues"])
+
+
+def test_paragraph_level_rules_remove_repeated_recap_and_extra_memory():
+    archive = {
+        "chapters": [{
+            "chapter_number": 1,
+            "content": "云栖推开庙门，供桌上的残香忽然亮了。\n\n女人抱着孩子求救。",
+        }]
+    }
+    content = "\n\n".join([
+        "第2章：井边红纸",
+        "云栖推开庙门，供桌上的残香忽然亮了。",
+        "他开始解释之前发生的事情经过。",
+        "他想起那晚的铜铃。",
+        "他又想起上一章的雨声和求救声。",
+        "红纸从井沿翻起，露出一个新的名字。",
+        "香火明拦住退走的人，“你把纸从哪拿来的？”",
+    ])
+
+    cleaned = _enforce_paragraph_level_rules(content, archive, 2)
+
+    assert "供桌上的残香忽然亮了" not in cleaned
+    assert "解释之前发生" not in cleaned
+    assert "他又想起" not in cleaned
+    assert "红纸从井沿翻起" in cleaned
 
 
 def test_generic_protagonist_name_is_replaced_in_generated_chapter():

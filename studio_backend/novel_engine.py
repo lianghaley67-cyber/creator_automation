@@ -1066,6 +1066,64 @@ def _remove_repeated_previous_lines(content: str, archive: dict[str, Any], chapt
     return "\n".join(kept).strip()
 
 
+def _paragraph_has_progress(part: str) -> bool:
+    action_tokens = [
+        "问", "说", "看", "走", "推", "按", "拿", "放", "追", "拦", "查", "翻", "指",
+        "听", "碰", "退", "停", "递", "跪", "敲", "裂", "响", "亮", "渗", "写", "发现",
+        "出现", "出来", "站", "开口", "回头", "伸手", "抬手", "堵住", "交代", "拿出",
+        "递出", "浮出", "变", "逼", "换", "藏", "落", "停住",
+    ]
+    conflict_tokens = ["逼", "质问", "拦", "堵", "争", "怒", "怕", "退路", "不许", "偿命", "出事", "危险"]
+    info_tokens = ["发现", "露出", "浮出", "出现", "指印", "水痕", "红纸", "香灰", "名字", "铜铃", "木牌", "线索"]
+    has_dialogue = "“" in part and "”" in part
+    return (
+        has_dialogue
+        or any(token in part for token in action_tokens)
+        or any(token in part for token in conflict_tokens)
+        or any(token in part for token in info_tokens)
+    )
+
+
+def _paragraph_restates_previous(part: str) -> bool:
+    recap_patterns = [
+        "之前发生", "已经发生", "前面发生", "早就发生", "事情经过", "来龙去脉",
+        "简单说", "也就是说", "这意味着他们不是", "他终于明白，自己不是",
+        "她原本以为", "解释解释", "上一件事发生之前",
+    ]
+    return any(pattern in part for pattern in recap_patterns)
+
+
+def _enforce_paragraph_level_rules(content: str, archive: dict[str, Any], chapter_number: int) -> str:
+    previous = _previous_chapter_text(archive) if chapter_number > 1 else ""
+    previous_sentences = set(_chapter_sentences(previous))
+    kept: list[str] = []
+    memory_count = 0
+    progress_window = 0
+    for raw in _text(content).splitlines():
+        line = raw.strip()
+        if not line:
+            if kept and kept[-1] != "":
+                kept.append("")
+            continue
+        line_sentences = _chapter_sentences(line)
+        if previous and line_sentences and any(sentence in previous_sentences for sentence in line_sentences):
+            continue
+        if previous and _text_repeats_previous(line, previous):
+            continue
+        if _paragraph_restates_previous(line):
+            continue
+        if any(token in line for token in ["想起", "记起", "回忆", "上一章"]):
+            memory_count += 1
+            if memory_count > 1 or len(line) > 80:
+                continue
+        has_progress = _paragraph_has_progress(line)
+        progress_window = 0 if has_progress else progress_window + 1
+        if progress_window >= 3:
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
 def _append_unique_continuation(
     content: str,
     *,
@@ -1073,8 +1131,6 @@ def _append_unique_continuation(
     plan: dict[str, Any],
     target_length: int = 2100,
 ) -> str:
-    if len(content) >= target_length:
-        return content
     protagonist = _character_name(book)
     ally = _supporting_name(book)
     clues = _list(plan.get("new_clues")) or ["红纸", "香灰", "井水"]
@@ -1106,10 +1162,18 @@ def _append_unique_continuation(
         ],
     ]
     text = content
-    for block in blocks:
+    block_index = 0
+    while len(text) < target_length and block_index < len(blocks) * 2:
+        block = blocks[block_index % len(blocks)]
+        if block_index >= len(blocks):
+            block = [
+                line.replace("红纸", "湿纸").replace("潮灰", "冷灰").replace("义庄后门", "井亭侧门")
+                for line in block
+            ]
         if len(text) >= target_length:
             break
         text = _clean_chapter_text(f"{text}\n\n" + "\n\n".join(block))
+        block_index += 1
     return text
 
 
@@ -1202,12 +1266,21 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
     metrics = _plot_paragraph_metrics(content)
     if metrics["description"] > metrics["plot"]:
         issues.append("描写段落多于剧情推进段落，存在水文风险。")
+    paragraphs = [part.strip() for part in re.split(r"\n{2,}", content) if part.strip()]
+    dead_windows = 0
+    for index in range(0, len(paragraphs), 3):
+        window = [part for part in paragraphs[index:index + 3] if len(part) >= 18]
+        if window and not any(_paragraph_has_progress(part) for part in window):
+            dead_windows += 1
+    if dead_windows:
+        issues.append("存在连续3段没有新动作、新冲突或新信息。")
     return {
         "pass": not issues,
         "issues": issues,
         "similarity": round(similarity, 3),
         "plot_paragraphs": metrics["plot"],
         "description_paragraphs": metrics["description"],
+        "dead_progress_windows": dead_windows,
     }
 
 
@@ -1927,8 +2000,13 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
         )
         content = f"{title}\n\n{body}".strip()
         content = _remove_repeated_previous_lines(content, archive, chapter_number)
+        content = _enforce_paragraph_level_rules(content, archive, chapter_number)
         content = _append_unique_continuation(content, book=book, plan=plan)
         content = _remove_repeated_previous_lines(content, archive, chapter_number)
+        content = _enforce_paragraph_level_rules(content, archive, chapter_number)
+        content = _append_unique_continuation(content, book=book, plan=plan)
+        content = _remove_repeated_previous_lines(content, archive, chapter_number)
+        content = _enforce_paragraph_level_rules(content, archive, chapter_number)
         continuity = _chapter_repetition_review(content, archive, chapter_number)
         editor = _editor_step(content)
         self_check = _chapter_self_check(content, archive, chapter_number, plan)
