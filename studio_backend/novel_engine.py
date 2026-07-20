@@ -467,16 +467,58 @@ def _chapter_continuity_plan(
         f"主动选择：角色必须采取一个会改变局面的行动，完成{core_event}",
         f"章末钩子：{suspense}",
     ]
+    event_plan = _build_chapter_event_plan(
+        consequence=_story_safe_line(consequence, "上一章的选择立刻产生代价。"),
+        conflict=conflict,
+        core_event=core_event,
+        suspense=suspense,
+        clues=clues,
+    )
     return {
         "core_event": core_event,
         "scene_beats": scene_beats,
+        "event_plan": event_plan,
         "new_clues": clues,
         "irreversible_change": _story_safe_line(
             item.get("irreversible_change") or item.get("payoff") or suspense,
             "角色做出选择，局面不可逆地升级。",
         ),
-        "planning_rule": "一章只围绕一个核心事件；最多3个新线索；每幕必须完成具体动作并产生不可逆变化。",
+        "planning_rule": "先生成第N章剧情计划：3-5个新事件，标注冲突/推进主线/伏笔；若与上一章重复必须重写计划。",
     }
+
+
+def _build_chapter_event_plan(
+    *,
+    consequence: str,
+    conflict: str,
+    core_event: str,
+    suspense: str,
+    clues: list[str],
+) -> list[dict[str, Any]]:
+    main_clue = clues[0] if clues else "新的物证"
+    secondary_clue = clues[1] if len(clues) > 1 else main_clue
+    return [
+        {
+            "event": f"上一章结尾的后果立刻落地：{consequence}",
+            "tags": ["推进主线"],
+        },
+        {
+            "event": f"外部阻力正面压上来：{conflict}",
+            "tags": ["冲突"],
+        },
+        {
+            "event": f"角色围绕{main_clue}查到一个新的经手人、地点或物证。",
+            "tags": ["推进主线"],
+        },
+        {
+            "event": f"角色主动采取行动，推动本章核心事件：{core_event}",
+            "tags": ["冲突", "推进主线"],
+        },
+        {
+            "event": f"结尾留下可追查的具体钩子：{suspense}，并让{secondary_clue}成为下一章伏笔。",
+            "tags": ["伏笔"],
+        },
+    ]
 
 
 def expand_story_units_to_raw_plans(units: list[Any], target_count: int) -> list[dict[str, Any]]:
@@ -725,6 +767,7 @@ def build_chapter_brief_from_book(
     used_title_phrases = _used_chapter_title_phrases(chapters, exclude_chapter=next_number)
     title_phrase = _chapter_title_phrase(next_number, chapter_plan, used_title_phrases)
     chapter_plan = {**chapter_plan, "title": title_phrase}
+    chapter_plan = {**chapter_plan, "event_plan": _normalize_event_plan_against_archive(chapter_plan, archive)}
     characters = _list(book.get("characters") or archive.get("characters"))
     protagonist = characters[0] if characters and isinstance(characters[0], dict) else {}
     recent_chapters = sorted(_list(archive.get("chapters")), key=lambda item: int(item.get("chapter_number") or 0))[-3:]
@@ -747,6 +790,7 @@ def build_chapter_brief_from_book(
         "chapter_mission": {
             "core_event": chapter_plan.get("core_event"),
             "scene_beats": _list(chapter_plan.get("scene_beats")),
+            "event_plan": _list(chapter_plan.get("event_plan")),
             "new_clues": _list(chapter_plan.get("new_clues"))[:3],
             "irreversible_change": chapter_plan.get("irreversible_change"),
             "goal": chapter_plan.get("goal"),
@@ -778,7 +822,10 @@ def build_chapter_brief_from_book(
             "每一段必须有新信息、新变化或新冲突，用行动和对话推动，不堆心理描写。",
             "本章必须引入至少1个新信息、升级1个矛盾，或改变主角处境。",
             "玄学内容必须可观察、可推理：落到物件、方位、时辰、因果代价或风水逻辑。",
+            "先生成第N章剧情计划，再写正文；计划必须列出3-5个新事件，并标注冲突/推进主线/伏笔。",
+            "如果计划事件与上一章重复，必须先重写计划，再继续生成正文。",
             f"本章核心事件：{chapter_plan.get('core_event')}",
+            f"本章剧情计划：{'; '.join([_text(item.get('event')) + '【' + '、'.join(_list(item.get('tags'))) + '】' for item in _list(chapter_plan.get('event_plan')) if isinstance(item, dict)])}",
             f"五幕推进：{' / '.join(_list(chapter_plan.get('scene_beats')))}",
             f"本章最多使用3个新线索：{'、'.join(_list(chapter_plan.get('new_clues'))[:3])}",
             f"不可逆变化：{chapter_plan.get('irreversible_change')}",
@@ -833,6 +880,14 @@ def _previous_consequence_prompt(archive: dict[str, Any], fallback: str = "上�
     return f"{title}之后，上一章的选择必须带来新的阻力、代价或追问。"
 
 
+def _previous_chapter_text(archive: dict[str, Any]) -> str:
+    chapters = _list(archive.get("chapters"))
+    if not chapters:
+        return ""
+    latest = sorted(chapters, key=lambda item: int(item.get("chapter_number") or 0))[-1]
+    return _text(latest.get("content") or latest.get("summary") or latest.get("context_summary"))
+
+
 def _chapter_sentences(text: str) -> list[str]:
     compact = re.sub(r"\s+", "", _text(text))
     parts = re.split(r"[。！？!?；;]", compact)
@@ -844,6 +899,47 @@ def _chapter_shingles(text: str, size: int = 18) -> set[str]:
     if len(compact) < size:
         return set()
     return {compact[index:index + size] for index in range(0, len(compact) - size + 1)}
+
+
+def _text_repeats_previous(text: str, previous: str) -> bool:
+    if not _text(text) or not _text(previous):
+        return False
+    current = _chapter_shingles(text, size=12)
+    old = _chapter_shingles(previous, size=12)
+    if not current or not old:
+        return False
+    return len(current & old) / max(1, len(current)) > 0.32
+
+
+def _normalize_event_plan_against_archive(chapter_plan: dict[str, Any], archive: dict[str, Any]) -> list[dict[str, Any]]:
+    previous = _previous_chapter_text(archive)
+    raw_events = _list(chapter_plan.get("event_plan"))
+    if not raw_events:
+        raw_events = [
+            {"event": beat, "tags": []}
+            for beat in _list(chapter_plan.get("scene_beats"))
+        ]
+    rewrites = [
+        ("承接上一章结尾造成的新增代价，但不复述上一章事件。", ["推进主线"]),
+        (_text(chapter_plan.get("conflict"), "新的外部阻力当场压上来。"), ["冲突"]),
+        (f"围绕{(_list(chapter_plan.get('new_clues')) or ['新的物证'])[0]}查到新的经手人、地点或物证。", ["推进主线"]),
+        (_text(chapter_plan.get("core_event"), "角色主动做出选择，让局面发生不可逆变化。"), ["冲突", "推进主线"]),
+        (_text(chapter_plan.get("suspense"), "结尾出现新的可追查钩子。"), ["伏笔"]),
+    ]
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_events[:5]):
+        data = item if isinstance(item, dict) else {"event": item, "tags": []}
+        event = _story_safe_line(data.get("event"), "")
+        tags = [tag for tag in _list(data.get("tags")) if tag in ["冲突", "推进主线", "伏笔"]]
+        if not tags:
+            tags = rewrites[min(index, len(rewrites) - 1)][1]
+        if not event or _text_repeats_previous(event, previous):
+            event, tags = rewrites[min(index, len(rewrites) - 1)]
+        normalized.append({"event": event, "tags": tags})
+    while len(normalized) < 3:
+        event, tags = rewrites[len(normalized)]
+        normalized.append({"event": event, "tags": tags})
+    return normalized[:5]
 
 
 def _chapter_repetition_review(content: str, archive: dict[str, Any], chapter_number: int) -> dict[str, Any]:
@@ -937,6 +1033,7 @@ def _plot_designer_step(brief: dict[str, Any]) -> dict[str, Any]:
     return {
         "role": "Plot Designer",
         "core_event": _text(plan.get("core_event"), _text(plan.get("goal"), "推进一个具体事件。")),
+        "event_plan": _list(plan.get("event_plan")),
         "scene_beats": _list(plan.get("scene_beats")),
         "new_clues": _list(plan.get("new_clues"))[:3],
         "irreversible_change": _text(plan.get("irreversible_change"), "角色做出选择，局面不可逆地升级。"),
@@ -1367,10 +1464,16 @@ def _expand_chapter_body(
     safe_twist = _story_safe_line(plot.get("twist"), "真正的问题藏在众人都忽略的细节里。")
     hook = _story_safe_line(plot.get("hook"), "门外又传来一声不该出现的响动。")
     scene_beats = []
+    for item in _list(plot.get("event_plan")):
+        if isinstance(item, dict):
+            event = _text(item.get("event"))
+            if event:
+                scene_beats.append(event)
     for item in _list(plot.get("scene_beats")):
         beat = re.sub(r"^[^：:]{1,8}[：:]\s*", "", _text(item)).strip()
         if beat:
             scene_beats.append(beat)
+    scene_beats = list(dict.fromkeys(scene_beats))[:5]
     new_clues = [_story_safe_line(item, "") for item in _list(plot.get("new_clues"))]
     new_clues = [item for item in new_clues if item][:3]
     is_shrine = any(token in " ".join([

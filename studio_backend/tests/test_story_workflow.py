@@ -222,6 +222,47 @@ def test_generated_second_chapter_continues_without_repeating_first_chapter():
     assert "第一声哭喊传进破庙时" not in second["content"]
     assert "供桌上的残香忽然自己亮了" not in second["content"]
     assert "女人膝盖一软，几乎是爬到供桌前的" not in second["content"]
+    assert "推进主线" not in second["content"]
+    assert "伏笔" not in second["content"]
+
+
+def test_chapter_brief_event_plan_labels_new_events_and_rewrites_repeats():
+    book = {
+        "id": "book-plan",
+        "title": "香火簿",
+        "genre": "eastern_mysticism",
+        "characters": [{"name": "云栖"}, {"name": "香火明"}],
+        "plot_outline": [{
+            "chapter": 2,
+            "goal": "云栖查清红纸上出现自己名字的原因。",
+            "conflict": "救人后村人反而怀疑他惹来灾祸。",
+            "suspense": "槐井边的功德簿翻到空白页，浮出云栖的名字。",
+            "new_clues": ["红纸姓名", "槐井水痕", "供桌香灰"],
+            "event_plan": [
+                {"event": "第一声哭喊传进破庙时，供桌上的残香忽然自己亮了。", "tags": ["推进主线"]},
+                {"event": "村人把红纸堵到庙门口，逼云栖解释名字来源。", "tags": ["冲突"]},
+                {"event": "供桌香灰里出现新的经手人指印。", "tags": ["推进主线", "伏笔"]},
+            ],
+        }],
+    }
+    archive = {
+        "chapters": [{
+            "chapter_number": 1,
+            "title": "第1章：残香复燃，槐井索命",
+            "content": "第一声哭喊传进破庙时，供桌上的残香忽然自己亮了。女人抱着孩子求救。",
+        }]
+    }
+
+    brief = build_chapter_brief_from_book(book, archive, chapter_number=2)
+    event_plan = brief["chapterPlan"]["event_plan"]
+
+    assert 3 <= len(event_plan) <= 5
+    assert all(item["event"] for item in event_plan)
+    assert all(any(tag in ["冲突", "推进主线", "伏笔"] for tag in item["tags"]) for item in event_plan)
+    assert "第一声哭喊传进破庙时" not in event_plan[0]["event"]
+    assert any("冲突" in item["tags"] for item in event_plan)
+    assert any("推进主线" in item["tags"] for item in event_plan)
+    assert any("伏笔" in item["tags"] for item in event_plan)
 
 
 def test_generate_modern_chapter_uses_grounded_scene_not_template_alarm():
