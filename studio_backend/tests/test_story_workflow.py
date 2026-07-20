@@ -8,6 +8,7 @@ from studio_backend.novel_engine import (
     build_chapter_brief_from_book,
     build_chapter_plans,
     generate_chapter_from_plan,
+    _editor_step,
 )
 
 
@@ -282,6 +283,24 @@ def test_generated_chapter_does_not_leak_reader_meta_fallback():
     assert "第一个选择" not in chapter["content"]
     assert "如何面对" not in chapter["content"]
     assert chapter["editorial_review"]["pass"]
+
+
+def test_editor_rejects_template_phrase_and_overlong_memory():
+    content = "\n\n".join([
+        "第2章：槐井有名",
+        "云栖推开庙门，水痕从门槛一路延到供桌下。",
+        "他心中一震，暗暗发誓一定要查清真相。",
+        "他想起上一章那些细节，想起雨声，想起女人磕头，想起孩子的手，想起供桌残香，想起井边黑水，想起每一句话。" * 16,
+        "香火明压低声音问：“你看见什么了？”",
+        "云栖把红纸按在香灰里，“名字不是浮出来的，是有人提前写上去的。”",
+        "井口忽然响了一声，水面浮出第二张红纸。",
+    ])
+
+    result = _editor_step(content)
+
+    assert not result["pass"]
+    assert any("模板化" in issue for issue in result["issues"])
+    assert any("回忆" in issue for issue in result["issues"])
 
 
 def test_generic_protagonist_name_is_replaced_in_generated_chapter():

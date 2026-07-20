@@ -38,6 +38,9 @@ NOVEL_WORLD_SIMULATOR_CONTRACT = {
         "承接上一章的结果和代价，不复述上一章正文。",
         "每章按4-5个递进场景推进：后果出现、冲突升级、线索发现、主动选择、章末钩子。",
         "每一幕必须给出新信息，不能循环使用同一段动作、台词或线索。",
+        "上一章回忆不得超过本章10%，只能用于揭示线索、动机或代价。",
+        "每一段必须提供新信息、新变化或新冲突，避免无意义心理描写。",
+        "玄学内容必须落到可观察物件、时间、方位、因果代价或风水逻辑上。",
         "结尾留下角色当下必须面对的具体悬念。",
         "语言保持番茄小说可读性：画面清楚、句子干净、对话推动剧情。",
     ],
@@ -49,6 +52,8 @@ NOVEL_WORLD_SIMULATOR_CONTRACT = {
         "不为了制造冲突降低人物智商。",
         "不复制、改写或大段复述上一章原文。",
         "不为了凑字数重复同一批线索、动作和台词。",
+        "不写流水账，不用“他心中一震”“暗暗发誓”等模板化表达。",
+        "不重置场景、关系和危机，不重新铺垫世界观。",
     ],
 }
 
@@ -768,6 +773,11 @@ def build_chapter_brief_from_book(
             "只承接上一章结果，不复述上一章原文。",
             "本章必须形成4-5个递进场景，每一幕推进一个新信息：后果、冲突、线索、选择、钩子。",
             "若是第2章及以后，先写上一章造成的代价，再写新的危机和主动行动。",
+            "开头必须紧接上一章结尾，不重新铺垫世界观、不重置危机。",
+            "回忆总量不得超过正文10%，且只能用于揭示线索、动机或代价。",
+            "每一段必须有新信息、新变化或新冲突，用行动和对话推动，不堆心理描写。",
+            "本章必须引入至少1个新信息、升级1个矛盾，或改变主角处境。",
+            "玄学内容必须可观察、可推理：落到物件、方位、时辰、因果代价或风水逻辑。",
             f"本章核心事件：{chapter_plan.get('core_event')}",
             f"五幕推进：{' / '.join(_list(chapter_plan.get('scene_beats')))}",
             f"本章最多使用3个新线索：{'、'.join(_list(chapter_plan.get('new_clues'))[:3])}",
@@ -781,6 +791,9 @@ def build_chapter_brief_from_book(
             "不要写“本章”“这一章”“下面”“为了增强冲突”等说明。",
             "不要复制、改写或大段复述上一章原文。",
             "不要重复同一段动作、台词、物件和线索来凑字数。",
+            "不要写流水账、纯心理描写堆砌或“他心中一震”“暗暗发誓”等模板句。",
+            "不要换一种说法重复同一件事。",
+            "不要大段总结前文。",
             "不要写平台外引流、联系方式、外部链接、账号口令。",
             "不要为了冲突降低人物智商。",
             "不要偏离当前 bookId 的 Story Archive。",
@@ -859,6 +872,43 @@ def _chapter_repetition_review(content: str, archive: dict[str, Any], chapter_nu
         "shared_sentences": shared[:3],
         "shingle_overlap": round(overlap, 3),
     }
+
+
+def _chapter_prose_quality_issues(content: str) -> list[str]:
+    issues: list[str] = []
+    template_phrases = [
+        "心中一震", "暗暗发誓", "眼神坚定", "热血沸腾", "命运的齿轮",
+        "他知道自己不能退", "她知道自己不能退", "这一切才刚刚开始",
+    ]
+    if any(phrase in content for phrase in template_phrases):
+        issues.append("存在模板化网文表达。")
+    recap_tokens = ["前文", "此前发生", "回想起之前", "大致经过", "简单来说"]
+    if any(token in content for token in recap_tokens):
+        issues.append("存在总结前文倾向。")
+    paragraphs = [part.strip() for part in re.split(r"\n{2,}", content) if part.strip()]
+    memory_paragraphs = [
+        part for part in paragraphs
+        if any(token in part for token in ["想起", "记起", "回忆", "当年", "上一章"])
+    ]
+    memory_chars = sum(len(part) for part in memory_paragraphs)
+    if memory_chars > max(160, len(content) * 0.1):
+        issues.append("回忆内容超过正文10%，需要压缩为线索或动机。")
+    weak_paragraphs = 0
+    action_tokens = [
+        "问", "说", "看", "走", "推", "按", "拿", "放", "追", "拦", "查", "翻", "指",
+        "听", "碰", "退", "停", "递", "跪", "敲", "裂", "响", "亮", "渗", "写",
+    ]
+    for part in paragraphs:
+        if len(part) < 18:
+            continue
+        has_dialogue = "“" in part and "”" in part
+        has_action = any(token in part for token in action_tokens)
+        has_change = any(token in part for token in ["忽然", "终于", "却", "反而", "露出", "出现", "多了", "少了", "变"])
+        if not (has_dialogue or has_action or has_change):
+            weak_paragraphs += 1
+    if weak_paragraphs >= max(8, int(len(paragraphs) * 0.35)):
+        issues.append("过多段落缺少动作、对话或新变化。")
+    return issues
 
 
 def _director_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any]) -> dict[str, Any]:
@@ -1285,6 +1335,7 @@ def _editor_step(content: str) -> dict[str, Any]:
         "故事刚开始", "读者", "第一个选择", "如何面对",
     ]):
         issues.append("存在说明/总结/平台化表达。")
+    issues.extend(_chapter_prose_quality_issues(content))
     if content.count("？") + content.count("?") < 2:
         issues.append("对话和问题牵引不足。")
     if not content.rstrip().endswith(("？", "。", "！", "”")):
@@ -1352,7 +1403,7 @@ def _expand_chapter_body(
             f"“看谁希望我只盯着眼前这件事。”{protagonist}说。",
             f"{safe_conflict}",
             "这句话说出口后，周围反而安静下来。安静不是安全，而是所有人都在等他先犯错。",
-            f"{protagonist}把掌心贴到袖口，那里还残留着上一场风波留下的痛感。他知道自己不能退，一退，刚刚理清的线就会重新乱成一团。",
+            f"{protagonist}把掌心贴到袖口，那里还残留着上一场风波留下的痛感。他把刚才听见的三句话按顺序记下，决定先追最早变口供的那个人。",
         ],
         [
             "人群里忽然有人咳了一声。",
