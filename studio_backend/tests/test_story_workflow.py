@@ -224,6 +224,8 @@ def test_generated_second_chapter_continues_without_repeating_first_chapter():
     assert "女人膝盖一软，几乎是爬到供桌前的" not in second["content"]
     assert "推进主线" not in second["content"]
     assert "伏笔" not in second["content"]
+    assert "上一章" not in second["content"]
+    assert "想起" not in second["content"]
 
 
 def test_chapter_brief_event_plan_labels_new_events_and_rewrites_repeats():
@@ -342,6 +344,7 @@ def test_editor_rejects_template_phrase_and_overlong_memory():
     assert not result["pass"]
     assert any("模板化" in issue for issue in result["issues"])
     assert any("回忆" in issue for issue in result["issues"])
+    assert any("多处回忆" in issue or "不能多段展开" in issue for issue in result["issues"])
 
 
 def test_generic_protagonist_name_is_replaced_in_generated_chapter():

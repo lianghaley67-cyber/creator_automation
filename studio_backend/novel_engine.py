@@ -38,7 +38,7 @@ NOVEL_WORLD_SIMULATOR_CONTRACT = {
         "承接上一章的结果和代价，不复述上一章正文。",
         "每章按4-5个递进场景推进：后果出现、冲突升级、线索发现、主动选择、章末钩子。",
         "每一幕必须给出新信息，不能循环使用同一段动作、台词或线索。",
-        "上一章回忆不得超过本章10%，只能用于揭示线索、动机或代价。",
+        "上一章回忆最多一句话，只能用于揭示线索、动机或代价。",
         "每一段必须提供新信息、新变化或新冲突，避免无意义心理描写。",
         "玄学内容必须落到可观察物件、时间、方位、因果代价或风水逻辑上。",
         "结尾留下角色当下必须面对的具体悬念。",
@@ -202,6 +202,7 @@ def _story_safe_line(value: Any, fallback: str) -> str:
         "主角", "章末", "具体问题", "更高层威胁", "悬念", "读者", "本章", "剧情", "目标推进",
         "开局危机", "世界规则", "人物困境", "章节规划", "规则重写", "小说世界模拟器", "不合规范",
         "世界观", "关键同盟", "感情线", "阶段目标", "卷主题", "人物成长", "设定", "系统",
+        "必须完成", "具体做法", "推进主线", "角色围绕", "主动采取行动",
     ]
     if not text or any(token in text for token in meta_tokens):
         return fallback
@@ -459,7 +460,7 @@ def _chapter_continuity_plan(
             _clean_title_fragment(suspense, limit=14) or "新悬念出现",
         ]
     clues = list(dict.fromkeys(clues))[:3]
-    consequence = item.get("previous_consequence") or "上一章的选择立刻产生代价。"
+    consequence = item.get("previous_consequence") or ("第一件麻烦当场落地。" if chapter <= 1 else "昨夜救人后的代价当场落地。")
     scene_beats = [
         f"后果出现：{_story_safe_line(consequence, '上一章的选择立刻产生代价。')}",
         f"外部冲突：{conflict}",
@@ -499,7 +500,7 @@ def _build_chapter_event_plan(
     secondary_clue = clues[1] if len(clues) > 1 else main_clue
     return [
         {
-            "event": f"上一章结尾的后果立刻落地：{consequence}",
+            "event": consequence,
             "tags": ["推进主线"],
         },
         {
@@ -818,7 +819,7 @@ def build_chapter_brief_from_book(
             "本章必须形成4-5个递进场景，每一幕推进一个新信息：后果、冲突、线索、选择、钩子。",
             "若是第2章及以后，先写上一章造成的代价，再写新的危机和主动行动。",
             "开头必须紧接上一章结尾，不重新铺垫世界观、不重置危机。",
-            "回忆总量不得超过正文10%，且只能用于揭示线索、动机或代价。",
+            "回忆最多一句话，且只能用于揭示线索、动机或代价。",
             "每一段必须有新信息、新变化或新冲突，用行动和对话推动，不堆心理描写。",
             "本章必须引入至少1个新信息、升级1个矛盾，或改变主角处境。",
             "玄学内容必须可观察、可推理：落到物件、方位、时辰、因果代价或风水逻辑。",
@@ -840,7 +841,7 @@ def build_chapter_brief_from_book(
             "不要重复同一段动作、台词、物件和线索来凑字数。",
             "不要写流水账、纯心理描写堆砌或“他心中一震”“暗暗发誓”等模板句。",
             "不要换一种说法重复同一件事。",
-            "不要大段总结前文。",
+            "不要解释已发生的事，不要展开“他想起之前……”式回忆。",
             "不要写平台外引流、联系方式、外部链接、账号口令。",
             "不要为了冲突降低人物智商。",
             "不要偏离当前 bookId 的 Story Archive。",
@@ -920,7 +921,7 @@ def _normalize_event_plan_against_archive(chapter_plan: dict[str, Any], archive:
             for beat in _list(chapter_plan.get("scene_beats"))
         ]
     rewrites = [
-        ("承接上一章结尾造成的新增代价，但不复述上一章事件。", ["推进主线"]),
+        ("昨夜救人后的新增代价当场落地。", ["推进主线"]),
         (_text(chapter_plan.get("conflict"), "新的外部阻力当场压上来。"), ["冲突"]),
         (f"围绕{(_list(chapter_plan.get('new_clues')) or ['新的物证'])[0]}查到新的经手人、地点或物证。", ["推进主线"]),
         (_text(chapter_plan.get("core_event"), "角色主动做出选择，让局面发生不可逆变化。"), ["冲突", "推进主线"]),
@@ -970,6 +971,76 @@ def _chapter_repetition_review(content: str, archive: dict[str, Any], chapter_nu
     }
 
 
+def _remove_repeated_previous_lines(content: str, archive: dict[str, Any], chapter_number: int) -> str:
+    if chapter_number <= 1:
+        return content
+    previous = _previous_chapter_text(archive)
+    if not previous:
+        return content
+    previous_sentences = set(_chapter_sentences(previous))
+    kept: list[str] = []
+    for raw in _text(content).splitlines():
+        line = raw.strip()
+        if not line:
+            if kept and kept[-1] != "":
+                kept.append("")
+            continue
+        line_sentences = _chapter_sentences(line)
+        if line_sentences and any(sentence in previous_sentences for sentence in line_sentences):
+            continue
+        if _text_repeats_previous(line, previous):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def _append_unique_continuation(
+    content: str,
+    *,
+    book: dict[str, Any],
+    plan: dict[str, Any],
+    target_length: int = 2100,
+) -> str:
+    if len(content) >= target_length:
+        return content
+    protagonist = _character_name(book)
+    ally = _supporting_name(book)
+    clues = _list(plan.get("new_clues")) or ["红纸", "香灰", "井水"]
+    hook = _story_safe_line(plan.get("suspense"), "门外出现新的危险。")
+    blocks = [
+        [
+            f"{protagonist}把那点潮灰收进纸包，没有立刻给众人看。",
+            f"他问的第一句话不是谁做的，而是：“今天谁最后碰过{clues[0]}？”",
+            "人群里没人答，只有檐下的水滴一下一下落在石阶上。",
+            f"{ally}从旁边捡起半截麻绳，绳结的打法和镇北井栏上的旧结一模一样。",
+        ],
+        [
+            f"卖纸钱的汉子终于绷不住，低声说：“我只负责把纸送到碑前，名字不是我写的。”",
+            f"{protagonist}看着他的手，“谁给你的纸？”",
+            "汉子嘴唇动了动，目光越过人群，落到义庄后门。",
+            "那里本该锁着的铜扣，不知什么时候开了一道缝。",
+        ],
+        [
+            f"{protagonist}走到后门前，没有推门，先把{clues[-1]}抹在门缝边。",
+            "灰线刚碰到木头，门内立刻浮出几道湿脚印。",
+            "脚印从里面走到门口，又在门槛前整齐停住，像有人一直站在那里听他们说话。",
+            f"{ally}握紧铜铃，“里面有人。”",
+        ],
+        [
+            "门后传来轻轻一声笑。",
+            f"{protagonist}抬手按住门板，“出来。”",
+            "回答他的不是脚步，而是一张从门缝里滑出的红纸。",
+            f"红纸上没有名字，只有一句话：{hook}",
+        ],
+    ]
+    text = content
+    for block in blocks:
+        if len(text) >= target_length:
+            break
+        text = _clean_chapter_text(f"{text}\n\n" + "\n\n".join(block))
+    return text
+
+
 def _chapter_prose_quality_issues(content: str) -> list[str]:
     issues: list[str] = []
     template_phrases = [
@@ -987,8 +1058,12 @@ def _chapter_prose_quality_issues(content: str) -> list[str]:
         if any(token in part for token in ["想起", "记起", "回忆", "当年", "上一章"])
     ]
     memory_chars = sum(len(part) for part in memory_paragraphs)
+    if len(memory_paragraphs) > 1:
+        issues.append("回忆只能一句话带过，不能多段展开。")
     if memory_chars > max(160, len(content) * 0.1):
         issues.append("回忆内容超过正文10%，需要压缩为线索或动机。")
+    if sum(content.count(token) for token in ["想起", "记起", "回忆", "上一章"]) > 1:
+        issues.append("存在多处回忆或解释已发生事件。")
     weak_paragraphs = 0
     action_tokens = [
         "问", "说", "看", "走", "推", "按", "拿", "放", "追", "拦", "查", "翻", "指",
@@ -1097,7 +1172,7 @@ def _clean_chapter_text(text: str) -> str:
         "章末留下", "具体问题", "更高层威胁", "目标推进", "本章目标", "本章冲突", "章节规划",
         "小说世界模拟器", "不合规范", "按小说", "规则重写", "开局危机", "人物困境", "世界规则", "主角",
         "世界观", "关键同盟", "感情线", "阶段目标", "卷主题", "人物成长", "章节标题", "系统默认",
-        "读者", "第一个选择", "如何面对",
+        "读者", "第一个选择", "如何面对", "必须完成", "具体做法", "推进主线", "角色围绕", "主动采取行动",
     ]
     for raw in (text or "").splitlines():
         line = raw.strip()
@@ -1161,7 +1236,7 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
             paragraphs = [
                 opening,
                 f"{previous_memory}",
-                f"{protagonist}把伞收紧，水珠顺着伞骨砸在地砖上。她原本以为上一章的麻烦已经暂时按住，至少能给自己换来一次解释机会。",
+                f"{protagonist}把伞收紧，水珠顺着伞骨砸在地砖上；新的质问已经堵到面前。",
                 f"可她刚走近，就看见{trigger}。",
                 f"{ally}站在走廊尽头，脸色难看。他没有立刻开口，只用眼神示意她看会议室里的人。",
                 "里面坐着两个人。一个穿着深色外套，手边放着手机；另一个低头翻资料，像是已经准备好把结论写下来。",
@@ -1203,7 +1278,7 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
             "旁边有人看热闹，有人绕开水洼，也有人举起手机拍。早餐铺老板娘探出头：“小周，摔着没？”",
             f"{ally}摇头，“没事。”",
             "话刚说完，手机又跳出一条消息。客户催单，平台倒计时，红色数字挤在一块，看得人喘不过气。",
-            f"{protagonist}看着那串数字，忽然想起早上压在心底的事：{previous_memory}",
+            f"{protagonist}看着那串数字，帆布包里的缴费单被雨水洇出一道深色折痕。",
             f"她知道自己也快被生活催到角落里了。房租、工作、家里的电话，每一样都在等她低头。可眼前这个人连低头的时间都没有。",
             "“最近的一单在哪？”她问。",
             f"{ally}抬头看她，“你要干什么？”",
@@ -1269,7 +1344,7 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
                         f"{ally}靠在门边守了一夜，听见动静立刻睁眼，“又来了？”",
                         f"{protagonist}没有回答。他看见香灰在桌面上排成一行字。",
                         f"{safe_goal}",
-                        f"上一章留下的余痛还没退，掌心被愿力烧出的红痕仍在跳。{previous_memory}",
+                        f"掌心被愿力烧出的红痕仍在跳，新的代价已经顺着铃声找上门。",
                         "门开时，一个老更夫站在雨雾里，怀里抱着一只湿透的铜铃。",
                         f"“听愿的人在不在？”老更夫嗓子哑得厉害，“镇北槐井出事了。”",
                         f"{ally}脸色一变，“那里不能去。”",
@@ -1293,7 +1368,7 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
                         f"{ally}手里的水碗一晃，“别出去。”",
                         f"{protagonist}看向供桌。残香没有亮，香灰却在桌上慢慢凹出一个掌印。",
                         f"那掌印指向义庄，也指向本章必须完成的事：{safe_goal}",
-                        f"他想起上一章留下的警告。{previous_memory}",
+                        f"掌心红痕被雾气一激，疼得像有人用细针挑开旧伤。",
                         "义庄门口围满了人，却没有一个敢靠近门槛。",
                         "门槛内躺着一具盖了白布的尸体。白布下面伸出一只手，手心里攥着半截烧黑的香。",
                         f"{protagonist}刚走近，那只手忽然松开，香头滚到他脚边。",
@@ -1320,7 +1395,7 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
                         f"他的名字。",
                         f"{ally}把其中一张抢过来，脸色当场沉下去，“有人在替你收愿。”",
                         f"{protagonist}摸到袖中的残香。香没有热，反而冷得像一截冰。",
-                        f"上一章的痕迹还没有散去，{previous_memory}",
+                        f"袖中的残香还带着冷意，新的名字已经把人群的目光推到他身上。",
                         "碑裂开的缝里夹着一片薄薄的木牌。",
                         f"{protagonist}抽出来，木牌背面刻着：{safe_goal}",
                         "跪在最前面的老妇抬头，眼睛浑浊，“你既然收了我们的愿，就该替我们办事。”",
@@ -1481,24 +1556,89 @@ def _expand_chapter_body(
         _text(book.get("hook")),
         _text(_dict(book.get("core_design")).get("平台标签")),
     ]) for token in ["香火", "庙", "祈愿", "神道", "玄学", "修仙"])
-    scene_actions = [
-        ("先处理后果", "确认谁受了伤、谁改了口、谁因为上一章的选择失去退路"),
-        ("正面应对阻力", "让反对的人当场说清理由，也逼出围观者真正害怕的事"),
-        ("核验关键线索", "只围着这一条线索查来源、时间和经手的人"),
-        ("做出主动选择", "把查到的证据换成一次行动，而不是停在猜测里"),
-        ("留下章末钩子", "让新的危险以一个具体物件、一句话或一次异动落到眼前"),
-    ]
     planned_blocks: list[list[str]] = []
     for idx, beat in enumerate(scene_beats[:5]):
         clue = new_clues[idx % len(new_clues)] if new_clues else "眼前线索"
-        action_name, action_detail = scene_actions[idx] if idx < len(scene_actions) else scene_actions[-1]
-        planned_blocks.append([
-            f"{protagonist}把这一幕先压成一个必须完成的动作：{beat}",
-            f"围绕{clue}，他这次要{action_name}，具体做法是{action_detail}。",
-            f"{ally}指向{clue}，提醒他别被旁支牵走。",
-            f"{protagonist}顺着{clue}往下核，得到的不是完整答案，而是一个能推动下一步的变化。",
-            f"等这一幕结束，局面必须留下痕迹：{hook}",
-        ])
+        event_line = _story_safe_line(beat, "")
+        variant = (chapter_number + idx) % 3
+        if idx == 0:
+            ally_lines = [
+                f"{ally}低声问：“你要先查这个？”",
+                f"{ally}看了一眼人群，“先从{clue}查？”",
+                f"{ally}把声音压低，“别急着答应，先看{clue}。”",
+            ]
+            planned_blocks.append([
+                event_line or f"{protagonist}刚站稳，人群里就有人把新的麻烦推到他面前。",
+                f"{protagonist}先看孩子的脸色，再看众人的站位，最后把目光落在{clue}上。",
+                ally_lines[variant],
+                f"“先查最容易被人动手脚的东西。”{protagonist}说。",
+            ])
+        elif idx == 1:
+            block_variants = [
+                [
+                    f"{ally}刚要开口，{protagonist}抬手拦住他，“让他说完。”",
+                    f"那人说到一半，眼神却避开了{clue}。",
+                ],
+                [
+                    f"{protagonist}没有争辩，只把{clue}往桌上一放，“你继续。”",
+                    "逼问的人声音低了半截，手指在袖口里攥紧。",
+                ],
+                [
+                    f"{ally}往旁边挪了一步，堵住退路。{protagonist}问：“谁让你拿这个说事？”",
+                    f"对方没看他，反而盯着{clue}，像怕它突然开口。",
+                ],
+            ]
+            planned_blocks.append([
+                event_line or "围观的人群忽然向前压了一步，质问声盖过了雨声。",
+                f"有人指着{protagonist}，逼他当场给出交代。",
+                *block_variants[variant],
+            ])
+        elif idx == 2:
+            trace_lines = [
+                "指印旁边还压着一根断发，发尾带着井水的腥味。",
+                "灰痕尽头卡着一粒红泥，颜色比镇口路面的泥更深。",
+                "石面下方渗出一线冷水，水里漂着半点烧焦的纸屑。",
+            ]
+            check_lines = [
+                f"{protagonist}让众人后退半步，沿着灰痕找到一枚很浅的指印。",
+                f"{protagonist}把{clue}翻到背面，指腹在边角停住。",
+                f"{protagonist}借着天光细看，发现灰痕不是落下来的，而是被人抹上去的。",
+            ]
+            planned_blocks.append([
+                event_line or f"{protagonist}把线索从人群脚边捡起来，放到干净的石面上。",
+                f"{clue}边缘沾着潮灰，灰粒不是从香炉里自然落下来的。",
+                check_lines[variant],
+                trace_lines[variant],
+            ])
+        elif idx == 3:
+            suspect_lines = [
+                "人群安静下去，一个卖纸钱的汉子忽然把手缩进袖里。",
+                "角落里的更夫别开脸，铜铃却在他怀里轻轻响了一下。",
+                "一个披蓑衣的少年后退半步，鞋底留下半枚槐叶形水印。",
+            ]
+            block_lines = [
+                f"{ally}一步堵住他的退路，“手伸出来。”",
+                f"{protagonist}抬手按住门框，“你现在走，账就算到你头上。”",
+                f"{ally}把铜铃往前一递，“这东西认识你。”",
+            ]
+            planned_blocks.append([
+                event_line or f"{protagonist}没有再等对方开口，直接把证据摆到众人眼前。",
+                f"“谁碰过{clue}，现在自己站出来。”他说。",
+                suspect_lines[variant],
+                block_lines[variant],
+            ])
+        else:
+            ending_lines = [
+                f"{ally}看清那两个字，声音一下低了，“这不是要你查案，是要你偿命。”",
+                f"{protagonist}伸手去按，那名字却像活物一样往纸背钻。",
+                "井水在门外漫开，水面倒映出的不是众人，而是一排空着的灵位。",
+            ]
+            planned_blocks.append([
+                event_line or "井口方向忽然传来一声闷响，像有人从水下敲了三下石壁。",
+                f"{protagonist}回头时，{clue}上的水痕正在倒着爬。",
+                "水痕爬到纸面尽头，停成一个新的名字。",
+                ending_lines[variant],
+            ])
     expansion_sets = [
         [
             f"{protagonist}没有立刻往前走。他先把四周重新看了一遍：门槛上的水痕、墙角被蹭掉的灰、还有地面那道断断续续的脚印，每一样都像被人刻意摆在明处。",
@@ -1579,7 +1719,8 @@ def _expand_chapter_body(
     if is_shrine:
         expansion_sets[0][0] = f"{protagonist}没有立刻往前走。他先看香灰落下的方向，看门槛上逆流的水，看供桌底下那道新裂开的缝。"
         expansion_sets[3][6] = "门外没有脚步声，只有水从井底翻上来的声音，一下又一下，像有人在黑暗里拖着湿透的衣摆。"
-    index = max(0, chapter_number - 1)
+    rewrite_seed = int(brief.get("regenerate_seed") or 0)
+    index = max(0, chapter_number - 1 + rewrite_seed * 3)
     planned_index = 0
     while len(text) < target_length and planned_index < len(planned_blocks):
         text = _clean_chapter_text(f"{text}\n\n" + "\n\n".join(planned_blocks[planned_index]))
@@ -1654,6 +1795,9 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
             protagonist=_character_name(book),
         )
         content = f"{title}\n\n{body}".strip()
+        content = _remove_repeated_previous_lines(content, archive, chapter_number)
+        content = _append_unique_continuation(content, book=book, plan=plan)
+        content = _remove_repeated_previous_lines(content, archive, chapter_number)
         continuity = _chapter_repetition_review(content, archive, chapter_number)
         if continuity["pass"]:
             break
