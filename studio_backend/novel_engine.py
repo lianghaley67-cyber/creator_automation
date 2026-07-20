@@ -801,7 +801,7 @@ def _character_name(book: dict[str, Any]) -> str:
 def _previous_summary(archive: dict[str, Any]) -> str:
     chapters = _list(archive.get("chapters"))
     if not chapters:
-        return "故事刚开始，读者还不知道她会如何面对第一个选择。"
+        return "门外的风声压低下来，第一件麻烦已经逼到眼前。"
     latest = sorted(chapters, key=lambda item: int(item.get("chapter_number") or 0))[-1]
     return _text(latest.get("summary") or latest.get("title") or latest.get("content"), "上一章留下的选择还没有完成。")[:220]
 
@@ -944,12 +944,13 @@ def _realist_scene_place(book: dict[str, Any], chapter_number: int) -> str:
 
 
 def _clean_chapter_text(text: str) -> str:
-    banned_prefixes = ["总结", "本章", "这一章", "下面", "以下", "作为", "我们可以看到", "写作", "结构", "为了增强"]
+    banned_prefixes = ["总结", "本章", "这一章", "下面", "以下", "作为", "我们可以看到", "写作", "结构", "为了增强", "故事刚开始"]
     lines = []
     meta_fragments = [
         "章末留下", "具体问题", "更高层威胁", "目标推进", "本章目标", "本章冲突", "章节规划",
         "小说世界模拟器", "不合规范", "按小说", "规则重写", "开局危机", "人物困境", "世界规则", "主角",
         "世界观", "关键同盟", "感情线", "阶段目标", "卷主题", "人物成长", "章节标题", "系统默认",
+        "读者", "第一个选择", "如何面对",
     ]
     for raw in (text or "").splitlines():
         line = raw.strip()
@@ -1281,6 +1282,7 @@ def _editor_step(content: str) -> dict[str, Any]:
     if any(word in content for word in [
         "总结", "本章讲述", "本文", "公众号", "提示词", "JSON", "章末留下", "具体问题",
         "更高层威胁", "主角", "世界观", "关键同盟", "感情线", "章节规划", "系统默认",
+        "故事刚开始", "读者", "第一个选择", "如何面对",
     ]):
         issues.append("存在说明/总结/平台化表达。")
     if content.count("？") + content.count("?") < 2:

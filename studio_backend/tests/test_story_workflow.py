@@ -261,6 +261,29 @@ def test_generate_modern_chapter_uses_grounded_scene_not_template_alarm():
     assert chapter["editorial_review"]["pass"]
 
 
+def test_generated_chapter_does_not_leak_reader_meta_fallback():
+    book = {
+        "id": "book-no-reader-meta",
+        "title": "香火簿",
+        "genre": "eastern_mysticism",
+        "characters": [{"name": "云栖"}, {"name": "香火明"}],
+        "plot_outline": [{
+            "chapter": 1,
+            "goal": "云栖救下供桌前的孩子，发现香灰断了三年。",
+            "conflict": "庙外雨声急，村人把孩子的命推到他面前。",
+            "suspense": "井口传来第二声哭喊。",
+        }],
+    }
+    brief = build_chapter_brief_from_book(book, {"chapters": []})
+    chapter = generate_chapter_from_plan(book, {"chapters": []}, brief)
+
+    assert "故事刚开始" not in chapter["content"]
+    assert "读者" not in chapter["content"]
+    assert "第一个选择" not in chapter["content"]
+    assert "如何面对" not in chapter["content"]
+    assert chapter["editorial_review"]["pass"]
+
+
 def test_generic_protagonist_name_is_replaced_in_generated_chapter():
     book = {
         "id": "book-2",
