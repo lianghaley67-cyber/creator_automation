@@ -1082,6 +1082,63 @@ def _chapter_prose_quality_issues(content: str) -> list[str]:
     return issues
 
 
+def _plot_paragraph_metrics(content: str) -> dict[str, int]:
+    paragraphs = [part.strip() for part in re.split(r"\n{2,}", content) if part.strip()]
+    action_tokens = [
+        "问", "说", "看", "走", "推", "按", "拿", "放", "追", "拦", "查", "翻", "指",
+        "听", "碰", "退", "停", "递", "跪", "敲", "裂", "响", "亮", "渗", "写", "发现",
+        "出现", "出来", "站", "开口", "回头", "伸手", "抬手", "堵住", "交代",
+    ]
+    change_tokens = ["忽然", "终于", "却", "反而", "露出", "出现", "多了", "少了", "变", "裂", "渗", "浮出"]
+    plot = 0
+    description = 0
+    for part in paragraphs:
+        if len(part) < 18:
+            continue
+        has_dialogue = "“" in part and "”" in part
+        has_action = any(token in part for token in action_tokens)
+        has_change = any(token in part for token in change_tokens)
+        if has_dialogue or has_action or has_change:
+            plot += 1
+        else:
+            description += 1
+    return {"plot": plot, "description": description, "total": len(paragraphs)}
+
+
+def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: int, plan: dict[str, Any]) -> dict[str, Any]:
+    previous = _previous_chapter_text(archive)
+    cur_shingles = _chapter_shingles(content)
+    prev_shingles = _chapter_shingles(previous)
+    similarity = len(cur_shingles & prev_shingles) / max(1, len(cur_shingles)) if previous else 0
+    issues: list[str] = []
+    if chapter_number > 1 and similarity > 0.10:
+        issues.append("与上一章相似句子超过10%，需要直接重写本章。")
+
+    markers: list[str] = []
+    for clue in _list(plan.get("new_clues")):
+        marker = _clean_title_fragment(clue, limit=12)
+        if marker:
+            markers.append(marker)
+    for source in [plan.get("core_event"), plan.get("conflict"), plan.get("suspense"), plan.get("irreversible_change")]:
+        marker = _clean_title_fragment(source, limit=12)
+        if marker:
+            markers.append(marker)
+    has_new_event = any(marker and marker in content for marker in dict.fromkeys(markers))
+    if not has_new_event:
+        issues.append("没有落实章节计划中的新事件、新线索或处境变化。")
+
+    metrics = _plot_paragraph_metrics(content)
+    if metrics["description"] > metrics["plot"]:
+        issues.append("描写段落多于剧情推进段落，存在水文风险。")
+    return {
+        "pass": not issues,
+        "issues": issues,
+        "similarity": round(similarity, 3),
+        "plot_paragraphs": metrics["plot"],
+        "description_paragraphs": metrics["description"],
+    }
+
+
 def _director_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any]) -> dict[str, Any]:
     plan = _dict(brief.get("chapterPlan"))
     chapter_number = int(brief.get("chapter_number") or plan.get("chapter") or 1)
@@ -1780,7 +1837,9 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
     character: dict[str, Any] = {}
     content = ""
     continuity = {"pass": True, "issues": [], "score": 100, "shared_sentences": []}
-    for attempt in range(3):
+    editor = {"role": "Editor", "pass": False, "issues": ["尚未完成审核。"], "immersion_score": 60}
+    self_check = {"pass": False, "issues": ["尚未完成自检。"], "similarity": 0}
+    for attempt in range(6):
         if attempt:
             attempt_brief = {**attempt_brief, "regenerate_seed": attempt}
         director = _director_step(book, archive, attempt_brief)
@@ -1799,17 +1858,24 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
         content = _append_unique_continuation(content, book=book, plan=plan)
         content = _remove_repeated_previous_lines(content, archive, chapter_number)
         continuity = _chapter_repetition_review(content, archive, chapter_number)
-        if continuity["pass"]:
+        editor = _editor_step(content)
+        self_check = _chapter_self_check(content, archive, chapter_number, plan)
+        if continuity["pass"] and editor["pass"] and self_check["pass"]:
             break
-    editor = _editor_step(content)
     if not continuity["pass"]:
         editor["issues"].extend(_list(continuity.get("issues")))
         editor["pass"] = False
         editor["immersion_score"] = min(int(editor["immersion_score"]), int(continuity.get("score") or 60))
+    if not self_check["pass"]:
+        editor["issues"].extend(_list(self_check.get("issues")))
+        editor["pass"] = False
+        editor["immersion_score"] = min(int(editor["immersion_score"]), 55)
     review = analyze_story({"plot_outline": [plan], "characters": book.get("characters"), "core_design": book.get("core_design"), "real_event_strategy": book.get("real_event_strategy")})
     review["continuity_pass"] = continuity["pass"]
     review["continuity_issues"] = continuity["issues"]
     review["continuity_score"] = continuity["score"]
+    review["self_check_pass"] = self_check["pass"]
+    review["self_check_issues"] = self_check["issues"]
     review["editor_immersion_score"] = editor["immersion_score"]
     review["score"] = round((float(review.get("score") or 0) + editor["immersion_score"]) / 2)
     return {
@@ -1824,5 +1890,6 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
         "production_trace": [director, plot, character],
         "editorial_review": editor,
         "continuity_review": continuity,
+        "chapter_self_check": self_check,
         "created_at": book.get("updated_at"),
     }

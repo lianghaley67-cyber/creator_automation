@@ -218,6 +218,9 @@ def test_generated_second_chapter_continues_without_repeating_first_chapter():
 
     assert len(second["content"]) >= 2000
     assert second["continuity_review"]["pass"]
+    assert second["chapter_self_check"]["pass"]
+    assert second["chapter_self_check"]["similarity"] <= 0.1
+    assert second["chapter_self_check"]["plot_paragraphs"] >= second["chapter_self_check"]["description_paragraphs"]
     assert second["continuity_review"]["shared_sentences"] == []
     assert "第一声哭喊传进破庙时" not in second["content"]
     assert "供桌上的残香忽然自己亮了" not in second["content"]
