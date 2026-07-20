@@ -502,22 +502,37 @@ def _build_chapter_event_plan(
         {
             "event": consequence,
             "tags": ["推进主线"],
+            "advances_mainline": "是",
+            "creates_conflict": "否",
+            "new_information": "是",
         },
         {
             "event": f"外部阻力正面压上来：{conflict}",
             "tags": ["冲突"],
+            "advances_mainline": "否",
+            "creates_conflict": "是",
+            "new_information": "是",
         },
         {
             "event": f"角色围绕{main_clue}查到一个新的经手人、地点或物证。",
             "tags": ["推进主线"],
+            "advances_mainline": "是",
+            "creates_conflict": "否",
+            "new_information": "是",
         },
         {
             "event": f"角色主动采取行动，推动本章核心事件：{core_event}",
             "tags": ["冲突", "推进主线"],
+            "advances_mainline": "是",
+            "creates_conflict": "是",
+            "new_information": "是",
         },
         {
             "event": f"结尾留下可追查的具体钩子：{suspense}，并让{secondary_clue}成为下一章伏笔。",
             "tags": ["伏笔"],
+            "advances_mainline": "是",
+            "creates_conflict": "是",
+            "new_information": "是",
         },
     ]
 
@@ -772,6 +787,15 @@ def build_chapter_brief_from_book(
     characters = _list(book.get("characters") or archive.get("characters"))
     protagonist = characters[0] if characters and isinstance(characters[0], dict) else {}
     recent_chapters = sorted(_list(archive.get("chapters")), key=lambda item: int(item.get("chapter_number") or 0))[-3:]
+    event_plan_lines = []
+    for idx, item in enumerate(_list(chapter_plan.get("event_plan")), start=1):
+        if isinstance(item, dict):
+            event_plan_lines.append(
+                f"事件{idx}：{_text(item.get('event'))}"
+                f"（推进主线：{_text(item.get('advances_mainline'), '否')}；"
+                f"制造冲突：{_text(item.get('creates_conflict'), '否')}；"
+                f"新信息：{_text(item.get('new_information'), '否')}）"
+            )
     return {
         "bookId": book.get("id"),
         "story_name": book.get("title"),
@@ -823,10 +847,12 @@ def build_chapter_brief_from_book(
             "每一段必须有新信息、新变化或新冲突，用行动和对话推动，不堆心理描写。",
             "本章必须引入至少1个新信息、升级1个矛盾，或改变主角处境。",
             "玄学内容必须可观察、可推理：落到物件、方位、时辰、因果代价或风水逻辑。",
-            "先生成第N章剧情计划，再写正文；计划必须列出3-5个新事件，并标注冲突/推进主线/伏笔。",
-            "如果计划事件与上一章重复，必须先重写计划，再继续生成正文。",
+            "先生成第N章剧情计划，再写正文；计划必须列出3-5个全新事件。",
+            "每个计划事件必须标注：推进主线是/否、制造冲突是/否、新信息是/否。",
+            "如果计划事件与上一章重复，尤其是同一个人求救、同一个场景求救、女人抱孩子求救，必须先替换为新事件。",
+            "计划不能继续同一节奏，必须升级冲突。",
             f"本章核心事件：{chapter_plan.get('core_event')}",
-            f"本章剧情计划：{'; '.join([_text(item.get('event')) + '【' + '、'.join(_list(item.get('tags'))) + '】' for item in _list(chapter_plan.get('event_plan')) if isinstance(item, dict)])}",
+            f"本章剧情计划：{' / '.join(event_plan_lines)}",
             f"五幕推进：{' / '.join(_list(chapter_plan.get('scene_beats')))}",
             f"本章最多使用3个新线索：{'、'.join(_list(chapter_plan.get('new_clues'))[:3])}",
             f"不可逆变化：{chapter_plan.get('irreversible_change')}",
@@ -912,6 +938,51 @@ def _text_repeats_previous(text: str, previous: str) -> bool:
     return len(current & old) / max(1, len(current)) > 0.32
 
 
+def _event_repeats_used_beat(event: str, previous: str) -> bool:
+    event_text = _text(event)
+    previous_text = _text(previous)
+    if not event_text or not previous_text:
+        return False
+    repeated_beats = [
+        ["女人", "抱", "孩子", "求救"],
+        ["抱着孩子", "求救"],
+        ["孩子", "闯进", "破庙"],
+        ["破庙", "求救"],
+        ["同一个人", "求救"],
+        ["同一", "场景", "求救"],
+    ]
+    for beat in repeated_beats:
+        if all(token in previous_text for token in beat) and all(token in event_text for token in beat):
+            return True
+    if "求救" in event_text and "求救" in previous_text and ("孩子" in event_text or "破庙" in event_text):
+        return True
+    return False
+
+
+def _event_yes_no(value: Any, fallback: str) -> str:
+    text = _text(value)
+    if text in ["是", "否"]:
+        return text
+    if isinstance(value, bool):
+        return "是" if value else "否"
+    return fallback
+
+
+def _event_flags_from_tags(tags: list[Any], *, index: int, data: dict[str, Any] | None = None) -> dict[str, str]:
+    tag_set = {_text(tag) for tag in tags}
+    inferred = {
+        "advances_mainline": "是" if "推进主线" in tag_set or index in [0, 2, 3, 4] else "否",
+        "creates_conflict": "是" if "冲突" in tag_set or index in [1, 3, 4] else "否",
+        "new_information": "是",
+    }
+    data = data or {}
+    return {
+        "advances_mainline": _event_yes_no(data.get("advances_mainline"), inferred["advances_mainline"]),
+        "creates_conflict": _event_yes_no(data.get("creates_conflict"), inferred["creates_conflict"]),
+        "new_information": _event_yes_no(data.get("new_information"), inferred["new_information"]),
+    }
+
+
 def _normalize_event_plan_against_archive(chapter_plan: dict[str, Any], archive: dict[str, Any]) -> list[dict[str, Any]]:
     previous = _previous_chapter_text(archive)
     raw_events = _list(chapter_plan.get("event_plan"))
@@ -934,12 +1005,13 @@ def _normalize_event_plan_against_archive(chapter_plan: dict[str, Any], archive:
         tags = [tag for tag in _list(data.get("tags")) if tag in ["冲突", "推进主线", "伏笔"]]
         if not tags:
             tags = rewrites[min(index, len(rewrites) - 1)][1]
-        if not event or _text_repeats_previous(event, previous):
+        if not event or _text_repeats_previous(event, previous) or _event_repeats_used_beat(event, previous):
             event, tags = rewrites[min(index, len(rewrites) - 1)]
-        normalized.append({"event": event, "tags": tags})
+        flags = _event_flags_from_tags(tags, index=index, data=data)
+        normalized.append({"event": event, "tags": tags, **flags})
     while len(normalized) < 3:
         event, tags = rewrites[len(normalized)]
-        normalized.append({"event": event, "tags": tags})
+        normalized.append({"event": event, "tags": tags, **_event_flags_from_tags(tags, index=len(normalized))})
     return normalized[:5]
 
 

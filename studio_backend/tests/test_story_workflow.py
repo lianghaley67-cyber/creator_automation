@@ -244,7 +244,7 @@ def test_chapter_brief_event_plan_labels_new_events_and_rewrites_repeats():
             "suspense": "槐井边的功德簿翻到空白页，浮出云栖的名字。",
             "new_clues": ["红纸姓名", "槐井水痕", "供桌香灰"],
             "event_plan": [
-                {"event": "第一声哭喊传进破庙时，供桌上的残香忽然自己亮了。", "tags": ["推进主线"]},
+                {"event": "女人抱着孩子闯进破庙求救，供桌上的残香忽然自己亮了。", "tags": ["推进主线"]},
                 {"event": "村人把红纸堵到庙门口，逼云栖解释名字来源。", "tags": ["冲突"]},
                 {"event": "供桌香灰里出现新的经手人指印。", "tags": ["推进主线", "伏笔"]},
             ],
@@ -264,10 +264,15 @@ def test_chapter_brief_event_plan_labels_new_events_and_rewrites_repeats():
     assert 3 <= len(event_plan) <= 5
     assert all(item["event"] for item in event_plan)
     assert all(any(tag in ["冲突", "推进主线", "伏笔"] for tag in item["tags"]) for item in event_plan)
+    assert all(item["advances_mainline"] in ["是", "否"] for item in event_plan)
+    assert all(item["creates_conflict"] in ["是", "否"] for item in event_plan)
+    assert all(item["new_information"] in ["是", "否"] for item in event_plan)
     assert "第一声哭喊传进破庙时" not in event_plan[0]["event"]
+    assert "女人抱着孩子" not in event_plan[0]["event"]
+    assert "破庙求救" not in event_plan[0]["event"]
     assert any("冲突" in item["tags"] for item in event_plan)
     assert any("推进主线" in item["tags"] for item in event_plan)
-    assert any("伏笔" in item["tags"] for item in event_plan)
+    assert any(item["new_information"] == "是" for item in event_plan)
 
 
 def test_generate_modern_chapter_uses_grounded_scene_not_template_alarm():
