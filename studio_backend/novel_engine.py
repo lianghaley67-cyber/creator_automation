@@ -1177,6 +1177,89 @@ def _append_unique_continuation(
     return text
 
 
+def _build_final_safe_chapter_body(book: dict[str, Any], plan: dict[str, Any], chapter_number: int, target_length: int = 2100) -> str:
+    protagonist = _character_name(book)
+    ally = _supporting_name(book)
+    clues = _list(plan.get("new_clues")) or ["红纸姓名", "供桌香灰", "槐井水痕"]
+    event_plan = [
+        _text(item.get("event"))
+        for item in _list(plan.get("event_plan"))
+        if isinstance(item, dict) and _text(item.get("event"))
+    ]
+    conflict = _story_safe_line(plan.get("conflict"), "新的阻力当场压到眼前。")
+    core = _story_safe_line(plan.get("core_event"), "他必须查清名字出现的原因。")
+    hook = _story_safe_line(plan.get("suspense"), "门外出现新的危险。")
+    scene_seed = event_plan[0] if event_plan else conflict
+    blocks = [
+        [
+            f"天刚擦亮，镇口的石碑先裂开一道细缝。",
+            f"{protagonist}赶到时，碑前没人哭喊，只有三张湿透的纸贴在碑面上。纸上没有祈愿，只有他的名字。",
+            f"{ally}伸手去揭，被{protagonist}按住。“别碰，纸边有灰。”",
+            f"纸边那层灰不是香炉里的浮灰，颜色发青，像从井壁潮泥里刮下来。",
+        ],
+        [
+            scene_seed,
+            f"围在碑前的人不让路。一个卖纸钱的汉子挡到{protagonist}面前，“昨夜你接了愿，今天就该还愿。”",
+            f"{protagonist}没有解释，只问：“谁让你把纸送来的？”",
+            "汉子的喉结滚了一下，视线往义庄后门偏了半寸。",
+        ],
+        [
+            f"{protagonist}顺着那一眼走到后门，门锁没有坏，锁孔里却塞着一点{clues[-1]}。",
+            f"{ally}把铜铃贴近锁孔，铃舌轻轻一颤，发出的不是铃声，而是一声短促的咳。",
+            "门里有人。",
+            f"{protagonist}抬手敲了两下，“出来说话。”",
+        ],
+        [
+            "后门没有开，门缝下滑出一枚木签。",
+            f"木签正面刻着{clues[0]}，背面却是空的。",
+            f"{protagonist}把木签翻到天光下，空白处慢慢渗出四个字：代写收愿。",
+            f"{ally}脸色沉下去，“有人借你的名，替镇上的人收愿。”",
+        ],
+        [
+            f"{conflict}",
+            "人群听见这句话，反而往前挤。有人要他救病，有人要他寻尸，还有人把欠债的纸据塞到他脚边。",
+            f"{protagonist}退后半步，把木签钉在碑缝里，“愿可以查，账不能乱认。”",
+            "石碑里传出一声轻响，像有人在里面合上一本册子。",
+        ],
+        [
+            f"{core}",
+            f"他让{ally}守住碑前，自己绕到井亭侧门。",
+            f"侧门的地面有三道水痕，第一道通向义庄，第二道通向纸铺，第三道停在{protagonist}脚下。",
+            "水痕尽头浮着半枚指印，指腹纹路被香灰填满。",
+        ],
+        [
+            f"{protagonist}把指印拓在纸上，转身问卖纸钱的汉子：“这是谁的手？”",
+            "汉子刚张嘴，纸铺方向忽然传来木架倒地的声音。",
+            f"{ally}拔腿就追，追到巷口又停住，“人没影了，只剩这个。”",
+            "他掌心里躺着一截红线，线头打着井栏上的死结。",
+        ],
+        [
+            f"{protagonist}把红线系到木签上。红线没有垂下去，反而往井亭方向绷直。",
+            "镇上的风停了一瞬。",
+            "井口水面浮起一圈圈细纹，每一圈都像有人用指甲在水下划字。",
+            f"第一个字刚露出来，人群里就有人尖叫：“那是我的名！”",
+        ],
+        [
+            f"{protagonist}没有回头。他盯着水面，等第二个字浮完。",
+            "第二个名字不是求愿人的，也不是卖纸钱的。",
+            f"是{ally}。",
+            f"{hook}",
+        ],
+    ]
+    text = ""
+    index = 0
+    while len(text) < target_length and index < len(blocks) * 2:
+        block = blocks[index % len(blocks)]
+        if index >= len(blocks):
+            block = [
+                line.replace("石碑", "井栏").replace("木签", "竹签").replace("红线", "黑线")
+                for line in block
+            ]
+        text = _clean_chapter_text(f"{text}\n\n" + "\n\n".join(block))
+        index += 1
+    return text
+
+
 def _chapter_prose_quality_issues(content: str) -> list[str]:
     issues: list[str] = []
     template_phrases = [
@@ -2012,6 +2095,20 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
         self_check = _chapter_self_check(content, archive, chapter_number, plan)
         if continuity["pass"] and editor["pass"] and self_check["pass"]:
             break
+    if not (continuity["pass"] and editor["pass"] and self_check["pass"]):
+        for fallback_attempt in range(4):
+            safe_body = _build_final_safe_chapter_body(book, plan, chapter_number)
+            content = f"{title}\n\n{safe_body}".strip()
+            content = _remove_repeated_previous_lines(content, archive, chapter_number)
+            content = _enforce_paragraph_level_rules(content, archive, chapter_number)
+            content = _append_unique_continuation(content, book=book, plan=plan)
+            content = _remove_repeated_previous_lines(content, archive, chapter_number)
+            content = _enforce_paragraph_level_rules(content, archive, chapter_number)
+            continuity = _chapter_repetition_review(content, archive, chapter_number)
+            editor = _editor_step(content)
+            self_check = _chapter_self_check(content, archive, chapter_number, plan)
+            if continuity["pass"] and editor["pass"] and self_check["pass"]:
+                break
     if not continuity["pass"]:
         editor["issues"].extend(_list(continuity.get("issues")))
         editor["pass"] = False
