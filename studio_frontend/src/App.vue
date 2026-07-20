@@ -360,7 +360,17 @@ async function requestApi(path, options = {}, timeoutMs = 20000) {
       const text = await response.text();
       try {
         const payload = text ? JSON.parse(text) : null;
-        message = payload.detail || payload.error || JSON.stringify(payload);
+        const detail = payload?.detail || payload?.error || payload;
+        if (typeof detail === "string") {
+          message = detail;
+        } else if (detail && typeof detail === "object") {
+          const issueText = Array.isArray(detail.issues) && detail.issues.length
+            ? `：${detail.issues.join("；")}`
+            : "";
+          message = `${detail.message || "请求失败"}${issueText}`;
+        } else {
+          message = JSON.stringify(payload);
+        }
       } catch {
         if (response.status === 504) {
           message = "服务器这次处理超时了，请稍后重试。页面和已有数据不会丢失。";

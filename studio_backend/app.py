@@ -2323,6 +2323,22 @@ async def api_create_book_chapter_brief(book_id: str, request: Request) -> dict[
     return build_chapter_brief_from_book(book, archive, user_note=str((body if isinstance(body, dict) else {}).get("user_note") or ""))
 
 
+def _chapter_generation_passed(chapter: dict[str, Any]) -> tuple[bool, list[str]]:
+    issues: list[str] = []
+    editorial = chapter.get("editorial_review") if isinstance(chapter.get("editorial_review"), dict) else {}
+    self_check = chapter.get("chapter_self_check") if isinstance(chapter.get("chapter_self_check"), dict) else {}
+    continuity = chapter.get("continuity_review") if isinstance(chapter.get("continuity_review"), dict) else {}
+    if editorial and not editorial.get("pass"):
+        issues.extend(str(item) for item in editorial.get("issues", []) if item)
+    if self_check and not self_check.get("pass"):
+        issues.extend(str(item) for item in self_check.get("issues", []) if item)
+    if continuity and not continuity.get("pass"):
+        issues.extend(str(item) for item in continuity.get("issues", []) if item)
+    if len(str(chapter.get("content") or "")) < 2000:
+        issues.append("正文长度低于2000字，不能保存。")
+    return not issues, list(dict.fromkeys(issues))
+
+
 @app.post("/books/{book_id}/chapters/generate")
 @app.post("/api/books/{book_id}/chapters/generate")
 async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str, Any]:
@@ -2337,6 +2353,9 @@ async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str,
     if not brief:
         brief = build_chapter_brief_from_book(book, archive, user_note=str((body if isinstance(body, dict) else {}).get("user_note") or ""))
     chapter = generate_chapter_from_plan(book, archive, brief)
+    passed, issues = _chapter_generation_passed(chapter)
+    if not passed:
+        raise HTTPException(status_code=422, detail={"message": "章节生成未通过规范，已阻止保存。", "issues": issues, "chapter": chapter})
     chapter["created_at"] = now_iso()
 
     def updater(state: dict[str, Any]) -> dict[str, Any]:
@@ -2393,6 +2412,9 @@ async def api_regenerate_book_chapter(book_id: str, chapter_number: int, request
     else:
         brief = {**brief, "chapter_number": chapter_number}
     chapter = generate_chapter_from_plan(book, archive_for_context, brief)
+    passed, issues = _chapter_generation_passed(chapter)
+    if not passed:
+        raise HTTPException(status_code=422, detail={"message": "章节重生成未通过规范，已阻止保存。", "issues": issues, "chapter": chapter})
     chapter["created_at"] = now_iso()
     chapter["regenerated_at"] = now_iso()
 

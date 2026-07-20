@@ -119,6 +119,7 @@ export default {
       const chapters = Array.isArray(storyArchive.value?.chapters) ? storyArchive.value.chapters : [];
       return [...chapters].sort((a, b) => Number(a.chapter_number || 0) - Number(b.chapter_number || 0));
     });
+    const nextChapterNumber = computed(() => (sortedBookChapters.value.at(-1)?.chapter_number || 0) + 1);
     const currentBookFanqieTargetKey = computed(() => currentBookId.value ? `book:${currentBookId.value}` : "");
     const selectedFanqieTargetId = computed({
       get() {
@@ -175,11 +176,37 @@ export default {
           return `事件${index + 1}：${event}（推进主线：${advances}；制造冲突：${conflict}；新信息：${info}）`;
         }).join("\n");
       }
+      const coreEvent = plan.core_event || plan.chapter_goal || plan.goal || "";
+      const conflict = plan.conflict || plan.plot_conflict || "";
+      const suspense = plan.suspense || plan.hook || plan.ending_hook || "";
       return [
-        plan.core_event ? `事件1：${plan.core_event}（推进主线：是；制造冲突：否；新信息：是）` : "",
-        plan.conflict ? `事件2：${plan.conflict}（推进主线：否；制造冲突：是；新信息：是）` : "",
-        plan.suspense ? `事件3：${plan.suspense}（推进主线：是；制造冲突：是；新信息：是）` : "",
+        coreEvent ? `事件1：${coreEvent}（推进主线：是；制造冲突：否；新信息：是）` : "",
+        conflict ? `事件2：${conflict}（推进主线：否；制造冲突：是；新信息：是）` : "",
+        suspense ? `事件3：${suspense}（推进主线：是；制造冲突：是；新信息：是）` : "",
       ].filter(Boolean).join("\n");
+    }
+
+    function planForNextChapter() {
+      const target = Number(nextChapterNumber.value || 1);
+      return (selectedBook.value?.plot_outline || []).find((item) => Number(item.chapter) === target)
+        || (selectedBook.value?.plot_outline || [])[Math.max(0, target - 1)]
+        || {};
+    }
+
+    function refreshChapterPlanDraftFromBook() {
+      if (chapterBrief.value) {
+        chapterPlanDraft.value = formatChapterPlanDraft(chapterBrief.value);
+        return;
+      }
+      const plan = planForNextChapter();
+      if (plan && Object.keys(plan).length) {
+        chapterPlanDraft.value = formatChapterPlanDraft({
+          chapterPlan: plan,
+          chapter_number: nextChapterNumber.value,
+        });
+      } else if (!chapterPlanDraft.value.trim()) {
+        chapterPlanDraft.value = "";
+      }
     }
 
     function parseChapterPlanDraft() {
@@ -206,9 +233,20 @@ export default {
     }
 
     function syncEditedChapterPlan() {
-      if (!chapterBrief.value) return;
       const eventPlan = parseChapterPlanDraft();
       if (!eventPlan.length) return;
+      if (!chapterBrief.value) {
+        const plan = planForNextChapter();
+        chapterBrief.value = {
+          bookId: currentBookId.value,
+          story_name: selectedBook.value?.title || "",
+          chapter_number: nextChapterNumber.value,
+          title_hint: plan.title || `第${nextChapterNumber.value}章`,
+          must_do: [],
+          do_not_do: [],
+          chapterPlan: plan,
+        };
+      }
       chapterBrief.value = {
         ...chapterBrief.value,
         chapterPlan: {
@@ -630,6 +668,7 @@ export default {
       ctx.selectedStoryId.value = "";
       diagnosis.value = null;
       chapterBrief.value = null;
+      chapterPlanDraft.value = "";
       storyArchive.value = null;
     }
 
@@ -638,6 +677,7 @@ export default {
       const archive = await ctx.requestApi(`/books/${encodeURIComponent(bookId)}/archive`, {}, 10000);
       if (bookId === currentBookId.value) {
         storyArchive.value = archive;
+        refreshChapterPlanDraftFromBook();
       }
       return archive;
     }
@@ -975,6 +1015,11 @@ export default {
     watch(
       () => [blueprintForm.phase_count, blueprintForm.chapter_count],
       () => syncVolumePlanCount(),
+    );
+
+    watch(
+      () => [currentBookId.value, selectedBook.value?.id, sortedBookChapters.value.length],
+      () => refreshChapterPlanDraftFromBook(),
     );
 
     ensureLongPlanDefaults();
@@ -1911,7 +1956,7 @@ export default {
         <span>这一章你的想法（可选）</span>
         <textarea v-model="chapterNote" rows="3" placeholder="例：这一章希望女主第一次意识到男主隐瞒了身份，但不要立刻揭穿。"></textarea>
       </label>
-      <label v-if="chapterBrief" class="field chapter-plan-editor">
+      <label v-if="currentBookId" class="field chapter-plan-editor">
         <span>剧情计划（可手动修改，不符合就先改这里）</span>
         <textarea
           v-model="chapterPlanDraft"
