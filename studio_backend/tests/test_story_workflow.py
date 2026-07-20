@@ -223,6 +223,7 @@ def test_generated_second_chapter_continues_without_repeating_first_chapter():
     assert second["chapter_self_check"]["similarity"] <= 0.1
     assert second["chapter_self_check"]["plot_paragraphs"] >= second["chapter_self_check"]["description_paragraphs"]
     assert second["chapter_self_check"]["dead_progress_windows"] == 0
+    assert second["chapter_self_check"]["internal_repetition_count"] == 0
     assert second["continuity_review"]["shared_sentences"] == []
     assert "第一声哭喊传进破庙时" not in second["content"]
     assert "供桌上的残香忽然自己亮了" not in second["content"]
@@ -380,6 +381,31 @@ def test_paragraph_level_rules_remove_repeated_recap_and_extra_memory():
     assert "解释之前发生" not in cleaned
     assert "他又想起" not in cleaned
     assert "红纸从井沿翻起" in cleaned
+
+
+def test_paragraph_level_rules_remove_internal_repeated_events_and_dialogue():
+    archive = {
+        "chapters": [{
+            "chapter_number": 1,
+            "content": "旧章只留下井边线索，没有发生新的搜查。",
+        }]
+    }
+    content = "\n\n".join([
+        "第2章：井边红纸",
+        "云栖把红纸按在石面上，盯住纸边渗出的香灰。",
+        "云栖又把红纸按在石面上，再次盯住纸边渗出的香灰。",
+        "香火明拦住退走的人，“你把纸从哪拿来的？”",
+        "香火明追上那人，“你把纸从哪拿来的？”",
+        "铜铃忽然裂开，里面掉出一枚刻着生辰的木牌。",
+        "槐井水面浮出新的名字，村长脸色当场变了。",
+    ])
+
+    cleaned = _enforce_paragraph_level_rules(content, archive, 2)
+
+    assert cleaned.count("红纸按在石面上") == 1
+    assert cleaned.count("你把纸从哪拿来的") == 1
+    assert "铜铃忽然裂开" in cleaned
+    assert "槐井水面浮出新的名字" in cleaned
 
 
 def test_generic_protagonist_name_is_replaced_in_generated_chapter():

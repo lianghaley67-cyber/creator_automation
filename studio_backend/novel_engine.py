@@ -1093,10 +1093,139 @@ def _paragraph_restates_previous(part: str) -> bool:
     return any(pattern in part for pattern in recap_patterns)
 
 
+def _normalize_paragraph_signature(part: str) -> str:
+    text = re.sub(r"\s+", "", _text(part))
+    return re.sub(r"[，。！？!?；;、“”\"'：:（）()\[\]【】《》,.]+", "", text)
+
+
+def _dialogue_fragments(part: str) -> list[str]:
+    return [
+        _normalize_paragraph_signature(fragment)
+        for fragment in re.findall(r"[“\"]([^”\"]{4,80})[”\"]", _text(part))
+        if _normalize_paragraph_signature(fragment)
+    ]
+
+
+def _paragraph_event_key(part: str) -> str:
+    text = _text(part)
+    if len(text) < 18:
+        return ""
+    subjects = [
+        "云栖", "香火明", "村人", "人群", "孩子", "女人", "汉子", "老人", "井口", "槐井",
+        "红纸", "香灰", "铜铃", "木牌", "功德簿", "门", "水痕", "脚印",
+    ]
+    actions = [
+        "问", "说", "看", "走", "推", "按", "拿", "放", "追", "拦", "查", "翻", "递",
+        "敲", "裂", "响", "渗", "写", "发现", "出现", "浮出", "堵住", "交代", "滑出",
+        "求救", "跪", "抱", "醒来", "开门", "关门",
+    ]
+    found_subjects = [token for token in subjects if token in text][:2]
+    found_actions = [token for token in actions if token in text][:2]
+    if not found_subjects or not found_actions:
+        return ""
+    return "|".join(found_subjects + found_actions)
+
+
+def _paragraph_structure_key(part: str) -> str:
+    text = _text(part)
+    if len(text) < 28 or "“" in text:
+        return ""
+    tokens = []
+    if re.search(r"(把|将).{1,8}(放|按|收|递|塞|推|拿)", text):
+        tokens.append("object-action")
+    if re.search(r"(问|说|开口|低声)", text):
+        tokens.append("speech-lead")
+    if re.search(r"(忽然|立刻|突然|却|反而)", text):
+        tokens.append("turn")
+    if re.search(r"(浮出|露出|出现|渗出|裂开|响起)", text):
+        tokens.append("reveal")
+    if re.search(r"(门|井|供桌|后门|门槛|井沿)", text):
+        tokens.append("scene")
+    if re.search(r"(红纸|香灰|铜铃|木牌|水痕|脚印|名字)", text):
+        tokens.append("clue")
+    return "|".join(tokens) if len(tokens) >= 3 else ""
+
+
+def _salient_tokens(part: str) -> set[str]:
+    candidates = [
+        "云栖", "香火明", "村人", "人群", "孩子", "女人", "汉子", "老人", "村长", "井口", "槐井",
+        "红纸", "香灰", "铜铃", "木牌", "功德簿", "门", "后门", "门槛", "水痕", "脚印", "名字",
+        "求救", "质问", "逼问", "拦住", "追上", "裂开", "浮出", "渗出", "出现", "滑出", "按在",
+        "递出", "翻开", "堵住", "交代", "醒来",
+    ]
+    return {token for token in candidates if token in _text(part)}
+
+
+def _shares_repeated_event(part: str, kept_part: str) -> bool:
+    event_key = _paragraph_event_key(part)
+    if not event_key or event_key != _paragraph_event_key(kept_part):
+        return False
+    return len(_salient_tokens(part) & _salient_tokens(kept_part)) >= 4
+
+
+def _shares_repeated_structure(part: str, kept_part: str) -> bool:
+    structure_key = _paragraph_structure_key(part)
+    if not structure_key or structure_key != _paragraph_structure_key(kept_part):
+        return False
+    current = _chapter_shingles(part, size=8)
+    old = _chapter_shingles(kept_part, size=8)
+    if not current or not old:
+        return False
+    return len(current & old) / max(1, len(current)) > 0.24
+
+
+def _paragraph_repeats_current(part: str, kept_parts: list[str], seen_events: set[str], seen_dialogues: set[str], seen_structures: set[str]) -> bool:
+    if not kept_parts:
+        return False
+    signature = _normalize_paragraph_signature(part)
+    if len(signature) >= 4 and signature in {_normalize_paragraph_signature(item) for item in kept_parts}:
+        return True
+    for kept_part in kept_parts:
+        if _text_repeats_previous(part, kept_part):
+            return True
+        if _shares_repeated_event(part, kept_part):
+            return True
+        if _shares_repeated_structure(part, kept_part):
+            return True
+    for dialogue in _dialogue_fragments(part):
+        if dialogue in seen_dialogues:
+            return True
+    return False
+
+
+def _remember_paragraph_signature(part: str, seen_events: set[str], seen_dialogues: set[str], seen_structures: set[str]) -> None:
+    seen_dialogues.update(_dialogue_fragments(part))
+    event_key = _paragraph_event_key(part)
+    if event_key:
+        seen_events.add(event_key)
+    structure_key = _paragraph_structure_key(part)
+    if structure_key:
+        seen_structures.add(structure_key)
+
+
+def _internal_repetition_count(content: str) -> int:
+    kept: list[str] = []
+    seen_events: set[str] = set()
+    seen_dialogues: set[str] = set()
+    seen_structures: set[str] = set()
+    repeated = 0
+    for part in [item.strip() for item in _text(content).splitlines() if item.strip()]:
+        if _paragraph_repeats_current(part, kept, seen_events, seen_dialogues, seen_structures):
+            repeated += 1
+            continue
+        kept.append(part)
+        _remember_paragraph_signature(part, seen_events, seen_dialogues, seen_structures)
+    return repeated
+
+
 def _enforce_paragraph_level_rules(content: str, archive: dict[str, Any], chapter_number: int) -> str:
     previous = _previous_chapter_text(archive) if chapter_number > 1 else ""
     previous_sentences = set(_chapter_sentences(previous))
     kept: list[str] = []
+    kept_story_parts: list[str] = []
+    seen_events: set[str] = set()
+    seen_dialogues: set[str] = set()
+    seen_structures: set[str] = set()
     memory_count = 0
     progress_window = 0
     for raw in _text(content).splitlines():
@@ -1116,11 +1245,17 @@ def _enforce_paragraph_level_rules(content: str, archive: dict[str, Any], chapte
             memory_count += 1
             if memory_count > 1 or len(line) > 80:
                 continue
+        is_title_line = re.match(r"^第\s*\d+\s*章", line) is not None
+        if not is_title_line and _paragraph_repeats_current(line, kept_story_parts, seen_events, seen_dialogues, seen_structures):
+            continue
         has_progress = _paragraph_has_progress(line)
         progress_window = 0 if has_progress else progress_window + 1
         if progress_window >= 3:
             continue
         kept.append(line)
+        if not is_title_line:
+            kept_story_parts.append(line)
+            _remember_paragraph_signature(line, seen_events, seen_dialogues, seen_structures)
     return "\n".join(kept).strip()
 
 
@@ -1135,6 +1270,7 @@ def _append_unique_continuation(
     ally = _supporting_name(book)
     clues = _list(plan.get("new_clues")) or ["红纸", "香灰", "井水"]
     hook = _story_safe_line(plan.get("suspense"), "门外出现新的危险。")
+    chapter_number = _safe_int(plan.get("chapter"), 1)
     blocks = [
         [
             f"{protagonist}把那点潮灰收进纸包，没有立刻给众人看。",
@@ -1160,16 +1296,116 @@ def _append_unique_continuation(
             "回答他的不是脚步，而是一张从门缝里滑出的红纸。",
             f"红纸上没有名字，只有一句话：{hook}",
         ],
+        [
+            f"{protagonist}没有去捡那张纸，先让{ally}把门口的人全部往后带三步。",
+            "人群一退，地上的水痕立刻断成两截，中间露出一枚被踩裂的铜钱。",
+            f"{ally}皱眉，“有人刚才站在这里压住了水路。”",
+            f"{protagonist}把铜钱翻过来，背面刻着一个不属于镇上的铺号。",
+        ],
+        [
+            "卖纸钱的汉子看见铺号，脸色比纸还白。",
+            f"{protagonist}问：“这家铺子在哪里？”",
+            "汉子咬着牙不答，旁边一个老人却突然开口：“旧渡口，三年前封了。”",
+            "这句话把所有人的目光都引向了镇外那条荒路。",
+        ],
+        [
+            f"{protagonist}让老人把话说清楚。老人只说三年前有人从旧渡口运走过一车湿木牌，之后槐井才开始反常。",
+            f"{ally}立刻反问：“谁运的？”",
+            "老人抬手指向人群后方，指尖却抖得厉害。",
+            "被指到的人没有辩解，转身就往雨里跑。",
+        ],
+        [
+            f"{protagonist}追出去时，雨水刚好漫过石阶。",
+            "那人没往巷子里逃，反而冲向井亭，像早就知道那里能救他。",
+            f"{ally}从侧面截住，铜铃贴着那人的袖口一响，袖中掉出半截湿木牌。",
+            "木牌上刻的不是名字，而是一行收愿的账数。",
+        ],
+        [
+            f"{protagonist}看完账数，终于明白有人不是在害一个人，而是在借整座镇子的愿债养东西。",
+            "村长想上前夺牌，被他一把按住手腕。",
+            f"“现在抢，就是认账。”{protagonist}说。",
+            "村长的手僵在半空，袖口里露出同样的红线结。",
+        ],
+        [
+            "红线一露，井亭下的水声突然重了。",
+            f"{protagonist}把木牌举到众人面前，“谁还有这种线结，现在自己拿出来。”",
+            "没人动，可三个人的袖口同时湿了一片。",
+            f"{ally}低声道：“不是一个人，是一条线。”",
+        ],
+        [
+            f"{protagonist}把三个人的位置连起来，发现他们正好围住了去旧渡口的路。",
+            "这不是巧合，而是有人不想让他离开镇子。",
+            f"他看向井亭，“那就更该去了。”",
+            f"话音刚落，井水里忽然浮出一块新的木牌，牌上刻着{ally}的生辰。",
+        ],
     ]
+    if chapter_number > 1:
+        blocks = [
+            [
+                f"{protagonist}没有再站在原处等答案。他把{clues[0]}压进袖中，转身点了三个刚才最先后退的人。",
+                f"第一个人鞋底沾着井泥，第二个人袖口有纸灰，第三个人一直不敢看{ally}手里的铜铃。",
+                f"{ally}低声问：“先审谁？”",
+                f"{protagonist}看向鞋底有泥的那人，“先问离井最近的。”",
+            ],
+            [
+                "那人被点到后立刻摇头，嘴里说自己一夜都在家。",
+                f"{protagonist}蹲下，用竹签挑起他鞋边的泥，泥里夹着半粒白米。",
+                "镇上只有义庄后厨会在井水里淘米，这个细节让旁边几个人同时变了脸色。",
+                f"“你没去井边，”{protagonist}说，“你去过义庄。”",
+            ],
+            [
+                "男人终于撑不住，承认天亮前有人让他送过一只木匣。",
+                f"{ally}追问：“木匣里是什么？”",
+                "他吞了口唾沫，只说匣子很轻，却一直往外渗水。",
+                f"{protagonist}让他说收匣人的样子，他却指向了村长身后的空位。",
+            ],
+            [
+                "那个空位原本没人，此刻地面却多出两只湿脚印。",
+                f"{protagonist}把{clues[-1]}撒过去，脚印边缘立刻泛出黑色细泡。",
+                "黑泡没有散开，而是顺着地缝爬成一行小字。",
+                f"{ally}念到一半停住，“这是旧渡口的账号。”",
+            ],
+            [
+                f"{protagonist}让村长带路去旧渡口，村长却当场拒绝。",
+                "村长说那里早封了，谁去谁倒霉。",
+                f"“那你怎么知道倒霉？”{protagonist}问。",
+                "这一问让村长闭了嘴，旁边几个老人也不再敢替他说话。",
+            ],
+            [
+                "僵持间，纸铺方向突然冒起一股湿烟。",
+                f"{ally}刚要追，{protagonist}拦住他，“烟是诱饵，真正想跑的人在后面。”",
+                "话音刚落，送匣的男人果然趁乱往井亭侧门退。",
+                f"{protagonist}抬手把竹签掷过去，正钉在他脚前三寸。",
+            ],
+            [
+                "男人腿一软跪在地上，从怀里抖出一张揉皱的票据。",
+                f"票据上写着三样东西：{clues[0]}、湿木匣、三年前封井的钥匙。",
+                f"{ally}看完后脸色变了，“钥匙还在镇上？”",
+                f"{protagonist}摇头，“不是还在，是刚刚有人用过。”",
+            ],
+            [
+                f"他把票据递给{ally}，自己走到井亭侧门前。",
+                "门缝里没有风，却不断往外吐冷气，像里面有人贴着门板呼吸。",
+                f"{protagonist}把耳朵靠近，听见门内有人用很低的声音数数。",
+                "数到第七声时，门里传来木匣落地的闷响。",
+            ],
+            [
+                f"{protagonist}推门前先回头看了一眼村长。",
+                "村长的手藏在袖中，袖口却露出半截新磨过的钥匙齿。",
+                f"{ally}立刻明白过来，挡到村长身前，“手拿出来。”",
+                "村长没拿手，反而抬头看向井口，像在等里面的东西先开口。",
+            ],
+            [
+                "井水忽然往上涌，水面浮出一块被泡白的木牌。",
+                f"木牌上刻着的不是{protagonist}的名字，而是{ally}的生辰八字。",
+                f"{ally}脸色一下失了血色。",
+                f"{protagonist}伸手去捞，木牌却自己翻了个面，背面只剩一句话：{hook}",
+            ],
+        ]
     text = content
     block_index = 0
-    while len(text) < target_length and block_index < len(blocks) * 2:
-        block = blocks[block_index % len(blocks)]
-        if block_index >= len(blocks):
-            block = [
-                line.replace("红纸", "湿纸").replace("潮灰", "冷灰").replace("义庄后门", "井亭侧门")
-                for line in block
-            ]
+    while len(text) < target_length and block_index < len(blocks):
+        block = blocks[block_index]
         if len(text) >= target_length:
             break
         text = _clean_chapter_text(f"{text}\n\n" + "\n\n".join(block))
@@ -1357,6 +1593,9 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
             dead_windows += 1
     if dead_windows:
         issues.append("存在连续3段没有新动作、新冲突或新信息。")
+    internal_repetition_count = _internal_repetition_count(content)
+    if internal_repetition_count:
+        issues.append("本章内部存在重复段落、重复动作或重复对白，需要自动重写。")
     return {
         "pass": not issues,
         "issues": issues,
@@ -1364,6 +1603,7 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
         "plot_paragraphs": metrics["plot"],
         "description_paragraphs": metrics["description"],
         "dead_progress_windows": dead_windows,
+        "internal_repetition_count": internal_repetition_count,
     }
 
 
@@ -1949,7 +2189,7 @@ def _expand_chapter_body(
             f"{ally}看见后，呼吸明显停了一下。",
             f"“这不是今天才写的。”{protagonist}说。",
             "“那是什么时候？”",
-            f"“至少在上一件事发生之前。”",
+            f"“至少在现场异常出现之前。”",
             "这意味着他们不是被意外卷进来，而是从一开始就被人算进了局里。",
             f"{safe_twist}",
         ],
@@ -1993,7 +2233,7 @@ def _expand_chapter_body(
         ],
         [
             "风把最后一点雾吹开，露出远处灰白的天光。",
-            f"{protagonist}知道，这一章的问题还没有彻底解决，但局面已经变了：他不再只是被推着走的人。",
+            f"{protagonist}知道，眼前的问题还没有彻底解决，但局面已经变了：他不再只是被推着走的人。",
             f"{safe_goal}",
             "他把找到的线索握紧，指腹被边缘硌得发疼。",
             f"{ally}问：“下一步去哪？”",
