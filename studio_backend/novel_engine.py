@@ -806,6 +806,61 @@ def _previous_summary(archive: dict[str, Any]) -> str:
     return _text(latest.get("summary") or latest.get("title") or latest.get("content"), "上一章留下的选择还没有完成。")[:220]
 
 
+def _previous_consequence_prompt(archive: dict[str, Any], fallback: str = "上一章的选择已经带来新的代价。") -> str:
+    chapters = _list(archive.get("chapters"))
+    if not chapters:
+        return fallback
+    latest = sorted(chapters, key=lambda item: int(item.get("chapter_number") or 0))[-1]
+    title = _text(latest.get("title"), "上一章")
+    summary = _text(latest.get("summary"), "")
+    if summary:
+        summary = re.sub(r"第\s*\d+\s*章[：:][^\n。！？]*", "", summary).strip()
+        summary = re.split(r"[。！？]", summary)[-1].strip() or summary[:40]
+        return f"{title}之后，{summary}带来的代价必须立刻落到眼前。"
+    return f"{title}之后，上一章的选择必须带来新的阻力、代价或追问。"
+
+
+def _chapter_sentences(text: str) -> list[str]:
+    compact = re.sub(r"\s+", "", _text(text))
+    parts = re.split(r"[。！？!?；;]", compact)
+    return [part for part in parts if len(part) >= 18]
+
+
+def _chapter_shingles(text: str, size: int = 18) -> set[str]:
+    compact = re.sub(r"[\s，。！？!?；;、“”\"'：:（）()\[\]【】《》,.]+", "", _text(text))
+    if len(compact) < size:
+        return set()
+    return {compact[index:index + size] for index in range(0, len(compact) - size + 1)}
+
+
+def _chapter_repetition_review(content: str, archive: dict[str, Any], chapter_number: int) -> dict[str, Any]:
+    if chapter_number <= 1:
+        return {"pass": True, "issues": [], "score": 100, "shared_sentences": []}
+    chapters = _list(archive.get("chapters"))
+    if not chapters:
+        return {"pass": True, "issues": [], "score": 100, "shared_sentences": []}
+    previous = sorted(chapters, key=lambda item: int(item.get("chapter_number") or 0))[-1]
+    previous_content = _text(previous.get("content") or previous.get("summary"))
+    prev_sentences = set(_chapter_sentences(previous_content))
+    current_sentences = _chapter_sentences(content)
+    shared = [sentence for sentence in current_sentences if sentence in prev_sentences]
+    prev_shingles = _chapter_shingles(previous_content)
+    cur_shingles = _chapter_shingles(content)
+    overlap = len(prev_shingles & cur_shingles) / max(1, len(cur_shingles))
+    issues: list[str] = []
+    if len(shared) >= 2:
+        issues.append("疑似复述上一章：出现多句完全相同的长句。")
+    if overlap > 0.18 and len(content) > 1200:
+        issues.append("与上一章文本重合度过高，需要改写为后果承接和新事件推进。")
+    return {
+        "pass": not issues,
+        "issues": issues,
+        "score": max(45, 100 - len(shared) * 15 - (20 if overlap > 0.18 else 0)),
+        "shared_sentences": shared[:3],
+        "shingle_overlap": round(overlap, 3),
+    }
+
+
 def _director_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any]) -> dict[str, Any]:
     plan = _dict(brief.get("chapterPlan"))
     chapter_number = int(brief.get("chapter_number") or plan.get("chapter") or 1)
@@ -837,7 +892,7 @@ def _plot_designer_step(brief: dict[str, Any]) -> dict[str, Any]:
         "irreversible_change": _text(plan.get("irreversible_change"), "角色做出选择，局面不可逆地升级。"),
         "opening_conflict": _text(plan.get("conflict"), "旧问题未解决，新压力突然压上来。"),
         "chapter_goal": _text(plan.get("goal"), "推进一个具体行动，让主角获得线索、资源或关系变化。"),
-        "twist": _text(brief.get("twist"), "看似能解决问题的线索，反而暴露出更大的风险。"),
+        "twist": _text(brief.get("twist") or plan.get("irreversible_change") or plan.get("suspense"), "当前线索让局面转向更具体的风险。"),
         "hook": _text(plan.get("suspense") or brief.get("hook"), "章末留下一个具体问题或更高层威胁。"),
     }
 
@@ -935,7 +990,7 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
     hook = plot["hook"]
     user_note = _text(brief.get("user_note"))
     previous = character["previous_summary"]
-    previous_memory = previous if archive.get("chapters") else "她出门前还在想，今天只要不再出错，就已经算赢。"
+    previous_memory = _previous_consequence_prompt(archive) if archive.get("chapters") else "她出门前还在想，今天只要不再出错，就已经算赢。"
     goal = plot["chapter_goal"]
     conflict = plot["opening_conflict"]
     twist = plot["twist"]
@@ -1283,7 +1338,7 @@ def _expand_chapter_body(
         action_name, action_detail = scene_actions[idx] if idx < len(scene_actions) else scene_actions[-1]
         planned_blocks.append([
             f"{protagonist}把这一幕先压成一个必须完成的动作：{beat}",
-            f"他这次要{action_name}，具体做法是{action_detail}。",
+            f"围绕{clue}，他这次要{action_name}，具体做法是{action_detail}。",
             f"{ally}指向{clue}，提醒他别被旁支牵走。",
             f"{protagonist}顺着{clue}往下核，得到的不是完整答案，而是一个能推动下一步的变化。",
             f"等这一幕结束，局面必须留下痕迹：{hook}",
@@ -1422,20 +1477,39 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
     chapter_number = int(brief.get("chapter_number") or plan.get("chapter") or 1)
     used_title_phrases = _used_chapter_title_phrases(_list(archive.get("chapters")), exclude_chapter=chapter_number)
     title = _format_chapter_title(chapter_number, plan, used_title_phrases)
-    director = _director_step(book, archive, brief)
-    plot = _plot_designer_step(brief)
-    character = _character_manager_step(book, archive)
-    body = _writer_step(book, archive, brief, director, plot, character)
-    body = _expand_chapter_body(
-        body,
-        book=book,
-        brief=brief,
-        plot=plot,
-        protagonist=_character_name(book),
-    )
-    content = f"{title}\n\n{body}".strip()
+    attempt_brief = dict(brief)
+    director: dict[str, Any] = {}
+    plot: dict[str, Any] = {}
+    character: dict[str, Any] = {}
+    content = ""
+    continuity = {"pass": True, "issues": [], "score": 100, "shared_sentences": []}
+    for attempt in range(3):
+        if attempt:
+            attempt_brief = {**attempt_brief, "regenerate_seed": attempt}
+        director = _director_step(book, archive, attempt_brief)
+        plot = _plot_designer_step(attempt_brief)
+        character = _character_manager_step(book, archive)
+        body = _writer_step(book, archive, attempt_brief, director, plot, character)
+        body = _expand_chapter_body(
+            body,
+            book=book,
+            brief=attempt_brief,
+            plot=plot,
+            protagonist=_character_name(book),
+        )
+        content = f"{title}\n\n{body}".strip()
+        continuity = _chapter_repetition_review(content, archive, chapter_number)
+        if continuity["pass"]:
+            break
     editor = _editor_step(content)
+    if not continuity["pass"]:
+        editor["issues"].extend(_list(continuity.get("issues")))
+        editor["pass"] = False
+        editor["immersion_score"] = min(int(editor["immersion_score"]), int(continuity.get("score") or 60))
     review = analyze_story({"plot_outline": [plan], "characters": book.get("characters"), "core_design": book.get("core_design"), "real_event_strategy": book.get("real_event_strategy")})
+    review["continuity_pass"] = continuity["pass"]
+    review["continuity_issues"] = continuity["issues"]
+    review["continuity_score"] = continuity["score"]
     review["editor_immersion_score"] = editor["immersion_score"]
     review["score"] = round((float(review.get("score") or 0) + editor["immersion_score"]) / 2)
     return {
@@ -1449,5 +1523,6 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
         "quality": review,
         "production_trace": [director, plot, character],
         "editorial_review": editor,
+        "continuity_review": continuity,
         "created_at": book.get("updated_at"),
     }

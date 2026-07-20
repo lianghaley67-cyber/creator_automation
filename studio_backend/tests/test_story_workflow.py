@@ -6,6 +6,7 @@ from studio_backend.story_workflow import (
 )
 from studio_backend.novel_engine import (
     build_chapter_brief_from_book,
+    build_chapter_plans,
     generate_chapter_from_plan,
 )
 
@@ -177,6 +178,49 @@ def test_chapter_generation_avoids_duplicate_title_from_archive():
 
     assert chapter["title"] != "第2章：残香复燃，槐井索命"
     assert chapter["title"] == "第2章：槐井里的东西来了"
+
+
+def test_generated_second_chapter_continues_without_repeating_first_chapter():
+    plans = build_chapter_plans([
+        {
+            "chapter": 1,
+            "title": "危机已经上门",
+            "goal": "云栖救下供桌前的孩子，发现香灰断了三年。",
+            "conflict": "庙外雨声急，村人把孩子的命推到他面前。",
+            "suspense": "井口传来第二声哭喊。",
+        },
+        {
+            "chapter": 2,
+            "title": "新的麻烦来了",
+            "goal": "云栖查清红纸上出现自己名字的原因。",
+            "conflict": "救人后村人反而怀疑他惹来灾祸。",
+            "suspense": "槐井边的功德簿翻到空白页，浮出云栖的名字。",
+            "new_clues": ["红纸姓名", "槐井水痕", "供桌香灰"],
+            "previous_consequence": "被救的孩子醒来后说井里还有名字。",
+        },
+    ], 2)
+    book = {
+        "id": "book-continuity",
+        "title": "香火成仙：我替众生改命",
+        "genre": "玄幻",
+        "core_design": {"主角": "云栖", "重要配角": "香火明", "平台标签": "香火玄学"},
+        "characters": [{"name": "云栖"}, {"name": "香火明"}],
+        "plot_outline": plans,
+    }
+    archive = {"chapters": []}
+    first_brief = build_chapter_brief_from_book(book, archive, chapter_number=1)
+    first = generate_chapter_from_plan(book, archive, first_brief)
+    archive["chapters"] = [first]
+
+    second_brief = build_chapter_brief_from_book(book, archive, chapter_number=2)
+    second = generate_chapter_from_plan(book, archive, second_brief)
+
+    assert len(second["content"]) >= 2000
+    assert second["continuity_review"]["pass"]
+    assert second["continuity_review"]["shared_sentences"] == []
+    assert "第一声哭喊传进破庙时" not in second["content"]
+    assert "供桌上的残香忽然自己亮了" not in second["content"]
+    assert "女人膝盖一软，几乎是爬到供桌前的" not in second["content"]
 
 
 def test_generate_modern_chapter_uses_grounded_scene_not_template_alarm():
