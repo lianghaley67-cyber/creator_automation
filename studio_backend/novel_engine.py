@@ -204,6 +204,8 @@ def _story_safe_line(value: Any, fallback: str) -> str:
         "开局危机", "世界规则", "人物困境", "章节规划", "规则重写", "小说世界模拟器", "不合规范",
         "世界观", "关键同盟", "感情线", "阶段目标", "卷主题", "人物成长", "设定", "系统",
         "必须完成", "具体做法", "推进主线", "角色围绕", "主动采取行动",
+        "第一次接触", "接触修行世界", "引入危险", "异常事件", "无法解释", "节奏要求",
+        "前慢后快", "结尾留钩子", "埋伏笔", "写作手法",
     ]
     if not text or any(token in text for token in meta_tokens):
         return fallback
@@ -465,8 +467,8 @@ def _chapter_continuity_plan(
     scene_beats = [
         f"后果出现：{_story_safe_line(consequence, '上一章的选择立刻产生代价。')}",
         f"外部冲突：{conflict}",
-        f"调查线索：围绕{clues[0]}推进，不再横向堆新元素。",
-        f"主动选择：角色必须采取一个会改变局面的行动，完成{core_event}",
+        f"调查线索：她带着{clues[0]}去找经手人核对，查到一个新地点。",
+        f"主动选择：她当场做出选择，{core_event}",
         f"章末钩子：{suspense}",
     ]
     event_plan = _build_chapter_event_plan(
@@ -485,7 +487,7 @@ def _chapter_continuity_plan(
             item.get("irreversible_change") or item.get("payoff") or suspense,
             "角色做出选择，局面不可逆地升级。",
         ),
-        "planning_rule": "先生成第N章剧情计划：3-5个新事件，标注冲突/推进主线/伏笔；若与上一章重复必须重写计划。",
+        "planning_rule": "先生成第N章剧情计划：3-5个故事内新事件；每个事件必须写清人物动作、现场变化和新线索，禁止写成写作手法。",
     }
 
 
@@ -508,28 +510,28 @@ def _build_chapter_event_plan(
             "new_information": "是",
         },
         {
-            "event": f"外部阻力正面压上来：{conflict}",
+            "event": f"她刚处理完上一件事，外部阻力立刻压到现场：{conflict}",
             "tags": ["冲突"],
             "advances_mainline": "否",
             "creates_conflict": "是",
             "new_information": "是",
         },
         {
-            "event": f"角色围绕{main_clue}查到一个新的经手人、地点或物证。",
+            "event": f"她带着{main_clue}去找第一个经手人核对，查到一个此前没人提过的地点或物证。",
             "tags": ["推进主线"],
             "advances_mainline": "是",
             "creates_conflict": "否",
             "new_information": "是",
         },
         {
-            "event": f"角色主动采取行动，推动本章核心事件：{core_event}",
+            "event": f"她当场做出选择，亲自去完成这件事：{core_event}",
             "tags": ["冲突", "推进主线"],
             "advances_mainline": "是",
             "creates_conflict": "是",
             "new_information": "是",
         },
         {
-            "event": f"结尾留下可追查的具体钩子：{suspense}，并让{secondary_clue}成为下一章伏笔。",
+            "event": f"她以为事情暂时结束时，{suspense}；同时，{secondary_clue}在无人触碰的情况下出现异常。",
             "tags": ["伏笔"],
             "advances_mainline": "是",
             "creates_conflict": "是",
@@ -1111,11 +1113,11 @@ def _normalize_event_plan_against_archive(chapter_plan: dict[str, Any], archive:
             for beat in _list(chapter_plan.get("scene_beats"))
         ]
     rewrites = [
-        ("昨夜救人后的新增代价当场落地。", ["推进主线"]),
-        (_text(chapter_plan.get("conflict"), "新的外部阻力当场压上来。"), ["冲突"]),
-        (f"围绕{(_list(chapter_plan.get('new_clues')) or ['新的物证'])[0]}查到新的经手人、地点或物证。", ["推进主线"]),
-        (_text(chapter_plan.get("core_event"), "角色主动做出选择，让局面发生不可逆变化。"), ["冲突", "推进主线"]),
-        (_text(chapter_plan.get("suspense"), "结尾出现新的可追查钩子。"), ["伏笔"]),
+        ("上一章的选择带来新的代价，她必须立刻处理现场留下的异常痕迹。", ["推进主线"]),
+        (_story_safe_line(chapter_plan.get("conflict"), "新的外部阻力当场压上来，有人逼她交出刚拿到的线索。"), ["冲突"]),
+        (f"她带着{(_list(chapter_plan.get('new_clues')) or ['新的物证'])[0]}去找经手人核对，查到一个此前没人提过的地点或物证。", ["推进主线"]),
+        (_story_safe_line(chapter_plan.get("core_event"), "她当场做出选择，亲自去验证那条线索，让局面发生不可逆变化。"), ["冲突", "推进主线"]),
+        (_story_safe_line(chapter_plan.get("suspense"), "她离开前，现场出现一个没人能解释的新痕迹。"), ["伏笔"]),
     ]
     normalized: list[dict[str, Any]] = []
     for index, item in enumerate(raw_events[:5]):
