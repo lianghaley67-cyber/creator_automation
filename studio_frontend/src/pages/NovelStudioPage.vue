@@ -164,34 +164,63 @@ export default {
       return content.startsWith(title) ? content : `${title}\n\n${content}`.trim();
     }
 
+    function genericChapterPlanEvent(event) {
+      const text = String(event || "");
+      const genericTokens = [
+        "开局危机", "人物困境", "世界规则", "第一目标", "目标", "本章", "剧情", "章节",
+        "推进主线", "制造冲突", "新信息", "读者", "写作", "手法", "节奏", "前慢后快",
+        "结尾留钩子", "埋伏笔", "无法解释", "具体事件", "更大的问题", "主角第一次接触",
+        "修行世界", "引入危险", "异常事件", "外部压力逼近", "内部选择尚未统一",
+      ];
+      if (!text.trim()) return true;
+      if (genericTokens.some((token) => text.includes(token))) return true;
+      return /^开启[【《]/.test(text) || /^用一次/.test(text) || /^一个暂时解释不了/.test(text);
+    }
+
+    function concreteChapterPlanEvent(index, title, storyName) {
+      const cleanTitle = String(title || `第${nextChapterNumber.value}章`).replace(/^第\s*\d+\s*章[：:、\s]*/, "").trim() || "新的线索";
+      const name = storyName || selectedBook.value?.title || "这本书";
+      const events = [
+        `她沿着「${cleanTitle}」这条线索去找第一个经手人，第一次看见${name}里隐藏的异常痕迹。`,
+        "对方拒绝说明真相，却把一个会带来危险的东西塞到她手里，逼她立刻离开现场。",
+        "她刚走出门，那个东西在无人触碰的情况下自己变了位置，指向下一处未知地点。",
+        "有人在暗处抢先抹掉线索，她必须当场决定追人还是保住手里的证物。",
+        "她以为暂时脱身时，证物上多出一个不属于任何人的名字。",
+      ];
+      return events[Math.min(index, events.length - 1)];
+    }
+
     function formatChapterPlanDraft(brief) {
       const plan = brief?.chapterPlan || {};
+      const title = plan.title || plan.chapter_title || plan.name || brief?.title_hint || `第${brief?.chapter_number || nextChapterNumber.value}章`;
+      const storyName = selectedBook.value?.title || brief?.story_name || "这本书";
       const events = Array.isArray(plan.event_plan) ? plan.event_plan : [];
       if (events.length) {
         return events.map((item, index) => {
-          const event = typeof item === "string" ? item : item?.event || item?.content || item?.summary || "";
+          const rawEvent = typeof item === "string" ? item : item?.event || item?.content || item?.summary || "";
+          const event = genericChapterPlanEvent(rawEvent)
+            ? concreteChapterPlanEvent(index, title, storyName)
+            : rawEvent;
           const advances = typeof item === "object" ? item.advances_mainline || "是" : "是";
           const conflict = typeof item === "object" ? item.creates_conflict || "否" : "否";
           const info = typeof item === "object" ? item.new_information || "是" : "是";
           return `事件${index + 1}：${event}（推进主线：${advances}；制造冲突：${conflict}；新信息：${info}）`;
         }).join("\n");
       }
-      const title = plan.title || plan.chapter_title || plan.name || brief?.title_hint || `第${brief?.chapter_number || nextChapterNumber.value}章`;
       const coreEvent = plan.core_event || plan.main_event || plan.unit_event || plan.chapter_goal || plan.goal || plan.summary || "";
       const conflict = plan.conflict || plan.plot_conflict || plan.core_conflict || plan.stage_conflict || "";
       const suspense = plan.suspense || plan.hook || plan.ending_hook || plan.cliffhanger || plan.foreshadowing || "";
       const lines = [
-        coreEvent ? `事件1：${coreEvent}（推进主线：是；制造冲突：否；新信息：是）` : "",
-        conflict ? `事件2：${conflict}（推进主线：否；制造冲突：是；新信息：是）` : "",
-        suspense ? `事件3：${suspense}（推进主线：是；制造冲突：是；新信息：是）` : "",
+        coreEvent ? `事件1：${genericChapterPlanEvent(coreEvent) ? concreteChapterPlanEvent(0, title, storyName) : coreEvent}（推进主线：是；制造冲突：否；新信息：是）` : "",
+        conflict ? `事件2：${genericChapterPlanEvent(conflict) ? concreteChapterPlanEvent(1, title, storyName) : conflict}（推进主线：否；制造冲突：是；新信息：是）` : "",
+        suspense ? `事件3：${genericChapterPlanEvent(suspense) ? concreteChapterPlanEvent(2, title, storyName) : suspense}（推进主线：是；制造冲突：是；新信息：是）` : "",
       ].filter(Boolean);
       if (lines.length) return lines.join("\n");
       if (!Object.keys(plan).length) return "";
-      const storyName = selectedBook.value?.title || brief?.story_name || "这本书";
       return [
-        `事件1：她沿着「${title}」这条线索去找第一个经手人，第一次看见${storyName}里隐藏的异常痕迹。（推进主线：是；制造冲突：否；新信息：是）`,
-        `事件2：对方拒绝说明真相，并把一个会带来危险的东西塞到她手里，逼她立刻离开现场。（推进主线：是；制造冲突：是；新信息：是）`,
-        `事件3：她刚走出门，那个东西在无人触碰的情况下自己变了位置，指向下一处未知地点。（推进主线：是；制造冲突：是；新信息：是）`,
+        `事件1：${concreteChapterPlanEvent(0, title, storyName)}（推进主线：是；制造冲突：否；新信息：是）`,
+        `事件2：${concreteChapterPlanEvent(1, title, storyName)}（推进主线：是；制造冲突：是；新信息：是）`,
+        `事件3：${concreteChapterPlanEvent(2, title, storyName)}（推进主线：是；制造冲突：是；新信息：是）`,
       ].join("\n");
     }
 
