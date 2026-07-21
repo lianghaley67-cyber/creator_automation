@@ -159,7 +159,13 @@ def _default_qwen_model() -> str:
     return os.getenv("QWEN_MODEL", "qwen3.7-plus").strip() or "qwen3.7-plus"
 
 
-def _chat_provider_config(provider: str, model: str = "") -> dict[str, str]:
+def _chat_provider_config(
+    provider: str,
+    model: str = "",
+    *,
+    thinking: bool = False,
+    reasoning_effort: str = "",
+) -> dict[str, Any]:
     normalized = str(provider or _default_chat_provider()).strip().lower()
     model_override = str(model or "").strip()
     if normalized in {"deepseek", "deepseek-chat"}:
@@ -171,6 +177,8 @@ def _chat_provider_config(provider: str, model: str = "") -> dict[str, str]:
             "api_key": os.getenv("DEEPSEEK_API_KEY", "").strip(),
             "endpoint": endpoint,
             "model": model_override or os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat",
+            "thinking": bool(thinking),
+            "reasoning_effort": str(reasoning_effort or os.getenv("DEEPSEEK_REASONING_EFFORT", "high")).strip() or "high",
         }
     if normalized in {"qwen", "dashscope", "tongyi", "aliyun", "bailian"} or normalized.startswith("qwen"):
         return {
@@ -197,6 +205,20 @@ def _chat_provider_config(provider: str, model: str = "") -> dict[str, str]:
     return {"provider": "local", "api_key": "", "endpoint": "", "model": "local-plot-consultant"}
 
 
+def _attach_deepseek_thinking(payload: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    if config.get("provider") != "deepseek" or not config.get("thinking"):
+        return payload
+    effort = str(config.get("reasoning_effort") or "high").strip().lower()
+    if effort not in {"low", "medium", "high", "max"}:
+        effort = "high"
+    patched = {**payload}
+    patched["thinking"] = {"type": "enabled"}
+    patched["reasoning_effort"] = effort
+    # DeepSeek thinking mode is reasoning-first; keep sampling conservative and let the model decide details.
+    patched.pop("temperature", None)
+    return patched
+
+
 def _local_story_chat_reply(messages: list[dict[str, Any]], context: str = "") -> str:
     last = next((str(item.get("content") or "").strip() for item in reversed(messages) if item.get("role") == "user"), "")
     context_hint = f"\n\n我会优先参考当前上下文：{context[:180]}" if context else ""
@@ -210,8 +232,16 @@ def _local_story_chat_reply(messages: list[dict[str, Any]], context: str = "") -
     )
 
 
-def _call_chat_completion(provider: str, messages: list[dict[str, Any]], context: str = "", model: str = "") -> dict[str, Any]:
-    config = _chat_provider_config(provider, model)
+def _call_chat_completion(
+    provider: str,
+    messages: list[dict[str, Any]],
+    context: str = "",
+    model: str = "",
+    *,
+    thinking: bool = False,
+    reasoning_effort: str = "",
+) -> dict[str, Any]:
+    config = _chat_provider_config(provider, model, thinking=thinking, reasoning_effort=reasoning_effort)
     if config["provider"] == "local" or not config["api_key"]:
         return {
             "provider": config["provider"],
@@ -231,12 +261,12 @@ def _call_chat_completion(provider: str, messages: list[dict[str, Any]], context
         for item in messages[-12:]
         if str(item.get("content") or "").strip()
     ]
-    payload = {
+    payload = _attach_deepseek_thinking({
         "model": config["model"],
         "messages": [{"role": "system", "content": system_prompt}] + safe_messages,
         "temperature": 0.65,
         "max_tokens": 900,
-    }
+    }, config)
     req = urllib.request.Request(
         config["endpoint"],
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -249,6 +279,8 @@ def _call_chat_completion(provider: str, messages: list[dict[str, Any]], context
         return {
             "provider": config["provider"],
             "model": config["model"],
+            "thinking": bool(config.get("thinking")),
+            "reasoning_effort": config.get("reasoning_effort", ""),
             "response": str(data["choices"][0]["message"]["content"]).strip(),
             "fallback": False,
         }
@@ -256,6 +288,8 @@ def _call_chat_completion(provider: str, messages: list[dict[str, Any]], context
         return {
             "provider": config["provider"],
             "model": config["model"],
+            "thinking": bool(config.get("thinking")),
+            "reasoning_effort": config.get("reasoning_effort", ""),
             "response": _local_story_chat_reply(messages, context),
             "fallback": True,
             "error": str(exc)[:300],
@@ -277,10 +311,17 @@ def _call_online_chapter_generation(
     brief: dict[str, Any],
     *,
     model: str = "",
+    thinking: bool = False,
+    reasoning_effort: str = "",
     rewrite_feedback: list[str] | None = None,
     previous_draft: str = "",
 ) -> dict[str, Any]:
-    config = _chat_provider_config(provider or os.getenv("NOVEL_CHAPTER_PROVIDER", _default_chat_provider()), model)
+    config = _chat_provider_config(
+        provider or os.getenv("NOVEL_CHAPTER_PROVIDER", _default_chat_provider()),
+        model,
+        thinking=thinking,
+        reasoning_effort=reasoning_effort,
+    )
     if config["provider"] == "local" or not config["api_key"]:
         raise HTTPException(
             status_code=503,
@@ -341,7 +382,7 @@ def _call_online_chapter_generation(
         f"{feedback_text}{previous_text}\n\n"
         f"{json.dumps(prompt_payload, ensure_ascii=False)[:12000]}"
     )
-    payload = {
+    payload = _attach_deepseek_thinking({
         "model": config["model"],
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -349,7 +390,7 @@ def _call_online_chapter_generation(
         ],
         "temperature": 0.82,
         "max_tokens": int(os.getenv("NOVEL_CHAPTER_MAX_TOKENS", "6500") or 6500),
-    }
+    }, config)
     req = urllib.request.Request(
         config["endpoint"],
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -365,6 +406,8 @@ def _call_online_chapter_generation(
         return {
             "provider": config["provider"],
             "model": config["model"],
+            "thinking": bool(config.get("thinking")),
+            "reasoning_effort": config.get("reasoning_effort", ""),
             "content": content,
             "fallback": False,
         }
@@ -387,6 +430,8 @@ def _generate_online_chapter_with_review(
     brief: dict[str, Any],
     *,
     model: str = "",
+    thinking: bool = False,
+    reasoning_effort: str = "",
     max_attempts: int = 3,
 ) -> tuple[dict[str, Any], bool, list[str]]:
     from .novel_engine import generate_chapter_from_plan
@@ -403,6 +448,8 @@ def _generate_online_chapter_with_review(
             archive,
             brief,
             model=model,
+            thinking=thinking,
+            reasoning_effort=reasoning_effort,
             rewrite_feedback=feedback,
             previous_draft=previous_draft,
         )
@@ -1391,8 +1438,10 @@ async def api_ai_chat(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="messages 不能为空。")
     provider = str(raw.get("provider") or _default_chat_provider())
     model = str(raw.get("model") or "")
+    thinking = bool(raw.get("thinking"))
+    reasoning_effort = str(raw.get("reasoning_effort") or "")
     context = str(raw.get("context") or "")
-    return _call_chat_completion(provider, messages, context, model)
+    return _call_chat_completion(provider, messages, context, model, thinking=thinking, reasoning_effort=reasoning_effort)
 
 
 @app.get("/api/stocks/search")
@@ -2547,7 +2596,17 @@ async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str,
         brief = base_brief
     provider = str((body if isinstance(body, dict) else {}).get("ai_provider") or os.getenv("NOVEL_CHAPTER_PROVIDER", _default_chat_provider())).strip()
     model = str((body if isinstance(body, dict) else {}).get("ai_model") or "").strip()
-    chapter, passed, issues = _generate_online_chapter_with_review(provider, book, archive, brief, model=model)
+    thinking = bool((body if isinstance(body, dict) else {}).get("ai_thinking"))
+    reasoning_effort = str((body if isinstance(body, dict) else {}).get("ai_reasoning_effort") or "").strip()
+    chapter, passed, issues = _generate_online_chapter_with_review(
+        provider,
+        book,
+        archive,
+        brief,
+        model=model,
+        thinking=thinking,
+        reasoning_effort=reasoning_effort,
+    )
     if not passed:
         raise HTTPException(status_code=422, detail={"message": "章节生成未通过规范，已阻止保存。", "issues": issues, "chapter": chapter})
     chapter["created_at"] = now_iso()
@@ -2607,7 +2666,17 @@ async def api_regenerate_book_chapter(book_id: str, chapter_number: int, request
         brief = {**brief, "chapter_number": chapter_number}
     provider = str((body if isinstance(body, dict) else {}).get("ai_provider") or os.getenv("NOVEL_CHAPTER_PROVIDER", _default_chat_provider())).strip()
     model = str((body if isinstance(body, dict) else {}).get("ai_model") or "").strip()
-    chapter, passed, issues = _generate_online_chapter_with_review(provider, book, archive_for_context, brief, model=model)
+    thinking = bool((body if isinstance(body, dict) else {}).get("ai_thinking"))
+    reasoning_effort = str((body if isinstance(body, dict) else {}).get("ai_reasoning_effort") or "").strip()
+    chapter, passed, issues = _generate_online_chapter_with_review(
+        provider,
+        book,
+        archive_for_context,
+        brief,
+        model=model,
+        thinking=thinking,
+        reasoning_effort=reasoning_effort,
+    )
     if not passed:
         raise HTTPException(status_code=422, detail={"message": "章节重生成未通过规范，已阻止保存。", "issues": issues, "chapter": chapter})
     chapter["created_at"] = now_iso()

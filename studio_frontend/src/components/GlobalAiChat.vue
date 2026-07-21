@@ -41,6 +41,9 @@ export default {
       { value: "qwen:qwen-plus-2025-07-28", provider: "qwen", model: "qwen-plus-2025-07-28", label: "通义千问 qwen-plus-2025-07-28" },
       { value: "qwen:qwen-max", provider: "qwen", model: "qwen-max", label: "通义千问 qwen-max" },
       { value: "deepseek:deepseek-chat", provider: "deepseek", model: "deepseek-chat", label: "DeepSeek Chat" },
+      { value: "deepseek:deepseek-v4-flash:thinking", provider: "deepseek", model: "deepseek-v4-flash", thinking: true, reasoningEffort: "high", label: "DeepSeek V4 Flash · 思维模式" },
+      { value: "deepseek:deepseek-v4-pro:thinking", provider: "deepseek", model: "deepseek-v4-pro", thinking: true, reasoningEffort: "max", label: "DeepSeek V4 Pro · 思维模式" },
+      { value: "deepseek:deepseek-v4-flash", provider: "deepseek", model: "deepseek-v4-flash", label: "DeepSeek V4 Flash · 非思维" },
       { value: "openai:gpt-4o-mini", provider: "openai", model: "gpt-4o-mini", label: "OpenAI gpt-4o-mini" },
       { value: "local:local-plot-consultant", provider: "local", model: "local-plot-consultant", label: "本地建议" },
     ];
@@ -124,6 +127,8 @@ export default {
           body: JSON.stringify({
             provider: selectedAi.value.provider,
             model: selectedAi.value.model,
+            thinking: Boolean(selectedAi.value.thinking),
+            reasoning_effort: selectedAi.value.reasoningEffort || "",
             messages: messages.value.filter((item) => item.role !== "system"),
             context: contextText.value,
           }),

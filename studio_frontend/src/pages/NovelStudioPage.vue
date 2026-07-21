@@ -98,6 +98,9 @@ export default {
       { key: "qwen:qwen-plus-2025-07-28", provider: "qwen", model: "qwen-plus-2025-07-28", label: "通义千问 qwen-plus-2025-07-28" },
       { key: "qwen:qwen-max", provider: "qwen", model: "qwen-max", label: "通义千问 qwen-max" },
       { key: "deepseek:deepseek-chat", provider: "deepseek", model: "deepseek-chat", label: "DeepSeek Chat" },
+      { key: "deepseek:deepseek-v4-flash:thinking", provider: "deepseek", model: "deepseek-v4-flash", thinking: true, reasoningEffort: "high", label: "DeepSeek V4 Flash · 思维模式" },
+      { key: "deepseek:deepseek-v4-pro:thinking", provider: "deepseek", model: "deepseek-v4-pro", thinking: true, reasoningEffort: "max", label: "DeepSeek V4 Pro · 思维模式" },
+      { key: "deepseek:deepseek-v4-flash", provider: "deepseek", model: "deepseek-v4-flash", label: "DeepSeek V4 Flash · 非思维" },
       { key: "openai:gpt-4o-mini", provider: "openai", model: "gpt-4o-mini", label: "OpenAI gpt-4o-mini" },
     ];
     const selectedChapterAi = computed(() => chapterAiOptions.find((item) => item.key === selectedChapterAiKey.value) || chapterAiOptions[0]);
@@ -1070,6 +1073,8 @@ export default {
             user_note: chapterNote.value,
             ai_provider: selectedChapterAi.value.provider,
             ai_model: selectedChapterAi.value.model,
+            ai_thinking: Boolean(selectedChapterAi.value.thinking),
+            ai_reasoning_effort: selectedChapterAi.value.reasoningEffort || "",
             allow_local_fallback: false,
             wechat_skill_id: selectedNovelSkillId.value || "wechat_ai_writing_workshop_v1",
           }),
@@ -1129,6 +1134,8 @@ export default {
             user_note: chapterNote.value,
             ai_provider: selectedChapterAi.value.provider,
             ai_model: selectedChapterAi.value.model,
+            ai_thinking: Boolean(selectedChapterAi.value.thinking),
+            ai_reasoning_effort: selectedChapterAi.value.reasoningEffort || "",
             allow_local_fallback: false,
           }),
         }, 300000);
