@@ -21,6 +21,8 @@ export default {
     const diagnosis = ref(null);
     const chapterBrief = ref(null);
     const rejectedChapter = ref(null);
+    const rejectedChapterPanel = ref(null);
+    const chapterGenerationFailure = ref("");
     const storyArchive = ref(null);
     const books = ref([]);
     const currentBookId = ref("");
@@ -317,6 +319,7 @@ export default {
     async function advanceToNextChapterPlan() {
       chapterBrief.value = null;
       rejectedChapter.value = null;
+      chapterGenerationFailure.value = "";
       chapterPlanDraft.value = "";
       chapterPlanDraftNumber.value = 0;
       await nextTick();
@@ -334,6 +337,7 @@ export default {
         }, 15000);
         chapterBrief.value = brief;
         rejectedChapter.value = null;
+        chapterGenerationFailure.value = "";
         chapterPlanDraft.value = formatChapterPlanDraft(brief);
         chapterPlanDraftNumber.value = Number(brief.chapter_number || nextChapterNumber.value || 1);
         if (!silent) {
@@ -833,6 +837,7 @@ export default {
       diagnosis.value = null;
       chapterBrief.value = null;
       rejectedChapter.value = null;
+      chapterGenerationFailure.value = "";
       chapterPlanDraft.value = "";
       chapterPlanDraftNumber.value = 0;
       storyArchive.value = null;
@@ -1053,6 +1058,11 @@ export default {
       await loadNextChapterBrief();
     }
 
+    async function focusRejectedChapterPanel() {
+      await nextTick();
+      rejectedChapterPanel.value?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }
+
     async function generateChapterFromBrief() {
       if (!currentBookId.value) {
         ctx.setError("请先选择或创建一本小说。");
@@ -1060,6 +1070,7 @@ export default {
       }
       loading.chapter = true;
       try {
+        chapterGenerationFailure.value = "";
         localStorage.setItem("novelChapterAiKey", selectedChapterAi.value.key);
         syncEditedChapterPlan();
         if (!chapterBrief.value) {
@@ -1081,6 +1092,7 @@ export default {
         }, 300000);
         const chNum = result?.chapter?.chapter_number;
         rejectedChapter.value = null;
+        chapterGenerationFailure.value = "";
         const review = result?.quality;
         await getStoryArchive(currentBookId.value);
         await advanceToNextChapterPlan();
@@ -1097,11 +1109,15 @@ export default {
         const failedChapter = detail?.chapter;
         if (failedChapter) {
           rejectedChapter.value = failedChapter;
+          chapterGenerationFailure.value = "";
           const issues = Array.isArray(detail.issues) ? detail.issues.join("；") : err.message;
           ctx.setError(`章节已生成草稿，但未通过质量门槛，未保存：${issues}`);
+          await focusRejectedChapterPanel();
         } else {
           rejectedChapter.value = null;
+          chapterGenerationFailure.value = err.message || "章节生成失败，请检查 AI 配置和服务日志。";
           ctx.setError(`章节生成失败：${err.message}`);
+          await focusRejectedChapterPanel();
         }
       } finally {
         loading.chapter = false;
@@ -1218,6 +1234,8 @@ export default {
       chapterBrief,
       activeChapterBrief,
       rejectedChapter,
+      rejectedChapterPanel,
+      chapterGenerationFailure,
       storyArchive,
       books,
       currentBookId,
@@ -2207,7 +2225,16 @@ export default {
         <button class="btn secondary" :disabled="!currentBookId" @click="getStoryArchive()">刷新档案</button>
         <button v-if="storyArchive?.chapters?.length" class="btn secondary" @click="getStoryArchive()">查看已生成 {{ storyArchive.chapters.length }} 章</button>
       </div>
-      <div v-if="rejectedChapter" class="brief-card chapter-output-card rejected-chapter-card">
+      <div v-if="chapterGenerationFailure" ref="rejectedChapterPanel" class="brief-card chapter-output-card rejected-chapter-card">
+        <strong>章节生成失败</strong>
+        <p>{{ chapterGenerationFailure }}</p>
+        <div class="chapter-local-warning">
+          <strong>处理建议</strong>
+          <span>如果选择的是在线 AI，请确认对应服务商 API Key 已配置、免费额度已启用，当前模型名称可用。</span>
+          <em>如果后端已生成草稿但未过审，会在这里展示草稿和审核提示；没有草稿时通常是接口、模型或网络调用失败。</em>
+        </div>
+      </div>
+      <div v-if="rejectedChapter" ref="rejectedChapterPanel" class="brief-card chapter-output-card rejected-chapter-card">
         <strong>已生成草稿，但未通过质量门槛</strong>
         <p>这份正文没有保存到章节列表。请根据审核提示调整剧情计划后重新生成。</p>
         <div v-if="rejectedChapter.editorial_review?.issues?.length" class="chapter-review-issues">

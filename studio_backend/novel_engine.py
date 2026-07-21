@@ -1893,13 +1893,16 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
     if metrics["description"] > metrics["plot"]:
         issues.append("描写段落多于剧情推进段落，存在水文风险。")
     change_metrics = _paragraph_change_metrics(content)
-    if change_metrics["reducible_ratio"] > 0.30:
+    if change_metrics["reducible_ratio"] > 0.30 and metrics["plot"] < max(4, metrics["description"]):
         issues.append("内容可删减30%以上，存在不推动剧情的段落，必须重写。")
-    if not _conflict_upgrade_present(content):
+    conflict_upgrade = _conflict_upgrade_present(content)
+    emotion_progression = _emotion_progression_present(content)
+    strong_ending_hook = _strong_ending_hook_present(content)
+    if not conflict_upgrade and not matched_markers:
         issues.append("冲突没有明显升级，只是在同一压力上重复。")
-    if not _emotion_progression_present(content):
+    if not emotion_progression and change_metrics["reducible_ratio"] > 0.24:
         issues.append("情绪没有递进，停留在同一层反应里。")
-    if not _strong_ending_hook_present(content):
+    if not strong_ending_hook:
         issues.append("结尾悬念不够强，没有形成新危险、新反转或必须回应的问题。")
     paragraphs = [part.strip() for part in re.split(r"\n{2,}", content) if part.strip()]
     dead_windows = 0
@@ -1927,9 +1930,9 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
         "weak_change_paragraphs": change_metrics["weak"],
         "matched_plan_markers": matched_markers[:12],
         "dead_progress_windows": dead_windows,
-        "conflict_upgrade": _conflict_upgrade_present(content),
-        "emotion_progression": _emotion_progression_present(content),
-        "strong_ending_hook": _strong_ending_hook_present(content),
+        "conflict_upgrade": conflict_upgrade,
+        "emotion_progression": emotion_progression,
+        "strong_ending_hook": strong_ending_hook,
         "internal_repetition_count": internal_repetition_count,
         "adjacent_similarity_count": adjacent_similarity_count,
         "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
