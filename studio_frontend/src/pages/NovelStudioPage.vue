@@ -276,6 +276,14 @@ export default {
       }
     }
 
+    async function advanceToNextChapterPlan() {
+      chapterBrief.value = null;
+      rejectedChapter.value = null;
+      chapterPlanDraft.value = "";
+      await nextTick();
+      refreshChapterPlanDraftFromBook();
+    }
+
     function parseChapterPlanDraft() {
       return String(chapterPlanDraft.value || "")
         .split(/\n+/)
@@ -1018,14 +1026,15 @@ export default {
         const chNum = result?.chapter?.chapter_number;
         rejectedChapter.value = null;
         const review = result?.quality;
-        if (chNum && review && Number(review.score || 0) < 60) {
-          ctx.setError(`第 ${chNum} 章已保存，但商业智能评分偏低，请先AI优化。`);
-        } else if (chNum) {
-          ctx.setNotice(`第 ${chNum} 章已按当前书的100章规划生成并保存。`);
-        } else {
-          ctx.setNotice("章节已生成，请在章节管理里查看。");
-        }
         await getStoryArchive(currentBookId.value);
+        await advanceToNextChapterPlan();
+        if (chNum && review && Number(review.score || 0) < 60) {
+          ctx.setError(`第 ${chNum} 章已保存，但商业智能评分偏低；已切换到第 ${nextChapterNumber.value} 章剧情计划。`);
+        } else if (chNum) {
+          ctx.setNotice(`第 ${chNum} 章已生成并保存，已切换到第 ${nextChapterNumber.value} 章剧情计划。`);
+        } else {
+          ctx.setNotice(`章节已生成，已切换到第 ${nextChapterNumber.value} 章剧情计划。`);
+        }
       } catch (err) {
         const detail = err?.payload?.detail;
         const failedChapter = detail?.chapter;
