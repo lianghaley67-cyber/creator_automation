@@ -20,6 +20,7 @@ export default {
     const workflow = ref(null);
     const diagnosis = ref(null);
     const chapterBrief = ref(null);
+    const rejectedChapter = ref(null);
     const storyArchive = ref(null);
     const books = ref([]);
     const currentBookId = ref("");
@@ -758,6 +759,7 @@ export default {
       ctx.selectedStoryId.value = "";
       diagnosis.value = null;
       chapterBrief.value = null;
+      rejectedChapter.value = null;
       chapterPlanDraft.value = "";
       storyArchive.value = null;
     }
@@ -981,8 +983,9 @@ export default {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ user_note: chapterNote.value }),
         }, 15000);
+        rejectedChapter.value = null;
         chapterPlanDraft.value = formatChapterPlanDraft(chapterBrief.value);
-        ctx.setNotice(`第 ${chapterBrief.value.chapter_number} 章 Brief 已生成，确认后再写正文。`);
+        ctx.setNotice(`第 ${chapterBrief.value.chapter_number} 章 Brief 已生成。Brief 只是计划，请点击“生成正文”继续写章节。`);
       } catch (err) {
         ctx.setError(`章节 Brief 生成失败：${err.message}`);
       } finally {
@@ -1011,6 +1014,7 @@ export default {
           }),
         }, 90000);
         const chNum = result?.chapter?.chapter_number;
+        rejectedChapter.value = null;
         const review = result?.quality;
         if (chNum && review && Number(review.score || 0) < 60) {
           ctx.setError(`第 ${chNum} 章已保存，但商业智能评分偏低，请先AI优化。`);
@@ -1021,7 +1025,16 @@ export default {
         }
         await getStoryArchive(currentBookId.value);
       } catch (err) {
-        ctx.setError(`章节生成失败：${err.message}`);
+        const detail = err?.payload?.detail;
+        const failedChapter = detail?.chapter;
+        if (failedChapter) {
+          rejectedChapter.value = failedChapter;
+          const issues = Array.isArray(detail.issues) ? detail.issues.join("；") : err.message;
+          ctx.setError(`章节已生成草稿，但未通过质量门槛，未保存：${issues}`);
+        } else {
+          rejectedChapter.value = null;
+          ctx.setError(`章节生成失败：${err.message}`);
+        }
       } finally {
         loading.chapter = false;
       }
@@ -1123,6 +1136,7 @@ export default {
       workflow,
       diagnosis,
       chapterBrief,
+      rejectedChapter,
       storyArchive,
       books,
       currentBookId,
@@ -1987,7 +2001,7 @@ export default {
           <button class="btn primary small" :disabled="!currentBookId" @click="getStoryArchive()">
             刷新当前书档案
           </button>
-          <button class="btn secondary small" :disabled="!currentBookId" @click="createChapterBrief">生成下一章 Brief</button>
+          <button class="btn secondary small" :disabled="!currentBookId" @click="createChapterBrief">生成章节计划 Brief</button>
         </div>
       </div>
     </section>
@@ -2061,7 +2075,7 @@ export default {
           <div class="meta">先确认章节目标，再生成正文，并进入节奏、逻辑和平台安全审核。</div>
         </div>
         <button class="btn primary" :disabled="!currentBookId || loading.brief" @click="createChapterBrief">
-          {{ loading.brief ? "生成中..." : "生成下一章 Brief" }}
+          {{ loading.brief ? "生成中..." : "生成章节计划 Brief" }}
         </button>
       </div>
       <div class="novel-current-skill">
@@ -2097,11 +2111,29 @@ export default {
       </div>
       <div class="novel-actions">
         <button class="btn accent" :disabled="loading.chapter || !currentBookId || !selectedNovelSkillId" @click="generateChapterFromBrief">
-          {{ loading.chapter ? "生成中..." : "按 Brief 生成下一章" }}
+          {{ loading.chapter ? "生成中..." : "生成正文" }}
         </button>
         <button class="btn secondary" :disabled="loading.chapter || !currentBookId" @click="createChapterBrief">重新生成</button>
         <button class="btn secondary" :disabled="!currentBookId" @click="getStoryArchive()">刷新档案</button>
         <button v-if="storyArchive?.chapters?.length" class="btn secondary" @click="getStoryArchive()">查看已生成 {{ storyArchive.chapters.length }} 章</button>
+      </div>
+      <div v-if="rejectedChapter" class="brief-card chapter-output-card rejected-chapter-card">
+        <strong>已生成草稿，但未通过质量门槛</strong>
+        <p>这份正文没有保存到章节列表。请根据审核提示调整剧情计划后重新生成。</p>
+        <div v-if="rejectedChapter.editorial_review?.issues?.length" class="chapter-review-issues">
+          <strong>审核提示</strong>
+          <span v-for="issue in rejectedChapter.editorial_review.issues" :key="issue">{{ issue }}</span>
+        </div>
+        <div v-if="rejectedChapter.chapter_self_check?.issues?.length" class="chapter-review-issues">
+          <strong>自检提示</strong>
+          <span v-for="issue in rejectedChapter.chapter_self_check.issues" :key="issue">{{ issue }}</span>
+        </div>
+        <div v-if="rejectedChapter.generation_source === 'local_fallback' || rejectedChapter.local_generation_warning?.enabled" class="chapter-local-warning">
+          <strong>本地生成提示</strong>
+          <span>{{ rejectedChapter.local_generation_warning?.message || "本章由本地规则兜底生成，仅供检查剧情连贯性。" }}</span>
+          <em>{{ rejectedChapter.local_generation_warning?.quality_gate || "系统已执行水文、重复和剧情推进检查；不满意请重新生成。" }}</em>
+        </div>
+        <pre>{{ chapterDisplayContent(rejectedChapter) }}</pre>
       </div>
       <div v-if="sortedBookChapters.length" class="brief-card chapter-output-card">
         <strong>已生成章节</strong>

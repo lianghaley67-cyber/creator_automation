@@ -382,7 +382,14 @@ async function requestApi(path, options = {}, timeoutMs = 20000) {
           message = `服务器请求失败（HTTP ${response.status}）。`;
         }
       }
-      throw new Error(message);
+      const error = new Error(message);
+      error.status = response.status;
+      try {
+        error.payload = text ? JSON.parse(text) : null;
+      } catch {
+        error.payload = null;
+      }
+      throw error;
     }
     if (response.status === 204) return null;
     return response.json();
