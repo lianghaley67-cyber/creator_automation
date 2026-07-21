@@ -1089,7 +1089,7 @@ export default {
             allow_local_fallback: false,
             wechat_skill_id: selectedNovelSkillId.value || "wechat_ai_writing_workshop_v1",
           }),
-        }, 300000);
+        }, 600000);
         const chNum = result?.chapter?.chapter_number;
         rejectedChapter.value = null;
         chapterGenerationFailure.value = "";
@@ -1154,7 +1154,7 @@ export default {
             ai_reasoning_effort: selectedChapterAi.value.reasoningEffort || "",
             allow_local_fallback: false,
           }),
-        }, 300000);
+        }, 600000);
         const score = result?.quality?.score || result?.chapter?.quality?.score || "--";
         ctx.setNotice(`第 ${chapterNumber} 章已重新生成，质量评分 ${score}。`);
         await getStoryArchive(currentBookId.value);
@@ -2230,8 +2230,8 @@ export default {
         <p>{{ chapterGenerationFailure }}</p>
         <div class="chapter-local-warning">
           <strong>处理建议</strong>
-          <span>如果选择的是在线 AI，请确认对应服务商 API Key 已配置、免费额度已启用，当前模型名称可用。</span>
-          <em>如果后端已生成草稿但未过审，会在这里展示草稿和审核提示；没有草稿时通常是接口、模型或网络调用失败。</em>
+          <span>如果选择的是在线 AI，请确认对应服务商 API Key、账户余额、模型名称和网络连接都可用。</span>
+          <em>DeepSeek 思维模式生成长章可能更慢；如果后端已生成草稿但未过审，会在这里展示草稿和审核提示。</em>
         </div>
       </div>
       <div v-if="rejectedChapter" ref="rejectedChapterPanel" class="brief-card chapter-output-card rejected-chapter-card">
