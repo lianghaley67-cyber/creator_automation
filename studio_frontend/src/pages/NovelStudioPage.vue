@@ -1022,7 +1022,7 @@ export default {
             allow_local_fallback: false,
             wechat_skill_id: selectedNovelSkillId.value || "wechat_ai_writing_workshop_v1",
           }),
-        }, 90000);
+        }, 300000);
         const chNum = result?.chapter?.chapter_number;
         rejectedChapter.value = null;
         const review = result?.quality;
@@ -1077,7 +1077,7 @@ export default {
             ai_provider: "deepseek",
             allow_local_fallback: false,
           }),
-        }, 90000);
+        }, 300000);
         const score = result?.quality?.score || result?.chapter?.quality?.score || "--";
         ctx.setNotice(`第 ${chapterNumber} 章已重新生成，质量评分 ${score}。`);
         await getStoryArchive(currentBookId.value);

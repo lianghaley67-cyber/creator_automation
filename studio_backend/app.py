@@ -261,7 +261,15 @@ def _strip_ai_chapter_text(text: str) -> str:
     return cleaned.strip()
 
 
-def _call_online_chapter_generation(provider: str, book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any]) -> dict[str, Any]:
+def _call_online_chapter_generation(
+    provider: str,
+    book: dict[str, Any],
+    archive: dict[str, Any],
+    brief: dict[str, Any],
+    *,
+    rewrite_feedback: list[str] | None = None,
+    previous_draft: str = "",
+) -> dict[str, Any]:
     config = _chat_provider_config(provider or os.getenv("NOVEL_CHAPTER_PROVIDER", "deepseek"))
     if config["provider"] == "local" or not config["api_key"]:
         raise HTTPException(
@@ -307,9 +315,20 @@ def _call_online_chapter_generation(provider: str, book: dict[str, Any], archive
         "正文必须超过2200个中文字符，段落之间用空行分隔。"
         "严格承接上一章，禁止复述上一章，禁止水文，禁止出现“本章目标/推进主线/制造冲突/埋伏笔”等元话语。"
         "每3段必须出现新动作、新冲突或新信息。结尾必须留下新的危机、线索或反转。"
+        "严禁展开回忆，正文中“想起、记起、回忆、当年、上一章”等词合计最多出现1次。"
+        "如果需要交代旧事，只能通过当场对话或物证一句带过，马上回到当前行动。"
     )
+    feedback_text = ""
+    if rewrite_feedback:
+        feedback_text = (
+            "\n\n【上一版未通过审核，必须整章重写】\n"
+            + "\n".join(f"- {item}" for item in rewrite_feedback if item)
+            + "\n硬性处理：删除回忆段、解释段和复述旧事；每一段都必须有当前场景动作、对话、线索或冲突。"
+        )
+    previous_text = f"\n\n【上一版失败草稿节选，禁止照抄】\n{previous_draft[:1200]}" if previous_draft else ""
     user_prompt = (
-        "请根据以下章节Brief在线生成正文。只输出正文。\n\n"
+        "请根据以下章节Brief在线生成正文。只输出正文。"
+        f"{feedback_text}{previous_text}\n\n"
         f"{json.dumps(prompt_payload, ensure_ascii=False)[:12000]}"
     )
     payload = {
@@ -349,6 +368,52 @@ def _call_online_chapter_generation(provider: str, book: dict[str, Any], archive
                 "issues": [str(exc)[:500]],
             },
         ) from exc
+
+
+def _generate_online_chapter_with_review(
+    provider: str,
+    book: dict[str, Any],
+    archive: dict[str, Any],
+    brief: dict[str, Any],
+    *,
+    max_attempts: int = 3,
+) -> tuple[dict[str, Any], bool, list[str]]:
+    from .novel_engine import generate_chapter_from_plan
+
+    feedback: list[str] = []
+    previous_draft = ""
+    last_chapter: dict[str, Any] = {}
+    last_passed = False
+    last_issues: list[str] = []
+    for attempt in range(max(1, max_attempts)):
+        ai_result = _call_online_chapter_generation(
+            provider,
+            book,
+            archive,
+            brief,
+            rewrite_feedback=feedback,
+            previous_draft=previous_draft,
+        )
+        chapter = generate_chapter_from_plan(
+            book,
+            archive,
+            brief,
+            online_body=ai_result.get("content"),
+            online_meta={
+                **{key: value for key, value in ai_result.items() if key != "content"},
+                "attempt": attempt + 1,
+                "max_attempts": max_attempts,
+            },
+        )
+        passed, issues = _chapter_generation_passed(chapter)
+        last_chapter = chapter
+        last_passed = passed
+        last_issues = issues
+        if passed:
+            return chapter, True, []
+        previous_draft = str(chapter.get("content") or "")
+        feedback = issues or ["上一版未通过质量门槛，请整章重写。"]
+    return last_chapter, last_passed, last_issues
 
 
 app = FastAPI(title="Creator Digital Studio", version="0.1.0")
@@ -2468,15 +2533,7 @@ async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str,
     else:
         brief = base_brief
     provider = str((body if isinstance(body, dict) else {}).get("ai_provider") or os.getenv("NOVEL_CHAPTER_PROVIDER", "deepseek")).strip()
-    ai_result = _call_online_chapter_generation(provider, book, archive, brief)
-    chapter = generate_chapter_from_plan(
-        book,
-        archive,
-        brief,
-        online_body=ai_result.get("content"),
-        online_meta={key: value for key, value in ai_result.items() if key != "content"},
-    )
-    passed, issues = _chapter_generation_passed(chapter)
+    chapter, passed, issues = _generate_online_chapter_with_review(provider, book, archive, brief)
     if not passed:
         raise HTTPException(status_code=422, detail={"message": "章节生成未通过规范，已阻止保存。", "issues": issues, "chapter": chapter})
     chapter["created_at"] = now_iso()
@@ -2535,15 +2592,7 @@ async def api_regenerate_book_chapter(book_id: str, chapter_number: int, request
     else:
         brief = {**brief, "chapter_number": chapter_number}
     provider = str((body if isinstance(body, dict) else {}).get("ai_provider") or os.getenv("NOVEL_CHAPTER_PROVIDER", "deepseek")).strip()
-    ai_result = _call_online_chapter_generation(provider, book, archive_for_context, brief)
-    chapter = generate_chapter_from_plan(
-        book,
-        archive_for_context,
-        brief,
-        online_body=ai_result.get("content"),
-        online_meta={key: value for key, value in ai_result.items() if key != "content"},
-    )
-    passed, issues = _chapter_generation_passed(chapter)
+    chapter, passed, issues = _generate_online_chapter_with_review(provider, book, archive_for_context, brief)
     if not passed:
         raise HTTPException(status_code=422, detail={"message": "章节重生成未通过规范，已阻止保存。", "issues": issues, "chapter": chapter})
     chapter["created_at"] = now_iso()
