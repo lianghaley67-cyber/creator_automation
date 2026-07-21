@@ -320,6 +320,31 @@ export default {
       refreshChapterPlanDraftFromBook({ force: true });
     }
 
+    async function loadNextChapterBrief({ silent = false } = {}) {
+      if (!currentBookId.value || loading.brief) return null;
+      loading.brief = true;
+      try {
+        const brief = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapter-brief`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_note: chapterNote.value }),
+        }, 15000);
+        chapterBrief.value = brief;
+        rejectedChapter.value = null;
+        chapterPlanDraft.value = formatChapterPlanDraft(brief);
+        chapterPlanDraftNumber.value = Number(brief.chapter_number || nextChapterNumber.value || 1);
+        if (!silent) {
+          ctx.setNotice(`第 ${brief.chapter_number} 章 Brief 已生成。Brief 只是计划，请点击“生成正文”继续写章节。`);
+        }
+        return brief;
+      } catch (err) {
+        if (!silent) ctx.setError(`章节 Brief 生成失败：${err.message}`);
+        return null;
+      } finally {
+        loading.brief = false;
+      }
+    }
+
     function parseChapterPlanDraft() {
       return String(chapterPlanDraft.value || "")
         .split(/\n+/)
@@ -1022,22 +1047,7 @@ export default {
         ctx.setError("请先选择或创建一本小说。");
         return;
       }
-      loading.brief = true;
-      try {
-        chapterBrief.value = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapter-brief`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_note: chapterNote.value }),
-        }, 15000);
-        rejectedChapter.value = null;
-        chapterPlanDraft.value = formatChapterPlanDraft(chapterBrief.value);
-        chapterPlanDraftNumber.value = Number(chapterBrief.value.chapter_number || nextChapterNumber.value || 1);
-        ctx.setNotice(`第 ${chapterBrief.value.chapter_number} 章 Brief 已生成。Brief 只是计划，请点击“生成正文”继续写章节。`);
-      } catch (err) {
-        ctx.setError(`章节 Brief 生成失败：${err.message}`);
-      } finally {
-        loading.brief = false;
-      }
+      await loadNextChapterBrief();
     }
 
     async function generateChapterFromBrief() {
@@ -1069,6 +1079,7 @@ export default {
         const review = result?.quality;
         await getStoryArchive(currentBookId.value);
         await advanceToNextChapterPlan();
+        await loadNextChapterBrief({ silent: true });
         if (chNum && review && Number(review.score || 0) < 60) {
           ctx.setError(`第 ${chNum} 章已保存，但商业智能评分偏低；已切换到第 ${nextChapterNumber.value} 章剧情计划。`);
         } else if (chNum) {
@@ -1182,9 +1193,12 @@ export default {
 
     watch(
       () => [currentBookId.value, selectedBook.value?.id, sortedBookChapters.value.length],
-      () => {
+      async () => {
         const force = Number(chapterPlanDraftNumber.value || 0) !== Number(nextChapterNumber.value || 1);
         refreshChapterPlanDraftFromBook({ force });
+        if (currentBookId.value && force && !loading.brief) {
+          await loadNextChapterBrief({ silent: true });
+        }
       },
     );
 

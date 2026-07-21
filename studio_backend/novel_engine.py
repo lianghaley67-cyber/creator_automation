@@ -775,7 +775,9 @@ def build_chapter_brief_from_book(
     max_number = max((int(item.get("chapter_number") or 0) for item in chapters), default=0)
     next_number = int(chapter_number or max_number + 1)
     plans = _list(book.get("plot_outline"))
-    chapter_plan = next((item for item in plans if int(item.get("chapter") or 0) == next_number), None)
+    chapter_plan = next((item for item in plans if int(item.get("chapter") or item.get("chapter_number") or 0) == next_number), None)
+    if not chapter_plan and 0 < next_number <= len(plans):
+        chapter_plan = plans[next_number - 1]
     if not chapter_plan:
         chapter_plan = {
             "chapter": next_number,
