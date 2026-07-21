@@ -2759,6 +2759,8 @@ def _normalize_story_genre_for_db(raw: str) -> str:
         return value
     if value in {"romance_fantasy", "fantasy_upgrade", "xianxia", "言情玄幻", "言情玄幻连载", "玄幻言情", "修仙", "修仙升级", "玄幻升级"}:
         return "fantasy"
+    if value in {"urban_news_adaptation", "都市现实新闻改编", "都市现实新闻改编连载", "现实新闻改编"}:
+        return "urban"
     if value in {"modern_romance", "现代言情", "现代言情连载"}:
         return "romance"
     return "fantasy"

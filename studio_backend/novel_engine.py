@@ -115,6 +115,10 @@ def _list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _is_urban_news_adaptation(value: Any) -> bool:
+    return _text(value) in {"urban_news_adaptation", "都市现实新闻改编", "都市现实新闻改编连载", "现实新闻改编"}
+
+
 def _safe_int(value: Any, fallback: int = 0) -> int:
     try:
         return int(value)
@@ -198,6 +202,37 @@ def normalize_long_form_plan(raw: Any, *, chapter_count: int = 500, phase_count:
         "volume_plans": volume_plans,
         "story_units": story_units,
     }
+
+
+def _apply_urban_news_long_form_defaults(plan: dict[str, Any]) -> dict[str, Any]:
+    updated = {**plan}
+    updated["story_mainline"] = updated.get("story_mainline") or "主角持续介入不同城市现实事件，每一卷解决一个人物困境，同时拼出更大的现实真相和自我成长线。"
+    volumes = []
+    for index, volume in enumerate(_list(updated.get("volume_plans")), start=1):
+        item = dict(volume)
+        item["volume_name"] = item.get("volume_name") or f"第{index}卷：城市暗面"
+        item["theme"] = item.get("theme") or "一个现实新闻原型虚构化后的独立故事。"
+        item["stage_goal"] = item.get("stage_goal") or "从异常事件切入，查清人物困境，让本卷事件阶段性收束。"
+        item["core_conflict"] = item.get("core_conflict") or "现实压力、利益阻碍、舆论误解和主角的行动选择互相挤压。"
+        item["protagonist_growth"] = item.get("protagonist_growth") or "主角从旁观者变成主动介入者，建立自己的判断和方法。"
+        item["ending_result"] = item.get("ending_result") or "本卷核心人物获得阶段性出口，但现实代价保留。"
+        item["ending_hook"] = item.get("ending_hook") or "卷末露出下一起事件与主线之间的隐秘关联。"
+        volumes.append(item)
+    updated["volume_plans"] = volumes
+    if not _list(updated.get("story_units")):
+        updated["story_units"] = [
+            {
+                "start_chapter": _parse_chapter_range(volume.get("chapter_range"), 1, 20)[0],
+                "end_chapter": _parse_chapter_range(volume.get("chapter_range"), 1, 20)[1],
+                "unit_name": volume.get("volume_name") or f"第{index}卷故事",
+                "main_event": volume.get("theme") or "现实事件虚构化改编。",
+                "stage_conflict": volume.get("core_conflict") or "现实阻力与人物选择升级。",
+                "payoff_emotion": "真相推进、压迫解除一部分，同时留下下一卷现实暗线。",
+                "foreshadowing": volume.get("ending_hook") or "下一起事件和主线存在隐秘关联。",
+            }
+            for index, volume in enumerate(volumes, start=1)
+        ]
+    return updated
 
 
 def _story_safe_line(value: Any, fallback: str) -> str:
@@ -707,6 +742,7 @@ def build_book_blueprint(input_data: dict[str, Any]) -> dict[str, Any]:
     book_id = _text(input_data.get("bookId") or input_data.get("id"))
     if not book_id:
         raise ValueError("bookId is required")
+    genre = _text(input_data.get("genre"), "romance_fantasy")
     chapter_count = max(1, min(_safe_int(input_data.get("chapter_count"), 500), 500))
     phase_count = max(1, min(_safe_int(input_data.get("phase_count"), 5), 50))
     long_form_input = input_data.get("long_form_plan") if isinstance(input_data.get("long_form_plan"), dict) else {
@@ -717,17 +753,23 @@ def build_book_blueprint(input_data: dict[str, Any]) -> dict[str, Any]:
         "story_units": input_data.get("story_units"),
     }
     long_form_plan = normalize_long_form_plan(long_form_input, chapter_count=chapter_count, phase_count=phase_count)
+    if _is_urban_news_adaptation(genre):
+        long_form_plan = _apply_urban_news_long_form_defaults(long_form_plan)
     normalized_input = {
         **input_data,
         "bookId": book_id,
         "id": book_id,
+        "genre": genre,
         "chapter_count": long_form_plan["total_chapters"],
         "phase_count": long_form_plan["phase_count"],
         "story_mainline": long_form_plan["story_mainline"],
         "volume_plans": long_form_plan["volume_plans"],
         "story_units": long_form_plan["story_units"],
         "long_form_plan": long_form_plan,
-        "real_event_strategy": normalize_real_event_strategy(input_data.get("real_event_strategy")),
+        "real_event_strategy": normalize_real_event_strategy({
+            **_dict(input_data.get("real_event_strategy")),
+            **({"enabled": True, "source_type": "新闻事件"} if _is_urban_news_adaptation(genre) and not _dict(input_data.get("real_event_strategy")).get("source_type") else {}),
+        }),
         "core_design": normalize_core_design(input_data.get("core_design")),
     }
     blueprint = build_story_blueprint(normalized_input)
@@ -797,6 +839,29 @@ def build_chapter_brief_from_book(
     characters = _list(book.get("characters") or archive.get("characters"))
     protagonist = characters[0] if characters and isinstance(characters[0], dict) else {}
     recent_chapters = sorted(_list(archive.get("chapters")), key=lambda item: int(item.get("chapter_number") or 0))[-3:]
+    genre = _text(book.get("genre"))
+    genre_must_do: list[str] = []
+    genre_do_not_do: list[str] = []
+    if _is_urban_news_adaptation(genre):
+        genre_must_do = [
+            "都市现实新闻改编写法：当前卷只服务一个独立现实事件，卷内必须有清楚的起因、调查/介入、反转、阶段解决。",
+            "现实新闻原型必须虚构化：更换人物身份、地点、时间线和关键细节，只保留现实情绪与结构。",
+            "每章都要推进本卷事件，同时露出一条更大的城市暗线或主角成长线。",
+        ]
+        genre_do_not_do = [
+            "不要照搬真实新闻，不要影射具体个人、机构或可识别案件。",
+            "不要写成新闻复述或观点文章，必须让人物在场、做判断、付代价。",
+        ]
+    elif genre in {"xianxia", "fantasy_upgrade", "fantasy", "romance_fantasy", "eastern_mysticism"}:
+        genre_must_do = [
+            "玄幻/修仙写法：每章必须有等级压迫、资源争夺、规则代价或异常现象中的至少一个。",
+            "强化人物动机、节奏和爽点：主角的每次反击都要来自观察、判断和付出代价。",
+            "氛围要有诡异、神秘或都市玄学质感，但所有玄学现象都要有可追踪的因果规则。",
+        ]
+        genre_do_not_do = [
+            "不要只堆境界、法宝和设定说明，必须落到人物选择和现场冲突。",
+            "不要让奇遇替代主角判断，也不要让反派无脑送经验。",
+        ]
     event_plan_lines = []
     for idx, item in enumerate(_list(chapter_plan.get("event_plan")), start=1):
         if isinstance(item, dict):
@@ -865,6 +930,7 @@ def build_chapter_brief_from_book(
             "每个计划事件必须标注：推进主线是/否、制造冲突是/否、新信息是/否。",
             "如果计划事件与上一章重复，尤其是同一个人求救、同一个场景求救、女人抱孩子求救，必须先替换为新事件。",
             "计划不能继续同一节奏，必须升级冲突。",
+            *genre_must_do,
             f"本章核心事件：{chapter_plan.get('core_event')}",
             f"本章剧情计划：{' / '.join(event_plan_lines)}",
             f"五幕推进：{' / '.join(_list(chapter_plan.get('scene_beats')))}",
@@ -885,6 +951,7 @@ def build_chapter_brief_from_book(
             "不要写平台外引流、联系方式、外部链接、账号口令。",
             "不要为了冲突降低人物智商。",
             "不要偏离当前 bookId 的 Story Archive。",
+            *genre_do_not_do,
         ],
         "user_note": user_note.strip(),
     }

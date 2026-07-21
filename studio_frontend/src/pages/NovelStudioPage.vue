@@ -446,12 +446,13 @@ export default {
     function normalizeStoryGenre(raw) {
       const value = String(raw || "").trim();
       if (["romance_fantasy", "fantasy", "fantasy_upgrade", "xianxia", "romance", "modern_romance"].includes(value)) return value;
-      if (["urban", "transmigration", "female_lead_ancient", "eastern_mysticism", "sci_fi"].includes(value)) return value;
+      if (["urban", "urban_news_adaptation", "transmigration", "female_lead_ancient", "eastern_mysticism", "sci_fi"].includes(value)) return value;
       if (["言情玄幻", "言情玄幻连载", "玄幻言情"].includes(value)) return "romance_fantasy";
       if (["修仙", "修仙升级", "仙侠"].includes(value)) return "xianxia";
       if (["玄幻升级"].includes(value)) return "fantasy_upgrade";
       if (["现代言情", "现代言情连载"].includes(value)) return "modern_romance";
       if (["都市", "都市连载"].includes(value)) return "urban";
+      if (["都市现实新闻改编", "都市现实新闻改编连载", "现实新闻改编"].includes(value)) return "urban_news_adaptation";
       if (["穿越", "穿越连载"].includes(value)) return "transmigration";
       if (["古装大女主"].includes(value)) return "female_lead_ancient";
       if (["东方玄学"].includes(value)) return "eastern_mysticism";
@@ -469,6 +470,7 @@ export default {
         romance: ["现代言情", "言情", "modern_romance"],
         modern_romance: ["现代言情", "modern_romance"],
         urban: ["都市", "urban", "modern_romance"],
+        urban_news_adaptation: ["都市", "现实", "新闻", "urban", "modern_romance", "ai_writing_workshop"],
         transmigration: ["穿越", "transmigration", "fantasy_upgrade"],
         female_lead_ancient: ["古装大女主", "女主", "言情", "romance_fantasy"],
         eastern_mysticism: ["东方玄学", "玄学", "悬疑", "xianxia"],
@@ -488,6 +490,7 @@ export default {
         romance: ["wechat_modern_romance_serial_v1", "wechat_ai_writing_workshop_v1"],
         modern_romance: ["wechat_modern_romance_serial_v1"],
         urban: ["wechat_modern_romance_serial_v1", "wechat_ai_writing_workshop_v1"],
+        urban_news_adaptation: ["wechat_modern_romance_serial_v1", "wechat_ai_writing_workshop_v1"],
         transmigration: ["wechat_fantasy_upgrade_serial_v1", "wechat_ai_writing_workshop_v1"],
         female_lead_ancient: ["wechat_ai_writing_workshop_v1"],
         eastern_mysticism: ["wechat_xianxia_cultivation_serial_v1", "wechat_ai_writing_workshop_v1"],
@@ -1534,7 +1537,7 @@ export default {
       <div class="panel-header">
         <div>
           <h2>0. 小说 Skill</h2>
-          <div class="meta">小说基础规范会自动叠加。这里选的是题材写法：言情玄幻、修仙升级、玄幻升级或现代言情。</div>
+          <div class="meta">小说基础规范会自动叠加。这里选的是题材写法：玄幻修仙、东方玄学、都市现实新闻改编等。</div>
         </div>
         <div class="novel-actions compact">
           <button class="btn secondary small" @click="loadPresetTopicsAndSkills().then(ensureNovelSkillSelected)">刷新 Skill</button>
@@ -1602,6 +1605,7 @@ export default {
           <select v-model="blueprintForm.genre">
             <option value="romance_fantasy">言情玄幻</option>
             <option value="urban">都市</option>
+            <option value="urban_news_adaptation">都市现实新闻改编</option>
             <option value="xianxia">修仙升级</option>
             <option value="fantasy_upgrade">玄幻升级</option>
             <option value="fantasy">玄幻</option>
