@@ -2535,7 +2535,14 @@ def _chapter_summary(content: str) -> str:
     return compact[:180]
 
 
-def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any]) -> dict[str, Any]:
+def generate_chapter_from_plan(
+    book: dict[str, Any],
+    archive: dict[str, Any],
+    brief: dict[str, Any],
+    *,
+    online_body: str | None = None,
+    online_meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     plan = _dict(brief.get("chapterPlan"))
     chapter_number = int(brief.get("chapter_number") or plan.get("chapter") or 1)
     used_title_phrases = _used_chapter_title_phrases(_list(archive.get("chapters")), exclude_chapter=chapter_number)
@@ -2545,65 +2552,78 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
     plot: dict[str, Any] = {}
     character: dict[str, Any] = {}
     content = ""
-    generation_source = "local_fallback"
+    generation_source = "online_ai" if online_body else "local_fallback"
+    online_meta = online_meta or {}
     continuity = {"pass": True, "issues": [], "score": 100, "shared_sentences": []}
     editor = {"role": "Editor", "pass": False, "issues": ["尚未完成审核。"], "immersion_score": 60}
     self_check = {"pass": False, "issues": ["尚未完成自检。"], "similarity": 0}
     rollback = {"pass": True, "issues": [], "rollback_paragraphs": 0, "scene_replays": 0}
-    for attempt in range(6):
-        if attempt:
-            attempt_brief = {**attempt_brief, "regenerate_seed": attempt}
-        director = _director_step(book, archive, attempt_brief)
+    if online_body:
+        director = {"role": "OnlineAI", "provider": online_meta.get("provider"), "model": online_meta.get("model")}
         plot = _plot_designer_step(attempt_brief)
         character = _character_manager_step(book, archive)
-        body = _writer_step(book, archive, attempt_brief, director, plot, character)
-        body = _expand_chapter_body(
-            body,
-            book=book,
-            brief=attempt_brief,
-            plot=plot,
-            protagonist=_character_name(book),
-        )
-        content = f"{title}\n\n{body}".strip()
-        rollback = _chapter_rollback_review(content, archive, chapter_number)
-        if not rollback["pass"]:
-            continuity = {
-                "pass": False,
-                "issues": _list(rollback.get("issues")),
-                "score": 45,
-                "shared_sentences": [],
-                "shingle_overlap": 0,
-                "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
-                "scene_replays": rollback.get("scene_replays", 0),
-            }
-            editor = {
-                "role": "Editor",
-                "pass": False,
-                "issues": _list(rollback.get("issues")),
-                "immersion_score": 55,
-            }
-            self_check = {
-                "pass": False,
-                "issues": _list(rollback.get("issues")),
-                "similarity": 0,
-                "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
-                "scene_replays": rollback.get("scene_replays", 0),
-            }
-            continue
-        content = _remove_repeated_previous_lines(content, archive, chapter_number)
-        content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
-        content = _append_unique_continuation(content, book=book, plan=plan)
-        content = _remove_repeated_previous_lines(content, archive, chapter_number)
-        content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
-        content = _append_unique_continuation(content, book=book, plan=plan)
+        body = _clean_chapter_text(str(online_body or ""))
+        content = f"{title}\n\n{body}".strip() if not body.startswith(title) else body
         content = _remove_repeated_previous_lines(content, archive, chapter_number)
         content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
         continuity = _chapter_repetition_review(content, archive, chapter_number)
         editor = _editor_step(content)
         self_check = _chapter_self_check(content, archive, chapter_number, plan)
-        if continuity["pass"] and editor["pass"] and self_check["pass"]:
-            break
-    if not (continuity["pass"] and editor["pass"] and self_check["pass"]):
+    else:
+        for attempt in range(6):
+            if attempt:
+                attempt_brief = {**attempt_brief, "regenerate_seed": attempt}
+            director = _director_step(book, archive, attempt_brief)
+            plot = _plot_designer_step(attempt_brief)
+            character = _character_manager_step(book, archive)
+            body = _writer_step(book, archive, attempt_brief, director, plot, character)
+            body = _expand_chapter_body(
+                body,
+                book=book,
+                brief=attempt_brief,
+                plot=plot,
+                protagonist=_character_name(book),
+            )
+            content = f"{title}\n\n{body}".strip()
+            rollback = _chapter_rollback_review(content, archive, chapter_number)
+            if not rollback["pass"]:
+                continuity = {
+                    "pass": False,
+                    "issues": _list(rollback.get("issues")),
+                    "score": 45,
+                    "shared_sentences": [],
+                    "shingle_overlap": 0,
+                    "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
+                    "scene_replays": rollback.get("scene_replays", 0),
+                }
+                editor = {
+                    "role": "Editor",
+                    "pass": False,
+                    "issues": _list(rollback.get("issues")),
+                    "immersion_score": 55,
+                }
+                self_check = {
+                    "pass": False,
+                    "issues": _list(rollback.get("issues")),
+                    "similarity": 0,
+                    "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
+                    "scene_replays": rollback.get("scene_replays", 0),
+                }
+                continue
+            content = _remove_repeated_previous_lines(content, archive, chapter_number)
+            content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
+            content = _append_unique_continuation(content, book=book, plan=plan)
+            content = _remove_repeated_previous_lines(content, archive, chapter_number)
+            content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
+            content = _append_unique_continuation(content, book=book, plan=plan)
+            content = _remove_repeated_previous_lines(content, archive, chapter_number)
+            content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
+            continuity = _chapter_repetition_review(content, archive, chapter_number)
+            editor = _editor_step(content)
+            self_check = _chapter_self_check(content, archive, chapter_number, plan)
+            if continuity["pass"] and editor["pass"] and self_check["pass"]:
+                break
+    if not online_body and not (continuity["pass"] and editor["pass"] and self_check["pass"]):
         for fallback_attempt in range(4):
             safe_body = _build_final_safe_chapter_body(book, plan, chapter_number)
             content = f"{title}\n\n{safe_body}".strip()
@@ -2651,7 +2671,7 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
         editor["pass"] = False
         editor["immersion_score"] = min(int(editor["immersion_score"]), 55)
     local_warning = {
-        "enabled": True,
+        "enabled": generation_source == "local_fallback",
         "message": "本章由本地规则兜底生成，仅供检查剧情连贯性；如出现水文、重复或空洞段落，请重新生成或接入外部AI模型。",
         "quality_gate": "已执行去重、2000字、剧情推进和水文风险自检；未通过则后端阻止保存。",
     }
@@ -2674,6 +2694,7 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
         "summary": _chapter_summary(content),
         "generation_source": generation_source,
         "local_generation_warning": local_warning,
+        "online_ai": online_meta,
         "chapterPlan": plan,
         "quality": review,
         "production_trace": [director, plot, character],

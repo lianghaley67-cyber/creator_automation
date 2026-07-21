@@ -1010,6 +1010,8 @@ export default {
           body: JSON.stringify({
             brief: chapterBrief.value,
             user_note: chapterNote.value,
+            ai_provider: "deepseek",
+            allow_local_fallback: false,
             wechat_skill_id: selectedNovelSkillId.value || "wechat_ai_writing_workshop_v1",
           }),
         }, 90000);
@@ -1063,6 +1065,8 @@ export default {
               user_note: `${chapterNote.value || ""}\n不合规范，按小说世界模拟器规则重写：直接入场、动作对话推进、不要说明腔。必须避开原文开头和原事件节奏，原文片段：${originalExcerpt}`.trim(),
             },
             user_note: chapterNote.value,
+            ai_provider: "deepseek",
+            allow_local_fallback: false,
           }),
         }, 90000);
         const score = result?.quality?.score || result?.chapter?.quality?.score || "--";
@@ -2133,6 +2137,10 @@ export default {
           <span>{{ rejectedChapter.local_generation_warning?.message || "本章由本地规则兜底生成，仅供检查剧情连贯性。" }}</span>
           <em>{{ rejectedChapter.local_generation_warning?.quality_gate || "系统已执行水文、重复和剧情推进检查；不满意请重新生成。" }}</em>
         </div>
+        <div v-else-if="rejectedChapter.generation_source === 'online_ai'" class="chapter-ai-source">
+          <strong>在线AI生成</strong>
+          <span>{{ rejectedChapter.online_ai?.provider || "online" }} · {{ rejectedChapter.online_ai?.model || "model" }}</span>
+        </div>
         <pre>{{ chapterDisplayContent(rejectedChapter) }}</pre>
       </div>
       <div v-if="sortedBookChapters.length" class="brief-card chapter-output-card">
@@ -2207,6 +2215,10 @@ export default {
             <strong>本地生成提示</strong>
             <span>{{ chapter.local_generation_warning?.message || "本章由本地规则兜底生成，仅供检查剧情连贯性。" }}</span>
             <em>{{ chapter.local_generation_warning?.quality_gate || "系统已执行水文、重复和剧情推进检查；不满意请重新生成。" }}</em>
+          </div>
+          <div v-else-if="chapter.generation_source === 'online_ai'" class="chapter-ai-source">
+            <strong>在线AI生成</strong>
+            <span>{{ chapter.online_ai?.provider || "online" }} · {{ chapter.online_ai?.model || "model" }}</span>
           </div>
           <pre>{{ chapterDisplayContent(chapter) }}</pre>
         </details>

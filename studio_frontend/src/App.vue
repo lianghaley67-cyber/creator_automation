@@ -9282,6 +9282,28 @@ body,
   line-height: 1.6;
 }
 
+.studio-page .chapter-ai-source {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 12px;
+  border: 1px solid rgba(52, 199, 116, 0.28);
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: #effcf5;
+  color: #173c29;
+}
+
+.studio-page .chapter-ai-source strong {
+  color: #0d2d1d !important;
+}
+
+.studio-page .chapter-ai-source span {
+  color: #2f6f4d !important;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .studio-page .module-icon,
 .studio-page .module-icon.compact {
   background: rgba(47, 150, 212, 0.12) !important;

@@ -253,6 +253,104 @@ def _call_chat_completion(provider: str, messages: list[dict[str, Any]], context
         }
 
 
+def _strip_ai_chapter_text(text: str) -> str:
+    cleaned = str(text or "").strip()
+    cleaned = re.sub(r"^```(?:markdown|text|txt)?\s*", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    cleaned = re.sub(r"^(以下是|下面是|好的，?)[^\n]{0,40}\n+", "", cleaned)
+    return cleaned.strip()
+
+
+def _call_online_chapter_generation(provider: str, book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any]) -> dict[str, Any]:
+    config = _chat_provider_config(provider or os.getenv("NOVEL_CHAPTER_PROVIDER", "deepseek"))
+    if config["provider"] == "local" or not config["api_key"]:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": f"在线小说生成未启用：{config['provider']} 缺少 API Key。",
+                "issues": [
+                    "请配置 DEEPSEEK_API_KEY，或设置 NOVEL_CHAPTER_PROVIDER=openai 并配置 OPENAI_API_KEY。",
+                    "当前已禁止静默降级本地生成，避免误以为是 AI 正文。",
+                ],
+            },
+        )
+    chapters = sorted(_as_list(archive.get("chapters")), key=lambda item: int(item.get("chapter_number") or 0))[-2:]
+    previous_context = [
+        {
+            "chapter_number": item.get("chapter_number"),
+            "title": item.get("title"),
+            "summary": item.get("summary") or str(item.get("content") or "")[:500],
+        }
+        for item in chapters
+    ]
+    chapter_plan = brief.get("chapterPlan") if isinstance(brief.get("chapterPlan"), dict) else {}
+    prompt_payload = {
+        "book": {
+            "title": book.get("title"),
+            "genre": book.get("genre"),
+            "core_design": book.get("core_design"),
+            "world_setting": book.get("world_setting"),
+            "characters": _as_list(book.get("characters"))[:8],
+        },
+        "brief": {
+            "chapter_number": brief.get("chapter_number"),
+            "title_hint": brief.get("title_hint"),
+            "chapterPlan": chapter_plan,
+            "must_do": _as_list(brief.get("must_do")),
+            "do_not_do": _as_list(brief.get("do_not_do")),
+            "user_note": brief.get("user_note"),
+        },
+        "previous_chapters": previous_context,
+    }
+    system_prompt = (
+        "你是高水平中文网络小说作者。必须直接输出小说正文，不要解释、不要提纲、不要JSON、不要写作说明。"
+        "正文必须超过2200个中文字符，段落之间用空行分隔。"
+        "严格承接上一章，禁止复述上一章，禁止水文，禁止出现“本章目标/推进主线/制造冲突/埋伏笔”等元话语。"
+        "每3段必须出现新动作、新冲突或新信息。结尾必须留下新的危机、线索或反转。"
+    )
+    user_prompt = (
+        "请根据以下章节Brief在线生成正文。只输出正文。\n\n"
+        f"{json.dumps(prompt_payload, ensure_ascii=False)[:12000]}"
+    )
+    payload = {
+        "model": config["model"],
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.82,
+        "max_tokens": int(os.getenv("NOVEL_CHAPTER_MAX_TOKENS", "6500") or 6500),
+    }
+    req = urllib.request.Request(
+        config["endpoint"],
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {config['api_key']}"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=int(os.getenv("NOVEL_CHAPTER_TIMEOUT", "120") or 120)) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        content = _strip_ai_chapter_text(data["choices"][0]["message"]["content"])
+        if len(content) < 1200:
+            raise RuntimeError("在线AI返回正文过短，疑似未按正文生成。")
+        return {
+            "provider": config["provider"],
+            "model": config["model"],
+            "content": content,
+            "fallback": False,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "在线AI正文生成失败，已停止本地兜底。",
+                "issues": [str(exc)[:500]],
+            },
+        ) from exc
+
+
 app = FastAPI(title="Creator Digital Studio", version="0.1.0")
 store = StudioStore()
 SADTALKER_RENDER_LOCK = threading.Lock()
@@ -2369,7 +2467,15 @@ async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str,
         }
     else:
         brief = base_brief
-    chapter = generate_chapter_from_plan(book, archive, brief)
+    provider = str((body if isinstance(body, dict) else {}).get("ai_provider") or os.getenv("NOVEL_CHAPTER_PROVIDER", "deepseek")).strip()
+    ai_result = _call_online_chapter_generation(provider, book, archive, brief)
+    chapter = generate_chapter_from_plan(
+        book,
+        archive,
+        brief,
+        online_body=ai_result.get("content"),
+        online_meta={key: value for key, value in ai_result.items() if key != "content"},
+    )
     passed, issues = _chapter_generation_passed(chapter)
     if not passed:
         raise HTTPException(status_code=422, detail={"message": "章节生成未通过规范，已阻止保存。", "issues": issues, "chapter": chapter})
@@ -2428,7 +2534,15 @@ async def api_regenerate_book_chapter(book_id: str, chapter_number: int, request
         )
     else:
         brief = {**brief, "chapter_number": chapter_number}
-    chapter = generate_chapter_from_plan(book, archive_for_context, brief)
+    provider = str((body if isinstance(body, dict) else {}).get("ai_provider") or os.getenv("NOVEL_CHAPTER_PROVIDER", "deepseek")).strip()
+    ai_result = _call_online_chapter_generation(provider, book, archive_for_context, brief)
+    chapter = generate_chapter_from_plan(
+        book,
+        archive_for_context,
+        brief,
+        online_body=ai_result.get("content"),
+        online_meta={key: value for key, value in ai_result.items() if key != "content"},
+    )
     passed, issues = _chapter_generation_passed(chapter)
     if not passed:
         raise HTTPException(status_code=422, detail={"message": "章节重生成未通过规范，已阻止保存。", "issues": issues, "chapter": chapter})
