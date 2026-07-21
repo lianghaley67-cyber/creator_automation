@@ -2545,6 +2545,7 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
     plot: dict[str, Any] = {}
     character: dict[str, Any] = {}
     content = ""
+    generation_source = "local_fallback"
     continuity = {"pass": True, "issues": [], "score": 100, "shared_sentences": []}
     editor = {"role": "Editor", "pass": False, "issues": ["尚未完成审核。"], "immersion_score": 60}
     self_check = {"pass": False, "issues": ["尚未完成自检。"], "similarity": 0}
@@ -2649,12 +2650,19 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
         editor["issues"].extend(_list(self_check.get("issues")))
         editor["pass"] = False
         editor["immersion_score"] = min(int(editor["immersion_score"]), 55)
+    local_warning = {
+        "enabled": True,
+        "message": "本章由本地规则兜底生成，仅供检查剧情连贯性；如出现水文、重复或空洞段落，请重新生成或接入外部AI模型。",
+        "quality_gate": "已执行去重、2000字、剧情推进和水文风险自检；未通过则后端阻止保存。",
+    }
     review = analyze_story({"plot_outline": [plan], "characters": book.get("characters"), "core_design": book.get("core_design"), "real_event_strategy": book.get("real_event_strategy")})
     review["continuity_pass"] = continuity["pass"]
     review["continuity_issues"] = continuity["issues"]
     review["continuity_score"] = continuity["score"]
     review["self_check_pass"] = self_check["pass"]
     review["self_check_issues"] = self_check["issues"]
+    review["generation_source"] = generation_source
+    review["local_generation_warning"] = local_warning
     review["editor_immersion_score"] = editor["immersion_score"]
     review["score"] = round((float(review.get("score") or 0) + editor["immersion_score"]) / 2)
     return {
@@ -2664,6 +2672,8 @@ def generate_chapter_from_plan(book: dict[str, Any], archive: dict[str, Any], br
         "title": title,
         "content": content,
         "summary": _chapter_summary(content),
+        "generation_source": generation_source,
+        "local_generation_warning": local_warning,
         "chapterPlan": plan,
         "quality": review,
         "production_trace": [director, plot, character],

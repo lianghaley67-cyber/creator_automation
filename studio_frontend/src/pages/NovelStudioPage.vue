@@ -2171,6 +2171,11 @@ export default {
             <strong>审核提示</strong>
             <span v-for="issue in chapter.editorial_review.issues" :key="issue">{{ issue }}</span>
           </div>
+          <div v-if="chapter.generation_source === 'local_fallback' || chapter.local_generation_warning?.enabled" class="chapter-local-warning">
+            <strong>本地生成提示</strong>
+            <span>{{ chapter.local_generation_warning?.message || "本章由本地规则兜底生成，仅供检查剧情连贯性。" }}</span>
+            <em>{{ chapter.local_generation_warning?.quality_gate || "系统已执行水文、重复和剧情推进检查；不满意请重新生成。" }}</em>
+          </div>
           <pre>{{ chapterDisplayContent(chapter) }}</pre>
         </details>
       </div>

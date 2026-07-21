@@ -9252,6 +9252,29 @@ body,
   font-weight: 500;
 }
 
+.studio-page .chapter-local-warning {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 12px;
+  border: 1px solid rgba(47, 150, 212, 0.28);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #eef9ff;
+  color: #18324a;
+}
+
+.studio-page .chapter-local-warning strong {
+  color: #0f263d !important;
+}
+
+.studio-page .chapter-local-warning span,
+.studio-page .chapter-local-warning em {
+  color: #38566f !important;
+  font-size: 13px;
+  font-style: normal;
+  line-height: 1.6;
+}
+
 .studio-page .module-icon,
 .studio-page .module-icon.compact {
   background: rgba(47, 150, 212, 0.12) !important;
