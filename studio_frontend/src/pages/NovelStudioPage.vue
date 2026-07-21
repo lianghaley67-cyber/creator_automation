@@ -251,11 +251,28 @@ export default {
         || {};
     }
 
+    const activeChapterBrief = computed(() => {
+      const targetNumber = Number(nextChapterNumber.value || 1);
+      const briefNumber = Number(chapterBrief.value?.chapter_number || 0);
+      return briefNumber === targetNumber ? chapterBrief.value : null;
+    });
+
+    function clearStaleChapterBrief() {
+      if (!chapterBrief.value) return false;
+      const targetNumber = Number(nextChapterNumber.value || 1);
+      const briefNumber = Number(chapterBrief.value.chapter_number || 0);
+      if (briefNumber === targetNumber) return false;
+      chapterBrief.value = null;
+      chapterPlanDraftNumber.value = 0;
+      return true;
+    }
+
     const dailyChapterEcho = computed(() => {
       const plan = planForNextChapter();
-      const title = chapterBrief.value?.title_hint || chapterPlanTitle(plan) || `第${nextChapterNumber.value}章`;
+      const brief = activeChapterBrief.value;
+      const title = brief?.title_hint || chapterPlanTitle(plan) || `第${nextChapterNumber.value}章`;
       return {
-        chapterNumber: chapterBrief.value?.chapter_number || nextChapterNumber.value,
+        chapterNumber: brief?.chapter_number || nextChapterNumber.value,
         title,
         hasPlan: Boolean(chapterPlanDraft.value.trim() || Object.keys(plan || {}).length),
       };
@@ -263,20 +280,22 @@ export default {
 
     function refreshChapterPlanDraftFromBook({ force = false } = {}) {
       const targetNumber = Number(nextChapterNumber.value || 1);
-      if (chapterBrief.value) {
-        chapterPlanDraft.value = formatChapterPlanDraft(chapterBrief.value);
-        chapterPlanDraftNumber.value = Number(chapterBrief.value.chapter_number || targetNumber);
+      const briefWasStale = clearStaleChapterBrief();
+      const brief = activeChapterBrief.value;
+      if (brief) {
+        chapterPlanDraft.value = formatChapterPlanDraft(brief);
+        chapterPlanDraftNumber.value = Number(brief.chapter_number || targetNumber);
         return;
       }
       const plan = planForNextChapter();
       const draftBelongsToTarget = Number(chapterPlanDraftNumber.value || 0) === targetNumber;
-      if (plan && Object.keys(plan).length && (force || !draftBelongsToTarget || !chapterPlanDraft.value.trim())) {
+      if (plan && Object.keys(plan).length && (force || briefWasStale || !draftBelongsToTarget || !chapterPlanDraft.value.trim())) {
         chapterPlanDraft.value = formatChapterPlanDraft({
           chapterPlan: plan,
           chapter_number: targetNumber,
         });
         chapterPlanDraftNumber.value = targetNumber;
-      } else if (!chapterPlanDraft.value.trim()) {
+      } else if (force || briefWasStale || !draftBelongsToTarget || !chapterPlanDraft.value.trim()) {
         chapterPlanDraft.value = "";
         chapterPlanDraftNumber.value = targetNumber;
       }
@@ -346,6 +365,7 @@ export default {
     }
 
     function syncEditedChapterPlan() {
+      clearStaleChapterBrief();
       const eventPlan = parseChapterPlanDraft();
       if (!eventPlan.length) return;
       if (!chapterBrief.value) {
@@ -1161,6 +1181,7 @@ export default {
       workflow,
       diagnosis,
       chapterBrief,
+      activeChapterBrief,
       rejectedChapter,
       storyArchive,
       books,
@@ -2120,17 +2141,17 @@ export default {
           placeholder="事件1：新事件（推进主线：是；制造冲突：否；新信息：是）"
         ></textarea>
       </label>
-      <div v-if="chapterBrief" class="brief-card">
-        <strong>{{ chapterBrief.story_name }} · 第 {{ chapterBrief.chapter_number }} 章</strong>
-        <p>{{ chapterBrief.title_hint }}</p>
+      <div v-if="activeChapterBrief" class="brief-card">
+        <strong>{{ activeChapterBrief.story_name }} · 第 {{ activeChapterBrief.chapter_number }} 章</strong>
+        <p>{{ activeChapterBrief.title_hint }}</p>
         <div class="brief-columns">
           <div>
             <b>必须做到</b>
-            <span v-for="item in chapterBrief.must_do" :key="item">{{ item }}</span>
+            <span v-for="item in activeChapterBrief.must_do" :key="item">{{ item }}</span>
           </div>
           <div>
             <b>不要踩坑</b>
-            <span v-for="item in chapterBrief.do_not_do" :key="item">{{ item }}</span>
+            <span v-for="item in activeChapterBrief.do_not_do" :key="item">{{ item }}</span>
           </div>
         </div>
       </div>
