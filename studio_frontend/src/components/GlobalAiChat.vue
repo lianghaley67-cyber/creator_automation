@@ -8,7 +8,8 @@ export default {
   setup() {
     const ctx = useStudioContext("GlobalAiChat");
     const open = ref(false);
-    const provider = ref(localStorage.getItem("globalAiChatProvider") || "deepseek");
+    const savedAiKey = localStorage.getItem("globalAiChatProvider") || "";
+    const provider = ref(savedAiKey.includes(":") ? savedAiKey : "qwen:qwen3.7-plus");
     const input = ref("");
     const sending = ref(false);
     const messages = ref([
@@ -18,12 +19,14 @@ export default {
       },
     ]);
     const providers = [
-      { value: "deepseek", label: "DeepSeek" },
-      { value: "openai", label: "OpenAI" },
-      { value: "qwen", label: "通义千问" },
-      { value: "zhipu", label: "智谱 GLM" },
-      { value: "local", label: "本地建议" },
+      { value: "qwen:qwen3.7-plus", provider: "qwen", model: "qwen3.7-plus", label: "通义千问 qwen3.7-plus" },
+      { value: "qwen:qwen-plus-2025-07-28", provider: "qwen", model: "qwen-plus-2025-07-28", label: "通义千问 qwen-plus-2025-07-28" },
+      { value: "qwen:qwen-max", provider: "qwen", model: "qwen-max", label: "通义千问 qwen-max" },
+      { value: "deepseek:deepseek-chat", provider: "deepseek", model: "deepseek-chat", label: "DeepSeek Chat" },
+      { value: "openai:gpt-4o-mini", provider: "openai", model: "gpt-4o-mini", label: "OpenAI gpt-4o-mini" },
+      { value: "local:local-plot-consultant", provider: "local", model: "local-plot-consultant", label: "本地建议" },
     ];
+    const selectedAi = computed(() => providers.find((item) => item.value === provider.value) || providers[0]);
     const contextText = computed(() => {
       const page = ctx.activeTab?.value || "overview";
       const title = ctx.modulePageMeta?.value?.title || "灵感工坊";
@@ -42,7 +45,8 @@ export default {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            provider: provider.value,
+            provider: selectedAi.value.provider,
+            model: selectedAi.value.model,
             messages: messages.value.filter((item) => item.role !== "system"),
             context: contextText.value,
           }),
@@ -68,7 +72,7 @@ export default {
       ];
     }
 
-    return { open, provider, providers, input, sending, messages, send, clearChat };
+    return { open, provider, providers, selectedAi, input, sending, messages, send, clearChat };
   },
 };
 </script>
@@ -83,7 +87,7 @@ export default {
       <header class="global-ai-chat-head">
         <div>
           <strong>AI 聊天工具</strong>
-          <span>默认 DeepSeek，可切换模型</span>
+          <span>默认 qwen3.7-plus，可切换模型</span>
         </div>
         <button type="button" @click="open = false">×</button>
       </header>

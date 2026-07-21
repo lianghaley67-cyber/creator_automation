@@ -1135,6 +1135,28 @@ a {
   color: #122033;
 }
 
+.chapter-ai-select {
+  display: inline-grid;
+  gap: 5px;
+  min-width: min(300px, 100%);
+}
+
+.chapter-ai-select span {
+  color: #526b85;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chapter-ai-select select {
+  min-height: 44px;
+  border: 1px solid rgba(124, 151, 178, 0.3);
+  border-radius: 12px;
+  padding: 0 12px;
+  background: #fff;
+  color: #122033;
+  font-weight: 700;
+}
+
 .global-ai-chat-messages {
   display: grid;
   gap: 10px;

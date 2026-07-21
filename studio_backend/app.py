@@ -151,8 +151,17 @@ def _script_ai_error_detail(
     }
 
 
-def _chat_provider_config(provider: str) -> dict[str, str]:
-    normalized = str(provider or "deepseek").strip().lower()
+def _default_chat_provider() -> str:
+    return os.getenv("DEFAULT_CHAT_PROVIDER", "qwen").strip() or "qwen"
+
+
+def _default_qwen_model() -> str:
+    return os.getenv("QWEN_MODEL", "qwen3.7-plus").strip() or "qwen3.7-plus"
+
+
+def _chat_provider_config(provider: str, model: str = "") -> dict[str, str]:
+    normalized = str(provider or _default_chat_provider()).strip().lower()
+    model_override = str(model or "").strip()
     if normalized in {"deepseek", "deepseek-chat"}:
         endpoint = os.getenv("DEEPSEEK_CHAT_ENDPOINT", "https://api.deepseek.com/chat/completions").strip()
         if endpoint.rstrip("/") in {"https://api.deepseek.com", "https://api.deepseek.com/v1"}:
@@ -161,21 +170,21 @@ def _chat_provider_config(provider: str) -> dict[str, str]:
             "provider": "deepseek",
             "api_key": os.getenv("DEEPSEEK_API_KEY", "").strip(),
             "endpoint": endpoint,
-            "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat",
+            "model": model_override or os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat",
         }
-    if normalized in {"qwen", "dashscope", "tongyi"}:
+    if normalized in {"qwen", "dashscope", "tongyi", "aliyun", "bailian"} or normalized.startswith("qwen"):
         return {
             "provider": "qwen",
             "api_key": os.getenv("QWEN_API_KEY", os.getenv("DASHSCOPE_API_KEY", "")).strip(),
             "endpoint": os.getenv("QWEN_CHAT_ENDPOINT", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions").strip(),
-            "model": os.getenv("QWEN_MODEL", "qwen-plus").strip() or "qwen-plus",
+            "model": model_override or _default_qwen_model(),
         }
     if normalized in {"zhipu", "glm"}:
         return {
             "provider": "zhipu",
             "api_key": os.getenv("ZHIPU_API_KEY", "").strip(),
             "endpoint": os.getenv("ZHIPU_CHAT_ENDPOINT", "https://open.bigmodel.cn/api/paas/v4/chat/completions").strip(),
-            "model": os.getenv("ZHIPU_MODEL", "glm-4-flash").strip() or "glm-4-flash",
+            "model": model_override or os.getenv("ZHIPU_MODEL", "glm-4-flash").strip() or "glm-4-flash",
         }
     if normalized in {"openai", "gpt"}:
         base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com").strip()
@@ -183,7 +192,7 @@ def _chat_provider_config(provider: str) -> dict[str, str]:
             "provider": "openai",
             "api_key": os.getenv("OPENAI_API_KEY", "").strip(),
             "endpoint": base_url.rstrip("/") + "/v1/chat/completions",
-            "model": os.getenv("OPENAI_MODEL", os.getenv("LLM_MODEL", "gpt-4o-mini")).strip() or "gpt-4o-mini",
+            "model": model_override or os.getenv("OPENAI_MODEL", os.getenv("LLM_MODEL", "gpt-4o-mini")).strip() or "gpt-4o-mini",
         }
     return {"provider": "local", "api_key": "", "endpoint": "", "model": "local-plot-consultant"}
 
@@ -201,8 +210,8 @@ def _local_story_chat_reply(messages: list[dict[str, Any]], context: str = "") -
     )
 
 
-def _call_chat_completion(provider: str, messages: list[dict[str, Any]], context: str = "") -> dict[str, Any]:
-    config = _chat_provider_config(provider)
+def _call_chat_completion(provider: str, messages: list[dict[str, Any]], context: str = "", model: str = "") -> dict[str, Any]:
+    config = _chat_provider_config(provider, model)
     if config["provider"] == "local" or not config["api_key"]:
         return {
             "provider": config["provider"],
@@ -267,17 +276,18 @@ def _call_online_chapter_generation(
     archive: dict[str, Any],
     brief: dict[str, Any],
     *,
+    model: str = "",
     rewrite_feedback: list[str] | None = None,
     previous_draft: str = "",
 ) -> dict[str, Any]:
-    config = _chat_provider_config(provider or os.getenv("NOVEL_CHAPTER_PROVIDER", "deepseek"))
+    config = _chat_provider_config(provider or os.getenv("NOVEL_CHAPTER_PROVIDER", _default_chat_provider()), model)
     if config["provider"] == "local" or not config["api_key"]:
         raise HTTPException(
             status_code=503,
             detail={
                 "message": f"在线小说生成未启用：{config['provider']} 缺少 API Key。",
                 "issues": [
-                    "请配置 DEEPSEEK_API_KEY，或设置 NOVEL_CHAPTER_PROVIDER=openai 并配置 OPENAI_API_KEY。",
+                    "请优先配置 QWEN_API_KEY 或 DASHSCOPE_API_KEY；也可以设置 NOVEL_CHAPTER_PROVIDER=deepseek/openai 并配置对应 API Key。",
                     "当前已禁止静默降级本地生成，避免误以为是 AI 正文。",
                 ],
             },
@@ -376,6 +386,7 @@ def _generate_online_chapter_with_review(
     archive: dict[str, Any],
     brief: dict[str, Any],
     *,
+    model: str = "",
     max_attempts: int = 3,
 ) -> tuple[dict[str, Any], bool, list[str]]:
     from .novel_engine import generate_chapter_from_plan
@@ -391,6 +402,7 @@ def _generate_online_chapter_with_review(
             book,
             archive,
             brief,
+            model=model,
             rewrite_feedback=feedback,
             previous_draft=previous_draft,
         )
@@ -1377,9 +1389,10 @@ async def api_ai_chat(request: Request) -> dict[str, Any]:
     messages = raw.get("messages") if isinstance(raw, dict) else []
     if not isinstance(messages, list) or not messages:
         raise HTTPException(status_code=400, detail="messages 不能为空。")
-    provider = str(raw.get("provider") or "deepseek")
+    provider = str(raw.get("provider") or _default_chat_provider())
+    model = str(raw.get("model") or "")
     context = str(raw.get("context") or "")
-    return _call_chat_completion(provider, messages, context)
+    return _call_chat_completion(provider, messages, context, model)
 
 
 @app.get("/api/stocks/search")
@@ -2532,8 +2545,9 @@ async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str,
         }
     else:
         brief = base_brief
-    provider = str((body if isinstance(body, dict) else {}).get("ai_provider") or os.getenv("NOVEL_CHAPTER_PROVIDER", "deepseek")).strip()
-    chapter, passed, issues = _generate_online_chapter_with_review(provider, book, archive, brief)
+    provider = str((body if isinstance(body, dict) else {}).get("ai_provider") or os.getenv("NOVEL_CHAPTER_PROVIDER", _default_chat_provider())).strip()
+    model = str((body if isinstance(body, dict) else {}).get("ai_model") or "").strip()
+    chapter, passed, issues = _generate_online_chapter_with_review(provider, book, archive, brief, model=model)
     if not passed:
         raise HTTPException(status_code=422, detail={"message": "章节生成未通过规范，已阻止保存。", "issues": issues, "chapter": chapter})
     chapter["created_at"] = now_iso()
@@ -2591,8 +2605,9 @@ async def api_regenerate_book_chapter(book_id: str, chapter_number: int, request
         )
     else:
         brief = {**brief, "chapter_number": chapter_number}
-    provider = str((body if isinstance(body, dict) else {}).get("ai_provider") or os.getenv("NOVEL_CHAPTER_PROVIDER", "deepseek")).strip()
-    chapter, passed, issues = _generate_online_chapter_with_review(provider, book, archive_for_context, brief)
+    provider = str((body if isinstance(body, dict) else {}).get("ai_provider") or os.getenv("NOVEL_CHAPTER_PROVIDER", _default_chat_provider())).strip()
+    model = str((body if isinstance(body, dict) else {}).get("ai_model") or "").strip()
+    chapter, passed, issues = _generate_online_chapter_with_review(provider, book, archive_for_context, brief, model=model)
     if not passed:
         raise HTTPException(status_code=422, detail={"message": "章节重生成未通过规范，已阻止保存。", "issues": issues, "chapter": chapter})
     chapter["created_at"] = now_iso()

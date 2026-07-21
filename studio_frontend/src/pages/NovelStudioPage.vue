@@ -77,6 +77,8 @@ export default {
     const chapterNote = ref("");
     const chapterPlanDraft = ref("");
     const chapterPlanDraftNumber = ref(0);
+    const savedChapterAiKey = localStorage.getItem("novelChapterAiKey") || "";
+    const selectedChapterAiKey = ref(savedChapterAiKey.includes(":") ? savedChapterAiKey : "qwen:qwen3.7-plus");
     const selectedNovelSkillId = ref("");
     const userMode = ref("novice");
     const storyDraft = reactive({
@@ -91,6 +93,14 @@ export default {
       ctx.channelSkillsList.value || []
     ).filter((skill) => skill.channel === "wechat" && skill.content_kind === "fiction_serial"));
     const selectedNovelSkill = computed(() => novelSkills.value.find((skill) => skill.id === selectedNovelSkillId.value) || null);
+    const chapterAiOptions = [
+      { key: "qwen:qwen3.7-plus", provider: "qwen", model: "qwen3.7-plus", label: "通义千问 qwen3.7-plus（优先）" },
+      { key: "qwen:qwen-plus-2025-07-28", provider: "qwen", model: "qwen-plus-2025-07-28", label: "通义千问 qwen-plus-2025-07-28" },
+      { key: "qwen:qwen-max", provider: "qwen", model: "qwen-max", label: "通义千问 qwen-max" },
+      { key: "deepseek:deepseek-chat", provider: "deepseek", model: "deepseek-chat", label: "DeepSeek Chat" },
+      { key: "openai:gpt-4o-mini", provider: "openai", model: "gpt-4o-mini", label: "OpenAI gpt-4o-mini" },
+    ];
+    const selectedChapterAi = computed(() => chapterAiOptions.find((item) => item.key === selectedChapterAiKey.value) || chapterAiOptions[0]);
     const storyNextAction = computed(() => nextStoryAction({
       hasStory: Boolean(ctx.selectedStoryId.value),
       hasDiagnosis: Boolean(diagnosis.value),
@@ -1037,6 +1047,7 @@ export default {
       }
       loading.chapter = true;
       try {
+        localStorage.setItem("novelChapterAiKey", selectedChapterAi.value.key);
         syncEditedChapterPlan();
         if (!chapterBrief.value) {
           chapterBrief.value = buildLocalChapterBrief();
@@ -1047,7 +1058,8 @@ export default {
           body: JSON.stringify({
             brief: chapterBrief.value,
             user_note: chapterNote.value,
-            ai_provider: "deepseek",
+            ai_provider: selectedChapterAi.value.provider,
+            ai_model: selectedChapterAi.value.model,
             allow_local_fallback: false,
             wechat_skill_id: selectedNovelSkillId.value || "wechat_ai_writing_workshop_v1",
           }),
@@ -1088,6 +1100,7 @@ export default {
       const chapterNumber = Number(chapter.chapter_number);
       loading.regenerateChapter = String(chapterNumber);
       try {
+        localStorage.setItem("novelChapterAiKey", selectedChapterAi.value.key);
         const plan = chapter.chapterPlan || (selectedBook.value?.plot_outline || []).find((item) => Number(item.chapter) === chapterNumber) || {};
         const originalExcerpt = String(chapter.content || chapter.content_markdown || "").slice(0, 260);
         const result = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapters/${chapterNumber}/regenerate`, {
@@ -1103,7 +1116,8 @@ export default {
               user_note: `${chapterNote.value || ""}\n不合规范，按小说世界模拟器规则重写：直接入场、动作对话推进、不要说明腔。必须避开原文开头和原事件节奏，原文片段：${originalExcerpt}`.trim(),
             },
             user_note: chapterNote.value,
-            ai_provider: "deepseek",
+            ai_provider: selectedChapterAi.value.provider,
+            ai_model: selectedChapterAi.value.model,
             allow_local_fallback: false,
           }),
         }, 300000);
@@ -1201,6 +1215,9 @@ export default {
       blueprintPromise,
       chapterNote,
       chapterPlanDraft,
+      selectedChapterAiKey,
+      chapterAiOptions,
+      selectedChapterAi,
       selectedNovelSkillId,
       userMode,
       storyDraft,
@@ -2156,6 +2173,12 @@ export default {
         </div>
       </div>
       <div class="novel-actions">
+        <label class="chapter-ai-select">
+          <span>本次生成 AI</span>
+          <select v-model="selectedChapterAiKey" :disabled="loading.chapter">
+            <option v-for="item in chapterAiOptions" :key="item.key" :value="item.key">{{ item.label }}</option>
+          </select>
+        </label>
         <button class="btn accent" :disabled="loading.chapter || !currentBookId || !selectedNovelSkillId" @click="generateChapterFromBrief">
           {{ loading.chapter ? "生成中..." : "生成正文" }}
         </button>
