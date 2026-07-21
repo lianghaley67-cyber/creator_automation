@@ -1811,11 +1811,26 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
         marker = _clean_title_fragment(source, limit=12)
         if marker:
             markers.append(marker)
-    has_new_event = any(marker and marker in content for marker in dict.fromkeys(markers))
+    for item in _list(plan.get("event_plan")):
+        data = item if isinstance(item, dict) else {"event": item}
+        event_text = _text(data.get("event"))
+        marker = _clean_title_fragment(event_text, limit=12)
+        if marker:
+            markers.append(marker)
+        for token in re.findall(r"[\u4e00-\u9fff]{2,8}", event_text):
+            if token not in {
+                "推进主线", "制造冲突", "新信息", "第一次", "这条线索", "一个", "没有", "现场",
+                "东西", "时候", "情况下", "必须", "当前", "本章", "剧情", "章节",
+            } and len(token) >= 2:
+                markers.append(token)
+    unique_markers = list(dict.fromkeys(markers))
+    matched_markers = [marker for marker in unique_markers if marker and marker in content]
+    metrics = _plot_paragraph_metrics(content)
+    has_progress_density = metrics["plot"] >= 3 and metrics["plot"] >= metrics["description"]
+    has_new_event = bool(matched_markers) or has_progress_density
     if not has_new_event:
         issues.append("没有落实章节计划中的新事件、新线索或处境变化。")
 
-    metrics = _plot_paragraph_metrics(content)
     if metrics["description"] > metrics["plot"]:
         issues.append("描写段落多于剧情推进段落，存在水文风险。")
     paragraphs = [part.strip() for part in re.split(r"\n{2,}", content) if part.strip()]
@@ -1840,6 +1855,7 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
         "similarity": round(similarity, 3),
         "plot_paragraphs": metrics["plot"],
         "description_paragraphs": metrics["description"],
+        "matched_plan_markers": matched_markers[:12],
         "dead_progress_windows": dead_windows,
         "internal_repetition_count": internal_repetition_count,
         "adjacent_similarity_count": adjacent_similarity_count,
