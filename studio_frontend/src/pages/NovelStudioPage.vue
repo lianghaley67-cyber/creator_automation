@@ -298,23 +298,47 @@ export default {
         .filter((item) => item.event);
     }
 
+    function buildLocalChapterBrief(plan = planForNextChapter()) {
+      const title = chapterPlanTitle(plan) || `第${nextChapterNumber.value}章`;
+      const eventPlan = parseChapterPlanDraft();
+      const fallbackEvents = eventPlan.length ? eventPlan : [
+        { event: concreteChapterPlanEvent(0, title, selectedBook.value?.title), tags: ["推进主线"], advances_mainline: "是", creates_conflict: "否", new_information: "是" },
+        { event: concreteChapterPlanEvent(1, title, selectedBook.value?.title), tags: ["冲突"], advances_mainline: "是", creates_conflict: "是", new_information: "是" },
+        { event: concreteChapterPlanEvent(2, title, selectedBook.value?.title), tags: ["伏笔"], advances_mainline: "是", creates_conflict: "是", new_information: "是" },
+      ];
+      return {
+        bookId: currentBookId.value,
+        story_name: selectedBook.value?.title || "",
+        chapter_number: nextChapterNumber.value,
+        title_hint: title,
+        must_do: [
+          "按上方剧情计划写具体故事情节，不输出写作说明。",
+          "开头直接进入当前场景，用动作、对话和可观察细节推进。",
+          "每3段必须出现新动作、新冲突或新线索，禁止复述旧章节。",
+        ],
+        do_not_do: [
+          "不要写本章目标、推进主线、制造冲突、埋伏笔等元话语。",
+          "不要生成空正文、摘要、JSON或结构说明。",
+          "不要重复上一章完整场景或旧对白。",
+        ],
+        chapterPlan: {
+          ...(plan || {}),
+          event_plan: fallbackEvents,
+          scene_beats: fallbackEvents.map((item) => item.event),
+        },
+      };
+    }
+
     function syncEditedChapterPlan() {
       const eventPlan = parseChapterPlanDraft();
       if (!eventPlan.length) return;
       if (!chapterBrief.value) {
-        const plan = planForNextChapter();
-        chapterBrief.value = {
-          bookId: currentBookId.value,
-          story_name: selectedBook.value?.title || "",
-          chapter_number: nextChapterNumber.value,
-          title_hint: plan.title || `第${nextChapterNumber.value}章`,
-          must_do: [],
-          do_not_do: [],
-          chapterPlan: plan,
-        };
+        chapterBrief.value = buildLocalChapterBrief();
       }
       chapterBrief.value = {
         ...chapterBrief.value,
+        must_do: chapterBrief.value.must_do?.length ? chapterBrief.value.must_do : buildLocalChapterBrief().must_do,
+        do_not_do: chapterBrief.value.do_not_do?.length ? chapterBrief.value.do_not_do : buildLocalChapterBrief().do_not_do,
         chapterPlan: {
           ...(chapterBrief.value.chapterPlan || {}),
           event_plan: eventPlan,
@@ -974,6 +998,9 @@ export default {
       loading.chapter = true;
       try {
         syncEditedChapterPlan();
+        if (!chapterBrief.value) {
+          chapterBrief.value = buildLocalChapterBrief();
+        }
         const result = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapters/generate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },

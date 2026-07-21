@@ -2350,8 +2350,25 @@ async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str,
     body = await request.json()
     brief = body.get("brief") if isinstance(body, dict) and isinstance(body.get("brief"), dict) else {}
     archive = api_get_story_archive(book_id)
-    if not brief:
-        brief = build_chapter_brief_from_book(book, archive, user_note=str((body if isinstance(body, dict) else {}).get("user_note") or ""))
+    user_note = str((body if isinstance(body, dict) else {}).get("user_note") or "")
+    base_brief = build_chapter_brief_from_book(book, archive, user_note=user_note)
+    if brief:
+        client_plan = brief.get("chapterPlan") if isinstance(brief.get("chapterPlan"), dict) else {}
+        base_plan = base_brief.get("chapterPlan") if isinstance(base_brief.get("chapterPlan"), dict) else {}
+        brief = {
+            **base_brief,
+            **{key: value for key, value in brief.items() if value not in [None, "", []]},
+            "must_do": brief.get("must_do") if brief.get("must_do") else base_brief.get("must_do"),
+            "do_not_do": brief.get("do_not_do") if brief.get("do_not_do") else base_brief.get("do_not_do"),
+            "chapterPlan": {
+                **base_plan,
+                **client_plan,
+                "event_plan": client_plan.get("event_plan") or base_plan.get("event_plan"),
+                "scene_beats": client_plan.get("scene_beats") or base_plan.get("scene_beats"),
+            },
+        }
+    else:
+        brief = base_brief
     chapter = generate_chapter_from_plan(book, archive, brief)
     passed, issues = _chapter_generation_passed(chapter)
     if not passed:
