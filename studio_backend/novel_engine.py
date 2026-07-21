@@ -41,6 +41,9 @@ NOVEL_WORLD_SIMULATOR_CONTRACT = {
         "每一幕必须给出新信息，不能循环使用同一段动作、台词或线索。",
         "上一章回忆最多一句话，只能用于揭示线索、动机或代价。",
         "每一段必须提供新信息、新变化或新冲突，避免无意义心理描写。",
+        "删除所有不推动剧情的句子；如果正文可删减30%以上，必须重写。",
+        "冲突必须升级，情绪必须递进，不能停留在同一层恐惧、震惊或犹豫里。",
+        "结尾必须制造强悬念：出现新危险、新反转、新证据或角色不得不立刻回应的问题。",
         "玄学内容必须落到可观察物件、时间、方位、因果代价或风水逻辑上。",
         "结尾留下角色当下必须面对的具体悬念。",
         "语言保持番茄小说可读性：画面清楚、句子干净、对话推动剧情。",
@@ -53,6 +56,7 @@ NOVEL_WORLD_SIMULATOR_CONTRACT = {
         "不为了制造冲突降低人物智商。",
         "不复制、改写或大段复述上一章原文。",
         "不为了凑字数重复同一批线索、动作和台词。",
+        "不同义重复，不用换一种说法反复表达同一动作、情绪或判断。",
         "不写流水账，不用“他心中一震”“暗暗发誓”等模板化表达。",
         "不重置场景、关系和危机，不重新铺垫世界观。",
     ],
@@ -857,6 +861,8 @@ def build_chapter_brief_from_book(
             "每个计划事件必须标注：推进主线是/否、制造冲突是/否、新信息是/否。",
             "如果计划事件与上一章重复，尤其是同一个人求救、同一个场景求救、女人抱孩子求救，必须先替换为新事件。",
             "计划不能继续同一节奏，必须升级冲突。",
+            "删除所有不推动剧情的句子，每段必须出现新动作、新信息、新冲突或情绪变化。",
+            "冲突必须升级，情绪必须递进，章末必须制造强悬念。",
             f"本章核心事件：{chapter_plan.get('core_event')}",
             f"本章剧情计划：{' / '.join(event_plan_lines)}",
             f"五幕推进：{' / '.join(_list(chapter_plan.get('scene_beats')))}",
@@ -874,6 +880,7 @@ def build_chapter_brief_from_book(
             "不要写流水账、纯心理描写堆砌或“他心中一震”“暗暗发誓”等模板句。",
             "不要换一种说法重复同一件事。",
             "不要解释已发生的事，不要展开“他想起之前……”式回忆。",
+            "不要写可删减30%以上的松散正文，不要同义重复，不要无实质推进。",
             "不要写平台外引流、联系方式、外部链接、账号口令。",
             "不要为了冲突降低人物智商。",
             "不要偏离当前 bookId 的 Story Archive。",
@@ -1795,6 +1802,56 @@ def _plot_paragraph_metrics(content: str) -> dict[str, int]:
     return {"plot": plot, "description": description, "total": len(paragraphs)}
 
 
+def _paragraph_change_metrics(content: str) -> dict[str, Any]:
+    paragraphs = [part.strip() for part in re.split(r"\n{2,}", content) if part.strip()]
+    change_tokens = [
+        "却", "忽然", "突然", "反而", "终于", "立刻", "当场", "转身", "逼", "拦", "追",
+        "露出", "出现", "浮出", "多了", "少了", "变", "裂", "响", "亮", "渗", "断",
+        "推开", "递出", "拿出", "认出", "发现", "指向", "改口", "沉默", "后退",
+    ]
+    weak = 0
+    for part in paragraphs:
+        if len(part) < 18:
+            continue
+        has_dialogue = "“" in part and "”" in part
+        has_change = any(token in part for token in change_tokens)
+        if not (has_dialogue or has_change or _paragraph_has_progress(part)):
+            weak += 1
+    total = max(1, len([part for part in paragraphs if len(part) >= 18]))
+    return {"weak": weak, "total": total, "reducible_ratio": round(weak / total, 3)}
+
+
+def _conflict_upgrade_present(content: str) -> bool:
+    upgrade_tokens = [
+        "逼", "拦", "堵", "追", "抢", "夺", "押", "围", "质问", "不许", "必须", "立刻",
+        "否则", "来不及", "更", "反而", "当场", "翻脸", "撕破", "认账", "偿命", "出事",
+        "危险", "代价", "失控", "变了", "断了", "裂开", "浮出", "多出", "指向",
+    ]
+    return sum(1 for token in upgrade_tokens if token in content) >= 4
+
+
+def _emotion_progression_present(content: str) -> bool:
+    emotion_stages = [
+        ["怕", "冷", "僵", "慌", "发白", "发紧"],
+        ["怒", "急", "咬牙", "质问", "压低", "不退"],
+        ["定", "稳", "抬头", "开口", "决定", "转身", "伸手"],
+        ["沉", "压", "更冷", "没有退", "盯着", "接住"],
+    ]
+    hits = sum(1 for stage in emotion_stages if any(token in content for token in stage))
+    return hits >= 2
+
+
+def _strong_ending_hook_present(content: str) -> bool:
+    paragraphs = [part.strip() for part in re.split(r"\n{2,}", content) if part.strip()]
+    tail = "\n".join(paragraphs[-3:]) if paragraphs else content[-500:]
+    hook_tokens = [
+        "门", "井", "纸", "字", "名字", "血", "灯", "香", "灰", "铃", "钥匙", "脚步",
+        "敲", "响", "裂", "亮", "灭", "浮出", "出现", "多出", "指向", "空白", "不见",
+        "回头", "站着", "盯着", "等", "来了", "不能走", "谁", "为什么", "怎么会",
+    ]
+    return len(tail) >= 80 and sum(1 for token in hook_tokens if token in tail) >= 3
+
+
 def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: int, plan: dict[str, Any]) -> dict[str, Any]:
     previous = _previous_chapter_text(archive)
     cur_shingles = _chapter_shingles(content)
@@ -1835,6 +1892,15 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
 
     if metrics["description"] > metrics["plot"]:
         issues.append("描写段落多于剧情推进段落，存在水文风险。")
+    change_metrics = _paragraph_change_metrics(content)
+    if change_metrics["reducible_ratio"] > 0.30:
+        issues.append("内容可删减30%以上，存在不推动剧情的段落，必须重写。")
+    if not _conflict_upgrade_present(content):
+        issues.append("冲突没有明显升级，只是在同一压力上重复。")
+    if not _emotion_progression_present(content):
+        issues.append("情绪没有递进，停留在同一层反应里。")
+    if not _strong_ending_hook_present(content):
+        issues.append("结尾悬念不够强，没有形成新危险、新反转或必须回应的问题。")
     paragraphs = [part.strip() for part in re.split(r"\n{2,}", content) if part.strip()]
     dead_windows = 0
     for index in range(0, len(paragraphs), 3):
@@ -1857,8 +1923,13 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
         "similarity": round(similarity, 3),
         "plot_paragraphs": metrics["plot"],
         "description_paragraphs": metrics["description"],
+        "reducible_ratio": change_metrics["reducible_ratio"],
+        "weak_change_paragraphs": change_metrics["weak"],
         "matched_plan_markers": matched_markers[:12],
         "dead_progress_windows": dead_windows,
+        "conflict_upgrade": _conflict_upgrade_present(content),
+        "emotion_progression": _emotion_progression_present(content),
+        "strong_ending_hook": _strong_ending_hook_present(content),
         "internal_repetition_count": internal_repetition_count,
         "adjacent_similarity_count": adjacent_similarity_count,
         "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
