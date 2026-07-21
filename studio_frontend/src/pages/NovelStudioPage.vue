@@ -169,29 +169,65 @@ export default {
       const events = Array.isArray(plan.event_plan) ? plan.event_plan : [];
       if (events.length) {
         return events.map((item, index) => {
-          const event = typeof item === "string" ? item : item?.event || "";
+          const event = typeof item === "string" ? item : item?.event || item?.content || item?.summary || "";
           const advances = typeof item === "object" ? item.advances_mainline || "是" : "是";
           const conflict = typeof item === "object" ? item.creates_conflict || "否" : "否";
           const info = typeof item === "object" ? item.new_information || "是" : "是";
           return `事件${index + 1}：${event}（推进主线：${advances}；制造冲突：${conflict}；新信息：${info}）`;
         }).join("\n");
       }
-      const coreEvent = plan.core_event || plan.chapter_goal || plan.goal || "";
-      const conflict = plan.conflict || plan.plot_conflict || "";
-      const suspense = plan.suspense || plan.hook || plan.ending_hook || "";
-      return [
+      const title = plan.title || plan.chapter_title || plan.name || brief?.title_hint || `第${brief?.chapter_number || nextChapterNumber.value}章`;
+      const coreEvent = plan.core_event || plan.main_event || plan.unit_event || plan.chapter_goal || plan.goal || plan.summary || "";
+      const conflict = plan.conflict || plan.plot_conflict || plan.core_conflict || plan.stage_conflict || "";
+      const suspense = plan.suspense || plan.hook || plan.ending_hook || plan.cliffhanger || plan.foreshadowing || "";
+      const lines = [
         coreEvent ? `事件1：${coreEvent}（推进主线：是；制造冲突：否；新信息：是）` : "",
         conflict ? `事件2：${conflict}（推进主线：否；制造冲突：是；新信息：是）` : "",
         suspense ? `事件3：${suspense}（推进主线：是；制造冲突：是；新信息：是）` : "",
-      ].filter(Boolean).join("\n");
+      ].filter(Boolean);
+      if (lines.length) return lines.join("\n");
+      if (!Object.keys(plan).length) return "";
+      return [
+        `事件1：承接上一章结果，围绕「${title}」发生一个新的具体行动。（推进主线：是；制造冲突：否；新信息：是）`,
+        `事件2：让已有矛盾升级，主角必须做出选择而不是重复上一章事件。（推进主线：是；制造冲突：是；新信息：是）`,
+        `事件3：章末留下新的危机或线索，牵引下一章继续读下去。（推进主线：是；制造冲突：是；新信息：是）`,
+      ].join("\n");
+    }
+
+    function chapterPlanNumber(plan, index) {
+      const raw = plan?.chapter ?? plan?.chapter_number ?? plan?.node ?? plan?.index ?? plan?.order ?? plan?.seq;
+      const number = Number(raw);
+      return Number.isFinite(number) && number > 0 ? number : index + 1;
+    }
+
+    function chapterPlanTitle(plan) {
+      return String(plan?.title || plan?.chapter_title || plan?.name || plan?.chapter_goal || plan?.goal || "").trim();
+    }
+
+    function chapterPlanList() {
+      const bookPlans = Array.isArray(selectedBook.value?.plot_outline) ? selectedBook.value.plot_outline : [];
+      const archivePlans = Array.isArray(storyArchive.value?.plot?.chapterPlans) ? storyArchive.value.plot.chapterPlans : [];
+      const blueprintPlans = Array.isArray(blueprint.value?.hundred_chapter_plan) ? blueprint.value.hundred_chapter_plan : [];
+      return bookPlans.length ? bookPlans : (archivePlans.length ? archivePlans : blueprintPlans);
     }
 
     function planForNextChapter() {
       const target = Number(nextChapterNumber.value || 1);
-      return (selectedBook.value?.plot_outline || []).find((item) => Number(item.chapter) === target)
-        || (selectedBook.value?.plot_outline || [])[Math.max(0, target - 1)]
+      const plans = chapterPlanList();
+      return plans.find((item, index) => chapterPlanNumber(item, index) === target)
+        || plans[Math.max(0, target - 1)]
         || {};
     }
+
+    const dailyChapterEcho = computed(() => {
+      const plan = planForNextChapter();
+      const title = chapterBrief.value?.title_hint || chapterPlanTitle(plan) || `第${nextChapterNumber.value}章`;
+      return {
+        chapterNumber: chapterBrief.value?.chapter_number || nextChapterNumber.value,
+        title,
+        hasPlan: Boolean(chapterPlanDraft.value.trim() || Object.keys(plan || {}).length),
+      };
+    });
 
     function refreshChapterPlanDraftFromBook() {
       if (chapterBrief.value) {
@@ -746,6 +782,7 @@ export default {
       editingBookId.value = "";
       plannerExpanded.value = false;
       fillFormFromBook(book);
+      refreshChapterPlanDraftFromBook();
       getStoryArchive(book.id).catch((err) => ctx.setError(`故事档案读取失败：${err.message}`));
       ctx.setNotice(`已载入「${book.title}」，可以继续生成章节 Brief 或编辑蓝图。`);
     }
@@ -1058,6 +1095,7 @@ export default {
       planPreview,
       commandMetrics,
       aiTeam,
+      dailyChapterEcho,
       projectCards,
       formatBookDetail,
       chapterDisplayContent,
@@ -1188,6 +1226,28 @@ export default {
           <span>质量评分 <strong>{{ commandMetrics.qualityScore }}</strong></span>
           <span>读者兴趣 <strong>{{ commandMetrics.readerInterest }}</strong></span>
           <span>风险 <strong>{{ commandMetrics.risk }}</strong></span>
+        </div>
+      </div>
+      <div v-if="currentBookId" class="novel-daily-echo">
+        <div class="novel-daily-echo-head">
+          <div>
+            <span>每日章节生产回显</span>
+            <strong>第 {{ dailyChapterEcho.chapterNumber }} 章 · {{ dailyChapterEcho.title }}</strong>
+          </div>
+          <button class="btn secondary small" :disabled="loading.brief" @click="createChapterBrief">
+            {{ loading.brief ? "生成中..." : "生成/刷新 Brief" }}
+          </button>
+        </div>
+        <textarea
+          v-model="chapterPlanDraft"
+          rows="4"
+          placeholder="选中小说后，这里会回显下一章剧情计划；不符合预期可以直接修改后再生成正文。"
+        ></textarea>
+        <div class="novel-daily-echo-actions">
+          <span>{{ dailyChapterEcho.hasPlan ? "已载入下一章计划，可手动调整。" : "当前小说还没有可用章节规划，请先生成或刷新 Brief。" }}</span>
+          <button class="btn accent small" :disabled="loading.chapter || !selectedNovelSkillId" @click="generateChapterFromBrief">
+            {{ loading.chapter ? "生成中..." : "按此计划生成正文" }}
+          </button>
         </div>
       </div>
       <div class="novel-team-status">

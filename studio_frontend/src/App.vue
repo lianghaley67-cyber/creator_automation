@@ -7112,6 +7112,64 @@ textarea {
   color: #c8dff5;
 }
 
+.novel-daily-echo {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  border: 1px solid rgba(58, 151, 211, 0.22);
+  border-radius: 10px;
+  padding: 14px;
+  background: linear-gradient(180deg, rgba(247, 253, 255, 0.98), rgba(233, 248, 253, 0.92));
+  box-shadow: 0 14px 30px rgba(67, 121, 157, 0.08);
+}
+
+.novel-daily-echo-head,
+.novel-daily-echo-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.novel-daily-echo-head div {
+  display: grid;
+  gap: 4px;
+}
+
+.novel-daily-echo-head span,
+.novel-daily-echo-actions span {
+  color: #58718d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.novel-daily-echo-head strong {
+  color: #0c2036;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.novel-daily-echo textarea {
+  width: 100%;
+  min-height: 118px;
+  resize: vertical;
+  border: 1px solid rgba(128, 164, 194, 0.46);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #fff;
+  color: #10253b;
+  font-family: "Microsoft YaHei", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", "Segoe UI", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.75;
+  box-shadow: inset 0 1px 2px rgba(27, 59, 86, 0.04);
+}
+
+.novel-daily-echo textarea:focus {
+  outline: none;
+  border-color: rgba(47, 150, 212, 0.78);
+  box-shadow: 0 0 0 3px rgba(47, 150, 212, 0.14);
+}
+
 .novel-dashboard-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
