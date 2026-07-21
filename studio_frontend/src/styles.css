@@ -1041,8 +1041,8 @@ a {
 
 .global-ai-chat {
   position: fixed;
-  right: 18px;
-  bottom: 24px;
+  right: auto;
+  bottom: auto;
   z-index: 60;
   font-family: "Microsoft YaHei", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", "Segoe UI", Arial, sans-serif;
   color: #122033;
@@ -1059,7 +1059,13 @@ a {
   background: linear-gradient(135deg, #48a7df, #2f86c5);
   color: #fff;
   box-shadow: 0 14px 34px rgba(47, 150, 212, 0.26);
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.global-ai-chat-tab:active {
+  cursor: grabbing;
 }
 
 .global-ai-chat-tab span {

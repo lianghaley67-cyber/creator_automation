@@ -3,11 +3,29 @@ import { computed, ref } from "vue";
 import { useStudioContext } from "../pages/useStudioContext.js";
 import { normalizeErrorMessage } from "../utils/errors.js";
 
+function readSavedPosition() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem("globalAiChatPosition") || "null");
+    if (parsed && Number.isFinite(parsed.left) && Number.isFinite(parsed.top)) return parsed;
+  } catch (error) {
+    // Ignore broken localStorage values and fall back to the default corner.
+  }
+  return null;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
 export default {
   name: "GlobalAiChat",
   setup() {
     const ctx = useStudioContext("GlobalAiChat");
     const open = ref(false);
+    const savedPosition = readSavedPosition();
+    const position = ref(savedPosition || { left: window.innerWidth - 174, top: window.innerHeight - 82 });
+    const dragState = ref(null);
+    const suppressNextClick = ref(false);
     const savedAiKey = localStorage.getItem("globalAiChatProvider") || "";
     const provider = ref(savedAiKey.includes(":") ? savedAiKey : "qwen:qwen3.7-plus");
     const input = ref("");
@@ -32,6 +50,65 @@ export default {
       const title = ctx.modulePageMeta?.value?.title || "灵感工坊";
       return `当前页面：${title}（${page}）。用户可能正在讨论小说章节、内容生产或运营策略。`;
     });
+    const chatPositionStyle = computed(() => ({
+      left: `${position.value.left}px`,
+      top: `${position.value.top}px`,
+    }));
+
+    function clampPosition(left, top) {
+      const safeWidth = 174;
+      const safeHeight = 60;
+      return {
+        left: clamp(left, 8, Math.max(8, window.innerWidth - safeWidth)),
+        top: clamp(top, 8, Math.max(8, window.innerHeight - safeHeight)),
+      };
+    }
+
+    function savePosition(nextPosition) {
+      localStorage.setItem("globalAiChatPosition", JSON.stringify(nextPosition));
+    }
+
+    function startDrag(event) {
+      if (event.button !== undefined && event.button !== 0) return;
+      const pointer = event.currentTarget;
+      pointer?.setPointerCapture?.(event.pointerId);
+      dragState.value = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startLeft: position.value.left,
+        startTop: position.value.top,
+        moved: false,
+      };
+    }
+
+    function moveDrag(event) {
+      const state = dragState.value;
+      if (!state || state.pointerId !== event.pointerId) return;
+      const dx = event.clientX - state.startX;
+      const dy = event.clientY - state.startY;
+      if (Math.abs(dx) + Math.abs(dy) > 4) state.moved = true;
+      position.value = clampPosition(state.startLeft + dx, state.startTop + dy);
+    }
+
+    function stopDrag(event) {
+      const state = dragState.value;
+      if (!state || state.pointerId !== event.pointerId) return;
+      event.currentTarget?.releasePointerCapture?.(event.pointerId);
+      dragState.value = null;
+      if (state.moved) suppressNextClick.value = true;
+      savePosition(position.value);
+    }
+
+    function toggleOpen() {
+      if (suppressNextClick.value) {
+        suppressNextClick.value = false;
+        return;
+      }
+      open.value = !open.value;
+      position.value = clampPosition(position.value.left, position.value.top);
+      savePosition(position.value);
+    }
 
     async function send() {
       const text = input.value.trim();
@@ -72,14 +149,37 @@ export default {
       ];
     }
 
-    return { open, provider, providers, selectedAi, input, sending, messages, send, clearChat };
+    return {
+      open,
+      provider,
+      providers,
+      selectedAi,
+      input,
+      sending,
+      messages,
+      chatPositionStyle,
+      send,
+      clearChat,
+      startDrag,
+      moveDrag,
+      stopDrag,
+      toggleOpen,
+    };
   },
 };
 </script>
 
 <template>
-  <aside class="global-ai-chat" :class="{ open }">
-    <button class="global-ai-chat-tab" type="button" @click="open = !open">
+  <aside class="global-ai-chat" :class="{ open }" :style="chatPositionStyle">
+    <button
+      class="global-ai-chat-tab"
+      type="button"
+      @pointerdown="startDrag"
+      @pointermove="moveDrag"
+      @pointerup="stopDrag"
+      @pointercancel="stopDrag"
+      @click="toggleOpen"
+    >
       <span>AI</span>
       <strong>剧情沟通</strong>
     </button>
