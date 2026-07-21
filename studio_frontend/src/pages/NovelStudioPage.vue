@@ -76,6 +76,7 @@ export default {
     const blueprintPromise = ref("");
     const chapterNote = ref("");
     const chapterPlanDraft = ref("");
+    const chapterPlanDraftNumber = ref(0);
     const selectedNovelSkillId = ref("");
     const userMode = ref("novice");
     const storyDraft = reactive({
@@ -260,19 +261,24 @@ export default {
       };
     });
 
-    function refreshChapterPlanDraftFromBook() {
+    function refreshChapterPlanDraftFromBook({ force = false } = {}) {
+      const targetNumber = Number(nextChapterNumber.value || 1);
       if (chapterBrief.value) {
         chapterPlanDraft.value = formatChapterPlanDraft(chapterBrief.value);
+        chapterPlanDraftNumber.value = Number(chapterBrief.value.chapter_number || targetNumber);
         return;
       }
       const plan = planForNextChapter();
-      if (plan && Object.keys(plan).length) {
+      const draftBelongsToTarget = Number(chapterPlanDraftNumber.value || 0) === targetNumber;
+      if (plan && Object.keys(plan).length && (force || !draftBelongsToTarget || !chapterPlanDraft.value.trim())) {
         chapterPlanDraft.value = formatChapterPlanDraft({
           chapterPlan: plan,
-          chapter_number: nextChapterNumber.value,
+          chapter_number: targetNumber,
         });
+        chapterPlanDraftNumber.value = targetNumber;
       } else if (!chapterPlanDraft.value.trim()) {
         chapterPlanDraft.value = "";
+        chapterPlanDraftNumber.value = targetNumber;
       }
     }
 
@@ -280,8 +286,9 @@ export default {
       chapterBrief.value = null;
       rejectedChapter.value = null;
       chapterPlanDraft.value = "";
+      chapterPlanDraftNumber.value = 0;
       await nextTick();
-      refreshChapterPlanDraftFromBook();
+      refreshChapterPlanDraftFromBook({ force: true });
     }
 
     function parseChapterPlanDraft() {
@@ -769,6 +776,7 @@ export default {
       chapterBrief.value = null;
       rejectedChapter.value = null;
       chapterPlanDraft.value = "";
+      chapterPlanDraftNumber.value = 0;
       storyArchive.value = null;
     }
 
@@ -993,6 +1001,7 @@ export default {
         }, 15000);
         rejectedChapter.value = null;
         chapterPlanDraft.value = formatChapterPlanDraft(chapterBrief.value);
+        chapterPlanDraftNumber.value = Number(chapterBrief.value.chapter_number || nextChapterNumber.value || 1);
         ctx.setNotice(`第 ${chapterBrief.value.chapter_number} 章 Brief 已生成。Brief 只是计划，请点击“生成正文”继续写章节。`);
       } catch (err) {
         ctx.setError(`章节 Brief 生成失败：${err.message}`);
@@ -1139,7 +1148,10 @@ export default {
 
     watch(
       () => [currentBookId.value, selectedBook.value?.id, sortedBookChapters.value.length],
-      () => refreshChapterPlanDraftFromBook(),
+      () => {
+        const force = Number(chapterPlanDraftNumber.value || 0) !== Number(nextChapterNumber.value || 1);
+        refreshChapterPlanDraftFromBook({ force });
+      },
     );
 
     ensureLongPlanDefaults();
