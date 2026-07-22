@@ -278,6 +278,19 @@ def normalize_long_form_plan(raw: Any, *, chapter_count: int = 500, phase_count:
             "foreshadowing": _text(item.get("foreshadowing")),
             "payoff": _text(item.get("payoff")),
         })
+    if not story_units:
+        for index, volume in enumerate(volume_plans, start=1):
+            start, end = _parse_chapter_range(volume.get("chapter_range"), 1, min(total, 20))
+            story_units.append({
+                "start_chapter": max(1, min(start, total)),
+                "end_chapter": max(1, min(max(start, end), total)),
+                "unit_name": _text(volume.get("volume_name"), f"第{index}卷"),
+                "main_event": _text(volume.get("theme") or volume.get("stage_goal"), "按本卷主题推进连续事件。"),
+                "stage_conflict": _text(volume.get("core_conflict"), "阶段阻力与人物选择升级。"),
+                "payoff_emotion": _text(volume.get("ending_result") or volume.get("protagonist_growth"), "阶段结果兑现，并留下下一阶段入口。"),
+                "foreshadowing": _text(volume.get("ending_hook")),
+                "payoff": _text(volume.get("ending_result")),
+            })
     return {
         "total_chapters": total,
         "story_mainline": _text(data.get("story_mainline")),
