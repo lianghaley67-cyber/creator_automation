@@ -76,7 +76,6 @@ export default {
     });
     const blueprint = ref(null);
     const blueprintPromise = ref("");
-    const chapterNote = ref("");
     const chapterPlanDraft = ref("");
     const chapterPlanDraftNumber = ref(0);
     const editingChapterKey = ref("");
@@ -349,7 +348,7 @@ export default {
         const brief = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapter-brief`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_note: chapterNote.value }),
+          body: JSON.stringify({ user_note: chapterPlanDraft.value }),
         }, 15000);
         chapterBrief.value = brief;
         rejectedChapter.value = null;
@@ -372,6 +371,7 @@ export default {
         .split(/\n+/)
         .map((line) => line.trim())
         .filter(Boolean)
+        .filter((line) => /^事件\s*\d+\s*[：:]/.test(line))
         .map((line, index) => {
           const event = line
             .replace(/^事件\s*\d+\s*[：:]\s*/, "")
@@ -1207,6 +1207,7 @@ export default {
       try {
         localStorage.setItem("novelChapterAiKey", selectedChapterAi.value.key);
         syncEditedChapterPlan();
+        const chapterInstruction = chapterPlanDraft.value.trim();
         if (!chapterBrief.value) {
           chapterBrief.value = buildLocalChapterBrief();
         }
@@ -1215,7 +1216,7 @@ export default {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             brief: chapterBrief.value,
-            user_note: chapterNote.value,
+            user_note: chapterInstruction,
             ai_provider: selectedChapterAi.value.provider,
             ai_model: selectedChapterAi.value.model,
             ai_thinking: Boolean(selectedChapterAi.value.thinking),
@@ -1264,6 +1265,7 @@ export default {
         localStorage.setItem("novelChapterAiKey", selectedChapterAi.value.key);
         const plan = chapter.chapterPlan || (selectedBook.value?.plot_outline || []).find((item) => Number(item.chapter) === chapterNumber) || {};
         const originalExcerpt = String(chapter.content || chapter.content_markdown || "").slice(0, 260);
+        const chapterInstruction = chapterPlanDraft.value.trim();
         const result = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapters/${chapterNumber}/regenerate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1274,9 +1276,9 @@ export default {
               chapter_number: chapterNumber,
               chapterPlan: plan,
               regenerate_seed: Date.now(),
-              user_note: `${chapterNote.value || ""}\n不合规范，按小说世界模拟器规则重写：直接入场、动作对话推进、不要说明腔。必须避开原文开头和原事件节奏，原文片段：${originalExcerpt}`.trim(),
+              user_note: `${chapterInstruction || ""}\n不合规范，按小说世界模拟器规则重写：直接入场、动作对话推进、不要说明腔。必须避开原文开头和原事件节奏，原文片段：${originalExcerpt}`.trim(),
             },
-            user_note: chapterNote.value,
+            user_note: chapterInstruction,
             ai_provider: selectedChapterAi.value.provider,
             ai_model: selectedChapterAi.value.model,
             ai_thinking: Boolean(selectedChapterAi.value.thinking),
@@ -1408,7 +1410,6 @@ export default {
       blueprintForm,
       blueprint,
       blueprintPromise,
-      chapterNote,
       chapterPlanDraft,
       editingChapterKey,
       editingChapterDraft,
@@ -1577,11 +1578,11 @@ export default {
         </div>
         <textarea
           v-model="chapterPlanDraft"
-          rows="4"
-          placeholder="选中小说后，这里会回显下一章剧情计划；不符合预期可以直接修改后再生成正文。"
+          rows="5"
+          placeholder="选中小说后，这里会回显下一章想法与剧情计划；不符合预期可以直接修改，生成正文会使用这里的内容。"
         ></textarea>
         <div class="novel-daily-echo-actions">
-          <span>{{ dailyChapterEcho.hasPlan ? "已载入下一章计划，可手动调整。" : "当前小说还没有可用章节规划，请先生成或刷新 Brief。" }}</span>
+          <span>{{ dailyChapterEcho.hasPlan ? "已载入下一章想法与计划，可手动调整。" : "当前小说还没有可用章节规划，请先生成或刷新 Brief。" }}</span>
           <button class="btn accent small" :disabled="loading.chapter || !selectedNovelSkillId" @click="generateChapterFromBrief">
             {{ loading.chapter ? "生成中..." : "按此计划生成正文" }}
           </button>
@@ -1944,8 +1945,12 @@ export default {
           <details class="long-plan-block" open>
             <summary>
               <strong>故事单元规划</strong>
-              <span>每几个章节一个小主线，生成章节时会优先按对应单元推进。</span>
+              <span>卷是大阶段；故事单元是卷内小主线，用来把一组章节拆成连续事件，不等同于每日章节想法。</span>
             </summary>
+            <div class="novel-current-skill">
+              用途说明：
+              <span>故事单元会被展开成章节大纲，例如 1-20 章围绕一个现实事件/副本推进；每日生成时只需要在下方“这一章的想法与剧情计划”里改当前章节。</span>
+            </div>
             <div class="story-unit-import-box">
               <label class="field">
                 <span>从 AI 沟通结果提取故事单元</span>
@@ -2372,15 +2377,11 @@ export default {
         <span v-if="selectedNovelSkill">{{ selectedNovelSkill.description }}</span>
       </div>
       <label class="field">
-        <span>这一章你的想法（可选）</span>
-        <textarea v-model="chapterNote" rows="3" placeholder="例：这一章希望女主第一次意识到男主隐瞒了身份，但不要立刻揭穿。"></textarea>
-      </label>
-      <label v-if="currentBookId" class="field chapter-plan-editor">
-        <span>剧情计划（可手动修改，不符合就先改这里）</span>
+        <span>这一章的想法与剧情计划（可手动修改）</span>
         <textarea
           v-model="chapterPlanDraft"
-          rows="5"
-          placeholder="事件1：新事件（推进主线：是；制造冲突：否；新信息：是）"
+          rows="7"
+          placeholder="可以直接写这一章的具体想法，也可以写成事件列表：&#10;事件1：本章第一个具体事件（推进主线：是；制造冲突：否；新信息：是）&#10;事件2：冲突升级或新线索（推进主线：是；制造冲突：是；新信息：是）"
         ></textarea>
       </label>
       <div v-if="activeChapterBrief" class="brief-card">

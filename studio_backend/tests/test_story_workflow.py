@@ -393,6 +393,26 @@ def test_chapter_self_check_rejects_unrealistic_delivery_platform_logic():
     assert any("外卖员不能擅自进屋" in issue for issue in result["issues"])
 
 
+def test_chapter_self_check_rejects_title_content_mismatch():
+    content = "\n\n".join([
+        "第1章：失业后的第一单",
+        "雨棚在窗户上砸出一串水声，小区门口的积水已经漫过台阶。",
+        "物业群里不断有人催促沙袋，楼下老人抱着药箱站在雨里。",
+        "林小满穿过人群，先去帮邻居搬开堵住排水口的杂物。",
+        "她回头看见地下车库的红灯忽然亮了。",
+    ])
+    plan = {
+        "goal": "林小满被裁后接到第一份临时工作机会。",
+        "conflict": "她必须在面试和家庭压力之间做选择。",
+        "suspense": "第一单客户发来的地址和她父亲有关。",
+    }
+
+    result = _chapter_self_check(content, {"chapters": []}, 1, plan)
+
+    assert not result["pass"]
+    assert any("标题与正文开头不对应" in issue for issue in result["issues"])
+
+
 def test_paragraph_level_rules_remove_repeated_recap_and_extra_memory():
     archive = {
         "chapters": [{

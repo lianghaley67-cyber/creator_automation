@@ -90,6 +90,62 @@ def _realism_common_sense_issues(content: str, genre: Any = "") -> list[str]:
     return issues
 
 
+def _strip_leading_chapter_title_line(content: str, chapter_number: int) -> str:
+    lines = _text(content).replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    first_index = next((index for index, line in enumerate(lines) if line.strip()), -1)
+    if first_index < 0:
+        return ""
+    first_line = lines[first_index].strip()
+    if re.match(rf"^第\s*{chapter_number}\s*章(?:[：:、\s].*)?$", first_line):
+        return "\n".join(lines[:first_index] + lines[first_index + 1:]).strip()
+    return _text(content)
+
+
+def _chapter_title_from_content(content: str) -> str:
+    for line in _text(content).replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        clean = line.strip()
+        if clean:
+            return clean
+    return ""
+
+
+def _title_content_alignment_issues(content: str, plan: dict[str, Any]) -> list[str]:
+    title_line = _chapter_title_from_content(content)
+    title = _title_phrase_from_full_title(title_line)
+    if not title:
+        return []
+    body_lines = _text(content).replace("\r\n", "\n").replace("\r", "\n").split("\n")[1:]
+    opening = "\n".join(body_lines).strip()[:900]
+    issues: list[str] = []
+    keyword_rules = [
+        ("失业", ["失业", "被裁", "裁员", "简历", "面试", "HR", "公司", "工作"]),
+        ("第一单", ["第一单", "订单", "客户", "雇主", "面试", "工作机会", "接单"]),
+        ("外卖", ["外卖", "骑手", "订单", "平台", "配送", "餐盒"]),
+        ("新闻", ["新闻", "记者", "报道", "采访", "热搜", "舆论"]),
+        ("面试", ["面试", "HR", "简历", "岗位", "公司", "通知"]),
+        ("房租", ["房租", "房东", "租金", "转账", "催租"]),
+    ]
+    for token, required in keyword_rules:
+        if token in title and not any(word in opening for word in required):
+            issues.append(f"标题与正文开头不对应：标题包含“{token}”，但开头没有落到相关事件。")
+    plan_text = " ".join(
+        _text(value)
+        for value in [
+            plan.get("goal"),
+            plan.get("core_event"),
+            plan.get("conflict"),
+            plan.get("suspense"),
+        ]
+    )
+    plan_markers = [
+        marker for marker in re.findall(r"[\u4e00-\u9fff]{2,6}", plan_text)
+        if marker not in {"推进", "本章", "事件", "冲突", "主角", "一个", "必须", "出现", "选择"}
+    ][:8]
+    if plan_markers and not any(marker in opening for marker in plan_markers):
+        issues.append("正文开头没有承接当前章节计划，标题、计划和正文落点不一致。")
+    return issues
+
+
 def normalize_real_event_strategy(raw: Any) -> dict[str, Any]:
     data = raw if isinstance(raw, dict) else {}
     enabled = data.get("enabled")
@@ -2016,6 +2072,8 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
     issues.extend(_list(rollback.get("issues")))
     realism_issues = _realism_common_sense_issues(content, _dict(archive.get("world")).get("genre") or archive.get("genre"))
     issues.extend(realism_issues)
+    title_alignment_issues = _title_content_alignment_issues(content, plan)
+    issues.extend(title_alignment_issues)
     return {
         "pass": not issues,
         "issues": issues,
@@ -2029,6 +2087,7 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
         "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
         "scene_replays": rollback.get("scene_replays", 0),
         "realism_issues": realism_issues,
+        "title_alignment_issues": title_alignment_issues,
     }
 
 
@@ -2758,7 +2817,8 @@ def generate_chapter_from_plan(
         plot = _plot_designer_step(attempt_brief)
         character = _character_manager_step(book, archive)
         body = _clean_chapter_text(str(online_body or ""))
-        content = f"{title}\n\n{body}".strip() if not body.startswith(title) else body
+        body = _strip_leading_chapter_title_line(body, chapter_number)
+        content = f"{title}\n\n{body}".strip()
         content = _remove_repeated_previous_lines(content, archive, chapter_number)
         content = _enforce_paragraph_level_rules(content, archive, chapter_number, plan, book)
         continuity = _chapter_repetition_review(content, archive, chapter_number)
