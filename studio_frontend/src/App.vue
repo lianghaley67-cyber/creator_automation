@@ -7922,6 +7922,16 @@ textarea {
   padding: 12px;
 }
 
+.story-unit-import-box {
+  display: grid;
+  gap: 10px;
+  margin: 12px 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(142, 171, 205, 0.16);
+  border-radius: 8px;
+  background: rgba(236, 252, 255, 0.72);
+}
+
 .volume-plan-card,
 .story-unit-card {
   display: grid;

@@ -41,6 +41,7 @@ export default {
       deleteChapter: "",
       brief: false,
       chapter: false,
+      storyUnitExtract: false,
     });
     const blueprintForm = reactive({
       title: "",
@@ -77,6 +78,7 @@ export default {
     const chapterNote = ref("");
     const chapterPlanDraft = ref("");
     const chapterPlanDraftNumber = ref(0);
+    const storyUnitImportText = ref("");
     const savedChapterAiKey = localStorage.getItem("novelChapterAiKey") || "";
     const selectedChapterAiKey = ref(savedChapterAiKey.includes(":") ? savedChapterAiKey : "qwen:qwen3.7-plus");
     const selectedNovelSkillId = ref("");
@@ -628,6 +630,127 @@ export default {
     function removeStoryUnit(index) {
       blueprintForm.story_units.splice(index, 1);
       if (!blueprintForm.story_units.length) addStoryUnit();
+    }
+
+    function parseChapterRangeText(value, fallbackStart = 1, fallbackEnd = 20) {
+      const text = String(value || "").replace(/[－—~到]/g, "-");
+      const match = text.match(/(\d+)\s*-\s*(\d+)/);
+      if (match) {
+        const start = Math.max(1, Number(match[1]) || fallbackStart);
+        const end = Math.max(start, Number(match[2]) || fallbackEnd);
+        return [start, end];
+      }
+      return [fallbackStart, fallbackEnd];
+    }
+
+    function normalizeStoryUnitFromAi(raw, index = 0) {
+      const unit = raw && typeof raw === "object" ? raw : {};
+      const fallbackVolume = blueprintForm.volume_plans[index] || blueprintForm.volume_plans[0] || {};
+      const [rangeStart, rangeEnd] = parseChapterRangeText(fallbackVolume.chapter_range, index * 20 + 1, index * 20 + 20);
+      const start = Number(unit.start_chapter || unit.start || unit.begin || rangeStart) || rangeStart;
+      const end = Number(unit.end_chapter || unit.end || unit.finish || rangeEnd) || rangeEnd;
+      return {
+        ...makeEmptyStoryUnit(),
+        start_chapter: Math.max(1, start),
+        end_chapter: Math.max(Math.max(1, start), end),
+        unit_name: String(unit.unit_name || unit.name || unit.title || fallbackVolume.volume_name || `故事单元 ${index + 1}`).trim(),
+        main_event: String(unit.main_event || unit.event || unit.major_event || unit.summary || "").trim(),
+        stage_conflict: String(unit.stage_conflict || unit.conflict || unit.obstacle || "").trim(),
+        payoff_emotion: String(unit.payoff_emotion || unit.emotion || unit爽点 || unit.payoff_point || "").trim(),
+        foreshadowing: String(unit.foreshadowing || unit.foreshadow || unit.hook || unit伏笔 || "").trim(),
+        payoff: String(unit.payoff || unit.result || unit回收点 || unit.resolution || "").trim(),
+      };
+    }
+
+    function parseStoryUnitsJson(text) {
+      const raw = String(text || "").trim();
+      const jsonBlock = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] || raw;
+      const arrayText = jsonBlock.match(/\[[\s\S]*\]/)?.[0] || "";
+      if (!arrayText) return [];
+      try {
+        const parsed = JSON.parse(arrayText);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function localStoryUnitFromText(text) {
+      const lines = String(text || "")
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const joined = lines.join(" ");
+      if (!joined) return [];
+      const [start, end] = parseChapterRangeText(joined, 1, 20);
+      const nameLine = lines.find((line) => /单元|小主线|卷名|故事/.test(line)) || lines[0] || "故事单元";
+      const eventLine = lines.find((line) => /主要事件|事件|发生|讲/.test(line)) || lines[1] || joined.slice(0, 80);
+      const conflictLine = lines.find((line) => /冲突|阻碍|压力|危机|矛盾/.test(line)) || "";
+      const payoffLine = lines.find((line) => /爽点|情绪|释放|反击|成长/.test(line)) || "";
+      const hookLine = lines.find((line) => /伏笔|钩子|悬念|反转|发现/.test(line)) || "";
+      const resultLine = lines.find((line) => /回收|结果|解决|收束|兑现/.test(line)) || "";
+      return [normalizeStoryUnitFromAi({
+        start_chapter: start,
+        end_chapter: end,
+        unit_name: nameLine.replace(/^(故事单元|小主线名称|卷名|标题)\s*[：:]\s*/, "").slice(0, 40),
+        main_event: eventLine.replace(/^(主要事件|事件)\s*[：:]\s*/, ""),
+        stage_conflict: conflictLine.replace(/^(阶段冲突|冲突)\s*[：:]\s*/, ""),
+        payoff_emotion: payoffLine.replace(/^(爽点\/情绪点|爽点|情绪点)\s*[：:]\s*/, ""),
+        foreshadowing: hookLine.replace(/^(伏笔|钩子|悬念)\s*[：:]\s*/, ""),
+        payoff: resultLine.replace(/^(回收点|结果|收束)\s*[：:]\s*/, ""),
+      })];
+    }
+
+    async function fillStoryUnitsFromConversation() {
+      const source = storyUnitImportText.value.trim();
+      if (!source) {
+        ctx.setError("请先粘贴 AI 沟通结果或截图 OCR 后的文字。");
+        return;
+      }
+      loading.storyUnitExtract = true;
+      try {
+        const prompt = [
+          "请从下面的小说讨论记录中提取故事单元规划，只返回 JSON 数组，不要解释。",
+          "数组每项字段必须是：start_chapter, end_chapter, unit_name, main_event, stage_conflict, payoff_emotion, foreshadowing, payoff。",
+          "如果内容里没有明确章节范围，请根据当前卷规划推断；都市现实新闻改编保持一卷一个故事，玄幻修仙保持一个小副本/事件一个单元。",
+          `小说名称：${blueprintForm.title || selectedBook.value?.title || "未命名小说"}`,
+          `类型：${blueprintForm.genre}`,
+          `卷规划：${JSON.stringify(blueprintForm.volume_plans || [])}`,
+          "讨论记录：",
+          source,
+        ].join("\n");
+        const result = await ctx.requestApi("/api/ai-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            provider: selectedChapterAi.value.provider,
+            model: selectedChapterAi.value.model,
+            thinking: Boolean(selectedChapterAi.value.thinking),
+            reasoning_effort: selectedChapterAi.value.reasoningEffort || "",
+            context: "把小说沟通记录结构化成故事单元规划，严格返回 JSON。",
+            messages: [{ role: "user", content: prompt }],
+          }),
+        }, 120000);
+        let units = parseStoryUnitsJson(result?.response || "");
+        if (!units.length) units = localStoryUnitFromText(source);
+        const normalized = units.map((unit, index) => normalizeStoryUnitFromAi(unit, index)).filter((unit) => unit.unit_name || unit.main_event);
+        if (!normalized.length) {
+          ctx.setError("没有识别到可填入的故事单元，请补充章节范围、主要事件或冲突。");
+          return;
+        }
+        blueprintForm.story_units = normalized;
+        ctx.setNotice(`已从沟通结果填入 ${normalized.length} 个故事单元。`);
+      } catch (error) {
+        const fallback = localStoryUnitFromText(source);
+        if (fallback.length) {
+          blueprintForm.story_units = fallback;
+          ctx.setNotice("AI 提取失败，已使用本地规则填入 1 个故事单元。");
+        } else {
+          ctx.setError(`故事单元提取失败：${error.message}`);
+        }
+      } finally {
+        loading.storyUnitExtract = false;
+      }
     }
 
     function normalizedLongFormPlan() {
@@ -1260,6 +1383,8 @@ export default {
       bookDetailSections,
       addStoryUnit,
       removeStoryUnit,
+      storyUnitImportText,
+      fillStoryUnitsFromConversation,
       storyProductionStatus,
       uploadNovelSkill,
       startCreateBook,
@@ -1767,6 +1892,27 @@ export default {
               <strong>故事单元规划</strong>
               <span>每几个章节一个小主线，生成章节时会优先按对应单元推进。</span>
             </summary>
+            <div class="story-unit-import-box">
+              <label class="field">
+                <span>从 AI 沟通结果提取故事单元</span>
+                <textarea
+                  v-model="storyUnitImportText"
+                  rows="4"
+                  placeholder="把你和全局 AI、DeepSeek、通义千问或其他 AI 的沟通结果粘贴到这里；截图内容请先用 OCR/复制文字后粘贴。"
+                ></textarea>
+              </label>
+              <div class="novel-actions compact">
+                <button
+                  type="button"
+                  class="btn secondary small"
+                  :disabled="loading.storyUnitExtract || !storyUnitImportText.trim()"
+                  @click="fillStoryUnitsFromConversation"
+                >
+                  {{ loading.storyUnitExtract ? "提取中..." : "AI提取并填入故事单元" }}
+                </button>
+                <button type="button" class="btn secondary small" :disabled="!storyUnitImportText" @click="storyUnitImportText = ''">清空文本</button>
+              </div>
+            </div>
             <div class="story-unit-list">
               <article v-for="(unit, index) in blueprintForm.story_units" :key="`unit-${index}`" class="story-unit-card">
                 <div class="story-unit-title">
