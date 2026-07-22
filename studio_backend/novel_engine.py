@@ -63,6 +63,33 @@ NOVEL_WORLD_SIMULATOR_CONTRACT = {
 }
 
 
+REALISTIC_URBAN_COMMONSENSE_RULES = [
+    "现代都市平台行为必须符合现实：美团/饿了么/外卖订单默认线上支付，骑手不应收取现金、找零或把现金作为交付关键证据。",
+    "外卖、快递、跑腿人员不能因屋内无声或一句“放外面”就擅自进屋；合理动作是电话联系、平台留言、拍照留证、联系物业/保安或报警。",
+    "门锁、门禁、电梯、监控、物业、派出所、医院、学校、公司 HR 等现实机构必须按基本流程行动，不能为了推进剧情让普通人越权。",
+    "现实悬疑可以有异常，但异常必须建立在真实流程之后：先符合常识地尝试联系和求证，再出现无法解释的偏差。",
+    "人物做选择前要有现实动机和风险判断，不能从“觉得不对”直接跳到破门、闯入、私自搜查、非法获取信息。",
+]
+
+
+def _realism_common_sense_issues(content: str, genre: Any = "") -> list[str]:
+    text = _text(content)
+    issues: list[str] = []
+    is_modern = _is_urban_news_adaptation(genre) or _text(genre) in {"urban", "modern_romance", "romance"}
+    if not is_modern and not any(token in text for token in ["美团", "饿了么", "外卖", "快递", "跑腿", "物业", "派出所"]):
+        return issues
+    if ("美团" in text or "饿了么" in text or "外卖" in text) and any(token in text for token in ["现金", "找零", "零钱", "给钱"]):
+        issues.append("现实常识错误：外卖平台订单通常线上支付，不能把收现金/找零写成关键交付逻辑。")
+    if ("外卖" in text or "骑手" in text or "送餐" in text) and any(token in text for token in ["进屋", "进门", "进了屋", "推门进去", "走进屋"]):
+        if any(token in text for token in ["没声音", "无人回应", "没人应", "放外面", "放门口", "不用敲"]):
+            issues.append("现实常识错误：无人回应或要求放门口时，外卖员不能擅自进屋，应联系客户、平台、物业或报警。")
+    if any(token in text for token in ["破门", "撬门", "踹门"]) and not any(token in text for token in ["报警", "民警", "消防", "物业", "授权", "生命危险"]):
+        issues.append("现实流程缺失：破门/撬门/踹门前必须有报警、物业、消防或明确生命危险等合理依据。")
+    if "全职太太" in text and any(token in text for token in ["刚从公司离职", "刚被裁", "公司离职", "被裁的全职"]):
+        issues.append("人物身份不符合常理：刚被裁/刚离职应写成前员工、失业者或待业者，不能同时称为全职太太。")
+    return issues
+
+
 def normalize_real_event_strategy(raw: Any) -> dict[str, Any]:
     data = raw if isinstance(raw, dict) else {}
     enabled = data.get("enabled")
@@ -987,6 +1014,7 @@ def build_chapter_brief_from_book(
             "每个计划事件必须标注：推进主线是/否、制造冲突是/否、新信息是/否。",
             "如果计划事件与上一章重复，尤其是同一个人求救、同一个场景求救、女人抱孩子求救，必须先替换为新事件。",
             "计划不能继续同一节奏，必须升级冲突。",
+            *REALISTIC_URBAN_COMMONSENSE_RULES,
             *genre_must_do,
             f"本章核心事件：{chapter_plan.get('core_event')}",
             f"本章剧情计划：{' / '.join(event_plan_lines)}",
@@ -1007,6 +1035,8 @@ def build_chapter_brief_from_book(
             "不要解释已发生的事，不要展开“他想起之前……”式回忆。",
             "不要写平台外引流、联系方式、外部链接、账号口令。",
             "不要为了冲突降低人物智商。",
+            "不要写外卖员收现金、找零、擅自进屋、私自搜查住户房间等违反现实平台规则和职业边界的桥段。",
+            "不要让角色跳过报警、物业、平台客服、监控核验等基本现实流程。",
             "不要偏离当前 bookId 的 Story Archive。",
             *genre_do_not_do,
         ],
@@ -1900,6 +1930,7 @@ def _chapter_prose_quality_issues(content: str) -> list[str]:
             weak_paragraphs += 1
     if weak_paragraphs >= max(8, int(len(paragraphs) * 0.35)):
         issues.append("过多段落缺少动作、对话或新变化。")
+    issues.extend(_realism_common_sense_issues(content))
     return issues
 
 
@@ -1983,6 +2014,8 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
         issues.append("连续两段内容相似度较高，需要立即跳转到新事件。")
     rollback = _chapter_rollback_review(content, archive, chapter_number)
     issues.extend(_list(rollback.get("issues")))
+    realism_issues = _realism_common_sense_issues(content, _dict(archive.get("world")).get("genre") or archive.get("genre"))
+    issues.extend(realism_issues)
     return {
         "pass": not issues,
         "issues": issues,
@@ -1995,6 +2028,7 @@ def _chapter_self_check(content: str, archive: dict[str, Any], chapter_number: i
         "adjacent_similarity_count": adjacent_similarity_count,
         "rollback_paragraphs": rollback.get("rollback_paragraphs", 0),
         "scene_replays": rollback.get("scene_replays", 0),
+        "realism_issues": realism_issues,
     }
 
 

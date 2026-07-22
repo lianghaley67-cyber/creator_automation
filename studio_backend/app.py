@@ -316,6 +316,8 @@ def _call_online_chapter_generation(
     rewrite_feedback: list[str] | None = None,
     previous_draft: str = "",
 ) -> dict[str, Any]:
+    from .novel_engine import REALISTIC_URBAN_COMMONSENSE_RULES
+
     config = _chat_provider_config(
         provider or os.getenv("NOVEL_CHAPTER_PROVIDER", _default_chat_provider()),
         model,
@@ -368,6 +370,9 @@ def _call_online_chapter_generation(
         "每3段必须出现新动作、新冲突或新信息。结尾必须留下新的危机、线索或反转。"
         "严禁展开回忆，正文中“想起、记起、回忆、当年、上一章”等词合计最多出现1次。"
         "如果需要交代旧事，只能通过当场对话或物证一句带过，马上回到当前行动。"
+        "现代都市、现实新闻改编、职场、家庭、社区类剧情必须符合现实流程和职业边界："
+        + "；".join(REALISTIC_URBAN_COMMONSENSE_RULES)
+        + "。"
     )
     feedback_text = ""
     if rewrite_feedback:

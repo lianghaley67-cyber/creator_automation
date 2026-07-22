@@ -12,6 +12,7 @@ from studio_backend.novel_engine import (
     _enforce_paragraph_level_rules,
     _paragraph_similarity,
     _chapter_rollback_review,
+    _chapter_self_check,
 )
 
 
@@ -361,6 +362,35 @@ def test_editor_rejects_template_phrase_and_overlong_memory():
     assert any("模板化" in issue for issue in result["issues"])
     assert any("回忆" in issue for issue in result["issues"])
     assert any("多处回忆" in issue or "不能多段展开" in issue for issue in result["issues"])
+
+
+def test_chapter_self_check_rejects_unrealistic_delivery_platform_logic():
+    content = "\n\n".join([
+        "第2章：门后的订单",
+        "美团外卖员站在门口，屋里没声音，订单备注写着放外面，但他还是推门进屋收现金。",
+        "他把零钱压在餐盒下面，准备等客户醒来再解释。",
+        "林小满听见动静后追过去，发现门锁没有坏。",
+        "她于是打开手机联系平台客服，同时让物业调取走廊监控。",
+    ])
+    archive = {
+        "genre": "urban_news_adaptation",
+        "chapters": [{
+            "chapter_number": 1,
+            "content": "林小满接到一个小区异常订单，决定先核对门牌和平台记录。",
+        }],
+    }
+    plan = {
+        "core_event": "林小满核验异常订单。",
+        "conflict": "订单流程和现场情况不一致。",
+        "suspense": "门后出现不是用户留下的备注。",
+        "event_plan": [{"event": "林小满联系平台和物业核验异常订单。"}],
+    }
+
+    result = _chapter_self_check(content, archive, 2, plan)
+
+    assert not result["pass"]
+    assert any("外卖平台订单通常线上支付" in issue for issue in result["issues"])
+    assert any("外卖员不能擅自进屋" in issue for issue in result["issues"])
 
 
 def test_paragraph_level_rules_remove_repeated_recap_and_extra_memory():
