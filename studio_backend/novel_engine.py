@@ -970,6 +970,7 @@ def build_chapter_brief_from_book(
             "开头直接进入当前场景，不写作者说明。",
             "只输出小说正文，不要标题说明、JSON、结构提示或写作思路。",
             "信息必须通过动作、对话和细节呈现，不允许总结式旁白。",
+            "人物职业和家庭身份必须符合常理与时间线：刚被裁就是前员工/失业者，离职后照顾家庭才是全职妈妈/太太，不能混成矛盾身份。",
             "每个关键角色行动必须包含：为什么这么做、有没有犹豫或判断、行动后想达到什么结果。",
             "场景或事件切换时必须加入因果过渡，如“因此、于是、但问题在于、然而”，让事件关系清楚。",
             "每个新信息出现时必须回答：它和之前有什么关系，为什么现在出现。",
@@ -2044,6 +2045,7 @@ def _character_manager_step(book: dict[str, Any], archive: dict[str, Any]) -> di
         "protagonist": protagonist_name,
         "motivation": _text(protagonist.get("inner_conflict") or protagonist.get("psychological_conflict"), "想获得安全感，又害怕再次失去主动权。"),
         "behavior_guard": f"{protagonist_name}的关键行动必须先有动机，再有判断或犹豫，最后给出行动预期；不能从感觉直接跳到行动，也不能突然降智或被动等待拯救。",
+        "identity_guard": "人物职业和家庭身份必须符合时间线：可以写刚从软件公司被裁的前员工，也可以写离职后在家照顾孩子的全职妈妈，但不能写成“软件公司离职的全职太太”或“被裁的全职太太”。",
         "relationship_shift": f"与{_text(ally.get('name'), '关键同盟')}的信任推进一小步，但保留新的疑点。",
         "previous_summary": _previous_summary(archive),
     }
@@ -2081,6 +2083,10 @@ def _realist_scene_place(book: dict[str, Any], chapter_number: int) -> str:
 
 
 def _clean_chapter_text(text: str) -> str:
+    text = re.sub(r"刚从([^，。！？\n]{1,16})被裁的全职太太", r"刚从\1被裁、暂时在家照顾孩子的女人", text or "")
+    text = re.sub(r"从([^，。！？\n]{1,16})离职的全职太太", r"从\1离职后暂时回归家庭的女人", text)
+    text = re.sub(r"软件公司离职的全职太太", "从软件公司离职后暂时回归家庭的女人", text)
+    text = re.sub(r"被裁的全职太太", "被裁后暂时在家照顾孩子的女人", text)
     banned_prefixes = ["总结", "本章", "这一章", "下面", "以下", "作为", "我们可以看到", "写作", "结构", "为了增强", "故事刚开始"]
     lines = []
     meta_fragments = [
