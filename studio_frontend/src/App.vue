@@ -8029,6 +8029,26 @@ textarea {
   word-break: break-word;
 }
 
+.chapter-edit-textarea {
+  display: block;
+  width: 100%;
+  min-height: 520px;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid rgba(52, 152, 219, 0.32);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--app-text);
+  font: 15px/1.9 "Microsoft YaHei", "PingFang SC", sans-serif;
+  resize: vertical;
+  outline: none;
+}
+
+.chapter-edit-textarea:focus {
+  border-color: rgba(52, 152, 219, 0.75);
+  box-shadow: inset 0 0 0 1px rgba(52, 152, 219, 0.22);
+}
+
 .chapter-collapse-item {
   margin-top: 10px;
   border: 1px solid rgba(142, 171, 205, 0.16);
@@ -9356,6 +9376,7 @@ body,
 .studio-page .chapter-push-row,
 .studio-page .chapter-output-card pre,
 .studio-page .chapter-collapse-item pre,
+.studio-page .chapter-edit-textarea,
 .studio-page .storyboard-head,
 .studio-page .storyboard,
 .studio-page .cover-modal,

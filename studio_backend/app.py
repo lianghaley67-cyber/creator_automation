@@ -2564,6 +2564,77 @@ def _chapter_generation_passed(chapter: dict[str, Any]) -> tuple[bool, list[str]
     return not issues, list(dict.fromkeys(issues))
 
 
+def _split_manual_chapter_content(chapter_number: int, raw_content: str, fallback_title: str) -> tuple[str, str]:
+    lines = raw_content.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    first_index = next((index for index, line in enumerate(lines) if line.strip()), -1)
+    if first_index < 0:
+        return fallback_title, ""
+    first_line = lines[first_index].strip()
+    title_pattern = rf"^第\s*{chapter_number}\s*章(?:[：:、\s].*)?$"
+    if re.match(title_pattern, first_line):
+        body_lines = lines[:first_index] + lines[first_index + 1:]
+        return first_line, "\n".join(body_lines).strip()
+    return fallback_title, raw_content.strip()
+
+
+@app.put("/books/{book_id}/chapters/{chapter_number}")
+@app.put("/api/books/{book_id}/chapters/{chapter_number}")
+async def api_update_book_chapter(book_id: str, chapter_number: int, request: Request) -> dict[str, Any]:
+    if not store.find_record("books", book_id):
+        raise HTTPException(status_code=404, detail="小说不存在")
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
+    raw_content = str(body.get("content") or "").strip()
+    if not raw_content:
+        raise HTTPException(status_code=400, detail="章节正文不能为空")
+
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        chapters = state.setdefault("book_chapters", [])
+        chapter = next(
+            (
+                item for item in chapters
+                if str(item.get("book_id")) == book_id and int(item.get("chapter_number") or 0) == int(chapter_number)
+            ),
+            None,
+        )
+        if not chapter:
+            return {"ok": False, "missing": True}
+        fallback_title = str(chapter.get("title") or f"第{chapter_number}章").strip()
+        explicit_title = str(body.get("title") or "").strip()
+        title, content = _split_manual_chapter_content(chapter_number, raw_content, explicit_title or fallback_title)
+        if not content:
+            return {"ok": False, "empty": True}
+        chapter.update({
+            "title": title,
+            "content": content,
+            "content_markdown": content,
+            "manual_edited": True,
+            "manual_edited_at": now_iso(),
+            "updated_at": now_iso(),
+        })
+        if isinstance(chapter.get("quality"), dict):
+            chapter["quality"] = {**chapter["quality"], "manual_edited": True}
+        archives = state.setdefault("story_archives", [])
+        archive_items = [item for item in archives if str(item.get("book_id")) == book_id]
+        archive = archive_items[0] if archive_items else {"book_id": book_id}
+        archive["chapters"] = _sorted(
+            [item for item in chapters if str(item.get("book_id")) == book_id],
+            key="chapter_number",
+        )
+        archive["updated_at"] = now_iso()
+        archives[:] = [item for item in archives if str(item.get("book_id")) != book_id]
+        archives.append(archive)
+        return {"ok": True, "chapter": chapter}
+
+    result = store.mutate(updater)
+    if result.get("missing"):
+        raise HTTPException(status_code=404, detail="章节不存在")
+    if result.get("empty"):
+        raise HTTPException(status_code=400, detail="章节正文不能为空")
+    return result
+
+
 @app.post("/books/{book_id}/chapters/generate")
 @app.post("/api/books/{book_id}/chapters/generate")
 async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str, Any]:

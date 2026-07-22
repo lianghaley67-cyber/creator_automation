@@ -39,6 +39,7 @@ export default {
       deleteBook: "",
       regenerateChapter: "",
       deleteChapter: "",
+      saveChapter: "",
       brief: false,
       chapter: false,
       storyUnitExtract: false,
@@ -78,6 +79,8 @@ export default {
     const chapterNote = ref("");
     const chapterPlanDraft = ref("");
     const chapterPlanDraftNumber = ref(0);
+    const editingChapterKey = ref("");
+    const editingChapterDraft = ref("");
     const storyUnitImportText = ref("");
     const savedChapterAiKey = localStorage.getItem("novelChapterAiKey") || "";
     const selectedChapterAiKey = ref(savedChapterAiKey.includes(":") ? savedChapterAiKey : "qwen:qwen3.7-plus");
@@ -179,6 +182,20 @@ export default {
       const content = String(chapter?.content || chapter?.content_markdown || "").trim();
       if (!title) return content;
       return content.startsWith(title) ? content : `${title}\n\n${content}`.trim();
+    }
+
+    function chapterEditKey(chapter) {
+      return String(chapter?.id || chapter?.chapter_number || "");
+    }
+
+    function startEditChapter(chapter) {
+      editingChapterKey.value = chapterEditKey(chapter);
+      editingChapterDraft.value = chapterDisplayContent(chapter);
+    }
+
+    function cancelEditChapter() {
+      editingChapterKey.value = "";
+      editingChapterDraft.value = "";
     }
 
     function genericChapterPlanEvent(event) {
@@ -1275,6 +1292,35 @@ export default {
       }
     }
 
+    async function saveEditedChapter(chapter) {
+      if (!currentBookId.value || !chapter?.chapter_number) {
+        ctx.setError("请先选择一本小说和要修改的章节。");
+        return;
+      }
+      const chapterNumber = Number(chapter.chapter_number);
+      const editKey = chapterEditKey(chapter);
+      const content = editingChapterDraft.value.trim();
+      if (!content) {
+        ctx.setError("章节正文不能为空。");
+        return;
+      }
+      loading.saveChapter = editKey;
+      try {
+        await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapters/${chapterNumber}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content }),
+        }, 30000);
+        cancelEditChapter();
+        await getStoryArchive(currentBookId.value);
+        ctx.setNotice(`第 ${chapterNumber} 章正文已保存。`);
+      } catch (err) {
+        ctx.setError(`保存章节失败：${err.message}`);
+      } finally {
+        loading.saveChapter = "";
+      }
+    }
+
     async function deleteBookChapter(chapter) {
       if (!currentBookId.value || !chapter?.chapter_number) {
         ctx.setError("请先选择一本小说和要删除的章节。");
@@ -1362,6 +1408,8 @@ export default {
       blueprintPromise,
       chapterNote,
       chapterPlanDraft,
+      editingChapterKey,
+      editingChapterDraft,
       selectedChapterAiKey,
       chapterAiOptions,
       selectedChapterAi,
@@ -1413,6 +1461,10 @@ export default {
       formatStoryStep,
       storyScoreLabel,
       novelOsPlanPreview,
+      chapterEditKey,
+      startEditChapter,
+      cancelEditChapter,
+      saveEditedChapter,
     };
   }
 };
@@ -2412,6 +2464,30 @@ export default {
               {{ chapter.editorial_review?.pass && Number(chapter.quality?.score || 0) >= 80 ? "符合规范" : "不合规范，建议重新生成" }}
             </span>
             <button
+              v-if="editingChapterKey !== chapterEditKey(chapter)"
+              class="btn secondary small"
+              :disabled="loading.regenerateChapter === String(chapter.chapter_number) || loading.deleteChapter === String(chapter.chapter_number)"
+              @click="startEditChapter(chapter)"
+            >
+              编辑正文
+            </button>
+            <button
+              v-if="editingChapterKey === chapterEditKey(chapter)"
+              class="btn accent small"
+              :disabled="loading.saveChapter === chapterEditKey(chapter) || !editingChapterDraft.trim()"
+              @click="saveEditedChapter(chapter)"
+            >
+              {{ loading.saveChapter === chapterEditKey(chapter) ? "保存中..." : "保存修改" }}
+            </button>
+            <button
+              v-if="editingChapterKey === chapterEditKey(chapter)"
+              class="btn secondary small"
+              :disabled="loading.saveChapter === chapterEditKey(chapter)"
+              @click="cancelEditChapter"
+            >
+              取消
+            </button>
+            <button
               class="btn secondary small"
               :disabled="loading.regenerateChapter === String(chapter.chapter_number) || loading.deleteChapter === String(chapter.chapter_number)"
               @click="regenerateBookChapter(chapter)"
@@ -2456,7 +2532,14 @@ export default {
             <strong>在线AI生成</strong>
             <span>{{ chapter.online_ai?.provider || "online" }} · {{ chapter.online_ai?.model || "model" }}</span>
           </div>
-          <pre>{{ chapterDisplayContent(chapter) }}</pre>
+          <textarea
+            v-if="editingChapterKey === chapterEditKey(chapter)"
+            v-model="editingChapterDraft"
+            class="chapter-edit-textarea"
+            rows="22"
+            placeholder="在这里修改章节正文，保存后会更新到章节列表和后续推送内容。"
+          ></textarea>
+          <pre v-else>{{ chapterDisplayContent(chapter) }}</pre>
         </details>
       </div>
     </section>
