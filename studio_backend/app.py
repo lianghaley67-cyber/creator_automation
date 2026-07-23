@@ -485,6 +485,8 @@ def _generate_online_chapter_with_review(
 app = FastAPI(title="Creator Digital Studio", version="0.1.0")
 store = StudioStore()
 SADTALKER_RENDER_LOCK = threading.Lock()
+CHAPTER_GENERATION_JOBS: dict[str, dict[str, Any]] = {}
+CHAPTER_GENERATION_JOBS_LOCK = threading.Lock()
 ROOT_DIR = Path(__file__).resolve().parents[1]
 FRONTEND_DIST_DIR = ROOT_DIR / "studio_frontend" / "dist"
 
@@ -2642,18 +2644,17 @@ async def api_update_book_chapter(book_id: str, chapter_number: int, request: Re
     return result
 
 
-@app.post("/books/{book_id}/chapters/generate")
-@app.post("/api/books/{book_id}/chapters/generate")
-async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str, Any]:
-    from .novel_engine import build_chapter_brief_from_book, generate_chapter_from_plan
+def _generate_and_save_book_chapter(book_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    from .novel_engine import build_chapter_brief_from_book
 
+    if not isinstance(body, dict):
+        body = {}
     book = store.find_record("books", book_id)
     if not book:
         raise HTTPException(status_code=404, detail="小说不存在")
-    body = await request.json()
     brief = body.get("brief") if isinstance(body, dict) and isinstance(body.get("brief"), dict) else {}
     archive = api_get_story_archive(book_id)
-    user_note = str((body if isinstance(body, dict) else {}).get("user_note") or "")
+    user_note = str(body.get("user_note") or "")
     base_brief = build_chapter_brief_from_book(book, archive, user_note=user_note)
     if brief:
         client_plan = brief.get("chapterPlan") if isinstance(brief.get("chapterPlan"), dict) else {}
@@ -2672,10 +2673,10 @@ async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str,
         }
     else:
         brief = base_brief
-    provider = str((body if isinstance(body, dict) else {}).get("ai_provider") or os.getenv("NOVEL_CHAPTER_PROVIDER", _default_chat_provider())).strip()
-    model = str((body if isinstance(body, dict) else {}).get("ai_model") or "").strip()
-    thinking = bool((body if isinstance(body, dict) else {}).get("ai_thinking"))
-    reasoning_effort = str((body if isinstance(body, dict) else {}).get("ai_reasoning_effort") or "").strip()
+    provider = str(body.get("ai_provider") or os.getenv("NOVEL_CHAPTER_PROVIDER", _default_chat_provider())).strip()
+    model = str(body.get("ai_model") or "").strip()
+    thinking = bool(body.get("ai_thinking"))
+    reasoning_effort = str(body.get("ai_reasoning_effort") or "").strip()
     chapter, passed, issues = _generate_online_chapter_with_review(
         provider,
         book,
@@ -2713,6 +2714,74 @@ async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str,
 
     saved = store.mutate(updater)
     return {"ok": True, "chapter": saved, "quality": saved.get("quality")}
+
+
+def _set_chapter_generation_job(job_id: str, **updates: Any) -> dict[str, Any]:
+    with CHAPTER_GENERATION_JOBS_LOCK:
+        job = CHAPTER_GENERATION_JOBS.setdefault(job_id, {"job_id": job_id, "status": "queued", "created_at": now_iso()})
+        job.update(updates)
+        job["updated_at"] = now_iso()
+        return dict(job)
+
+
+def _run_chapter_generation_job(job_id: str, book_id: str, body: dict[str, Any]) -> None:
+    _set_chapter_generation_job(job_id, status="running", message="在线AI正在生成正文并执行质量门槛。")
+    try:
+        result = _generate_and_save_book_chapter(book_id, body)
+        chapter = result.get("chapter") if isinstance(result, dict) else {}
+        _set_chapter_generation_job(
+            job_id,
+            status="succeeded",
+            message=f"第 {chapter.get('chapter_number') or ''} 章已生成并保存。".strip(),
+            result=result,
+        )
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail or exc)}
+        _set_chapter_generation_job(
+            job_id,
+            status="failed",
+            message=str(detail.get("message") or "章节生成失败。"),
+            detail=detail,
+            status_code=exc.status_code,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _set_chapter_generation_job(
+            job_id,
+            status="failed",
+            message="章节生成失败。",
+            detail={"message": "章节生成失败。", "issues": [str(exc)[:500]]},
+            status_code=500,
+        )
+
+
+@app.post("/books/{book_id}/chapters/generate-job")
+@app.post("/api/books/{book_id}/chapters/generate-job")
+async def api_start_book_chapter_generation_job(book_id: str, request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    if not store.find_record("books", book_id):
+        raise HTTPException(status_code=404, detail="小说不存在")
+    body = await request.json()
+    body = body if isinstance(body, dict) else {}
+    job_id = f"chapter_job_{uuid.uuid4().hex[:12]}"
+    _set_chapter_generation_job(job_id, status="queued", book_id=book_id, message="章节生成任务已进入队列。")
+    background_tasks.add_task(_run_chapter_generation_job, job_id, book_id, json.loads(json.dumps(body, ensure_ascii=False)))
+    return {"ok": True, "job_id": job_id, "status": "queued", "message": "章节生成任务已开始。"}
+
+
+@app.get("/books/{book_id}/chapter-generation-jobs/{job_id}")
+@app.get("/api/books/{book_id}/chapter-generation-jobs/{job_id}")
+def api_get_book_chapter_generation_job(book_id: str, job_id: str) -> dict[str, Any]:
+    with CHAPTER_GENERATION_JOBS_LOCK:
+        job = dict(CHAPTER_GENERATION_JOBS.get(job_id) or {})
+    if not job or str(job.get("book_id")) != str(book_id):
+        raise HTTPException(status_code=404, detail="章节生成任务不存在")
+    return job
+
+
+@app.post("/books/{book_id}/chapters/generate")
+@app.post("/api/books/{book_id}/chapters/generate")
+async def api_generate_book_chapter(book_id: str, request: Request) -> dict[str, Any]:
+    body = await request.json()
+    return _generate_and_save_book_chapter(book_id, body if isinstance(body, dict) else {})
 
 
 @app.post("/books/{book_id}/chapters/{chapter_number}/regenerate")

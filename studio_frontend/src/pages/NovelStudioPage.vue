@@ -21,6 +21,7 @@ export default {
     const diagnosis = ref(null);
     const chapterBrief = ref(null);
     const rejectedChapter = ref(null);
+    const chapterGenerationStatus = ref("");
     const chapterGenerationError = ref("");
     const chapterGenerationIssues = ref([]);
     const storyArchive = ref(null);
@@ -1037,6 +1038,7 @@ export default {
       }
       loading.chapter = true;
       rejectedChapter.value = null;
+      chapterGenerationStatus.value = "";
       chapterGenerationError.value = "";
       chapterGenerationIssues.value = [];
       try {
@@ -1046,22 +1048,26 @@ export default {
         if (!chapterBrief.value) {
           chapterBrief.value = buildLocalChapterBrief();
         }
-        const result = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapters/generate`, {
+        const payload = {
+          brief: chapterBrief.value,
+          user_note: chapterInstruction,
+          ai_provider: selectedChapterAi.value.provider,
+          ai_model: selectedChapterAi.value.model,
+          ai_thinking: Boolean(selectedChapterAi.value.thinking),
+          ai_reasoning_effort: selectedChapterAi.value.reasoningEffort || "",
+          allow_local_fallback: false,
+          wechat_skill_id: selectedNovelSkillId.value || "wechat_ai_writing_workshop_v1",
+        };
+        const started = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapters/generate-job`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            brief: chapterBrief.value,
-            user_note: chapterInstruction,
-            ai_provider: selectedChapterAi.value.provider,
-            ai_model: selectedChapterAi.value.model,
-            ai_thinking: Boolean(selectedChapterAi.value.thinking),
-            ai_reasoning_effort: selectedChapterAi.value.reasoningEffort || "",
-            allow_local_fallback: false,
-            wechat_skill_id: selectedNovelSkillId.value || "wechat_ai_writing_workshop_v1",
-          }),
-        }, 300000);
+          body: JSON.stringify(payload),
+        }, 30000);
+        chapterGenerationStatus.value = started?.message || "章节生成任务已开始，正在等待在线 AI。";
+        const result = await waitForChapterGenerationJob(started?.job_id);
         const chNum = result?.chapter?.chapter_number;
         rejectedChapter.value = null;
+        chapterGenerationStatus.value = "";
         chapterGenerationError.value = "";
         chapterGenerationIssues.value = [];
         const review = result?.quality;
@@ -1096,8 +1102,37 @@ export default {
           ctx.setError(timeoutHint);
         }
       } finally {
+        chapterGenerationStatus.value = "";
         loading.chapter = false;
       }
+    }
+
+    async function waitForChapterGenerationJob(jobId) {
+      if (!jobId || !currentBookId.value) {
+        throw new Error("章节生成任务启动失败：没有返回任务ID。");
+      }
+      const startedAt = Date.now();
+      const maxWaitMs = 12 * 60 * 1000;
+      while (Date.now() - startedAt < maxWaitMs) {
+        await new Promise((resolve) => window.setTimeout(resolve, 3000));
+        const job = await ctx.requestApi(
+          `/books/${encodeURIComponent(currentBookId.value)}/chapter-generation-jobs/${encodeURIComponent(jobId)}`,
+          {},
+          15000,
+        );
+        if (job?.message) {
+          chapterGenerationStatus.value = job.message;
+        }
+        if (job?.status === "succeeded") {
+          return job.result || {};
+        }
+        if (job?.status === "failed") {
+          const err = new Error(job.message || "章节生成失败。");
+          err.payload = { detail: job.detail || { message: job.message || "章节生成失败。" } };
+          throw err;
+        }
+      }
+      throw new Error("章节生成等待超时：任务仍在后台运行，请稍后刷新档案查看结果。");
     }
 
     async function regenerateBookChapter(chapter) {
@@ -1240,6 +1275,7 @@ export default {
       chapterBrief,
       activeChapterBrief,
       rejectedChapter,
+      chapterGenerationStatus,
       chapterGenerationError,
       chapterGenerationIssues,
       storyArchive,
@@ -2176,7 +2212,7 @@ export default {
       </div>
       <div v-if="loading.chapter" class="chapter-generation-status">
         <strong>正在在线生成正文</strong>
-        <span>{{ selectedChapterAi.label }} 正在写作并通过质量门槛，思维模式通常需要 1-3 分钟。</span>
+        <span>{{ chapterGenerationStatus || `${selectedChapterAi.label} 正在写作并通过质量门槛，思维模式通常需要 1-3 分钟。` }}</span>
       </div>
       <div v-if="chapterGenerationError && !rejectedChapter" class="chapter-generation-status warning">
         <strong>章节生成没有完成</strong>
