@@ -2557,6 +2557,124 @@ async def api_create_book_chapter_brief(book_id: str, request: Request) -> dict[
     return build_chapter_brief_from_book(book, archive, user_note=str((body if isinstance(body, dict) else {}).get("user_note") or ""))
 
 
+def _extract_json_object(text: str) -> dict[str, Any]:
+    raw = str(text or "").strip()
+    raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.I)
+    raw = re.sub(r"\s*```$", "", raw)
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    match = re.search(r"\{.*\}", raw, flags=re.S)
+    if match:
+        try:
+            data = json.loads(match.group(0))
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _local_review_chapter_plan(plan_text: str, chapter_number: int) -> dict[str, Any]:
+    lines = [
+        re.sub(r"^\s*(?:事件|情节|节点)\s*\d+\s*[：:、.]?\s*", "", line).strip()
+        for line in str(plan_text or "").splitlines()
+        if line.strip()
+    ]
+    lines = [re.sub(r"（\s*推进主线[：:].*?）", "", line).strip() for line in lines if line.strip()]
+    issues: list[str] = []
+    joined = "，".join(lines)
+    if len(lines) < 3:
+        issues.append("剧情计划少于3个具体事件。")
+    if re.search(r"推进主线|制造冲突|节奏要求|埋伏笔|前慢后快|本章目标", joined) and not re.search(r"公司|医院|孩子|外卖|报警|槐井|香火|供桌|简历|物业", joined):
+        issues.append("计划仍偏写作手法，缺少具体故事事件。")
+    if "外卖" in joined and re.search(r"现金|找零|进屋|无人回应", joined):
+        issues.append("都市现实流程不合理：外卖/快递应优先线上记录、电话、拍照、平台留言、物业或报警。")
+    if re.search(r"怀孕|待产|剖腹|月子|孩子", joined) and re.search(r"第一单|外卖|简历", joined):
+        title = "待产承诺后的第一单"
+    elif re.search(r"外卖|快递", joined):
+        title = "第一单撞见异常"
+    elif re.search(r"香火|槐井|供桌", joined):
+        title = "槐井边的新债"
+    else:
+        title = (lines[0][:14] if lines else f"第{chapter_number}章").strip("，。；; ")
+    revised = []
+    for index, line in enumerate(lines[:5]):
+        advances = "否" if index == 1 else "是"
+        conflict = "是" if index >= 1 else "否"
+        revised.append(f"事件{index + 1}：{line}（推进主线：{advances}；制造冲突：{conflict}；新信息：是）")
+    return {
+        "pass": not issues,
+        "title_hint": title or f"第{chapter_number}章",
+        "summary": "已按当前章节想法整理为可执行剧情计划。" if not issues else "剧情计划存在逻辑或具体性问题。",
+        "issues": issues,
+        "revised_plan": "\n".join(revised),
+        "fallback": True,
+    }
+
+
+@app.post("/books/{book_id}/chapter-plan-review")
+@app.post("/api/books/{book_id}/chapter-plan-review")
+async def api_review_book_chapter_plan(book_id: str, request: Request) -> dict[str, Any]:
+    book = store.find_record("books", book_id)
+    if not book:
+        raise HTTPException(status_code=404, detail="小说不存在")
+    body = await request.json()
+    body = body if isinstance(body, dict) else {}
+    plan_text = str(body.get("plan_text") or body.get("user_note") or "").strip()
+    if not plan_text:
+        raise HTTPException(status_code=400, detail="剧情计划不能为空")
+    archive = api_get_story_archive(book_id)
+    chapter_number = int(body.get("chapter_number") or len(archive.get("chapters", [])) + 1)
+    latest_chapter = ""
+    chapters = archive.get("chapters") if isinstance(archive.get("chapters"), list) else []
+    if chapters:
+        latest = sorted(chapters, key=lambda item: int(item.get("chapter_number") or 0))[-1]
+        latest_chapter = f"第{latest.get('chapter_number')}章：{latest.get('title')}\n{str(latest.get('content') or latest.get('content_markdown') or '')[:1200]}"
+    prompt = (
+        "请审核作者手写的下一章剧情计划，并只输出JSON对象。\n"
+        "任务：1) 判断是否存在逻辑硬伤、标题不匹配、计划不具体、现实常识错误；"
+        "2) 若可修正，整理成3-5个具体事件；3) 根据事件生成不固定、不重复、贴合内容的章节标题。\n"
+        "硬性要求：事件必须是故事情节，不要写“推进主线/制造冲突/埋伏笔”这类写作手法本身；"
+        "都市现实类必须符合平台和职业常识，外卖/快递不能收现金找零，不能无人回应就擅自进屋。\n"
+        "JSON字段：pass(boolean), title_hint(string), summary(string), issues(string[]), revised_plan(string)。\n\n"
+        f"小说：{book.get('title')}；类型：{book.get('genre')}；当前要生成第{chapter_number}章。\n"
+        f"上一章摘要/正文片段：\n{latest_chapter or '无，当前是第一章。'}\n\n"
+        f"作者手写计划：\n{plan_text}"
+    )
+    result = _call_chat_completion(
+        str(body.get("ai_provider") or _default_chat_provider()),
+        [{"role": "user", "content": prompt}],
+        context=f"小说《{book.get('title')}》第{chapter_number}章计划审核",
+        model=str(body.get("ai_model") or ""),
+        thinking=bool(body.get("ai_thinking")),
+        reasoning_effort=str(body.get("ai_reasoning_effort") or ""),
+    )
+    if result.get("fallback"):
+        review = _local_review_chapter_plan(plan_text, chapter_number)
+    else:
+        review = _extract_json_object(str(result.get("response") or ""))
+        if not review:
+            review = _local_review_chapter_plan(plan_text, chapter_number)
+            review["issues"] = ["AI审核返回格式无法解析，已使用本地规则整理。"] + list(review.get("issues") or [])
+    fallback_review = _local_review_chapter_plan(plan_text, chapter_number)
+    revised_plan = str(review.get("revised_plan") or fallback_review.get("revised_plan") or "").strip()
+    title_hint = str(review.get("title_hint") or fallback_review.get("title_hint") or f"第{chapter_number}章").strip()
+    issues = [str(item) for item in (review.get("issues") if isinstance(review.get("issues"), list) else []) if str(item).strip()]
+    return {
+        "pass": bool(review.get("pass", not issues)),
+        "title_hint": title_hint,
+        "summary": str(review.get("summary") or ("剧情计划可进入正文生成。" if not issues else "剧情计划需要先调整。")),
+        "issues": issues,
+        "revised_plan": revised_plan,
+        "chapter_number": chapter_number,
+        "provider": result.get("provider"),
+        "model": result.get("model"),
+        "fallback": bool(result.get("fallback")),
+    }
+
+
 def _chapter_generation_passed(chapter: dict[str, Any]) -> tuple[bool, list[str]]:
     issues: list[str] = []
     editorial = chapter.get("editorial_review") if isinstance(chapter.get("editorial_review"), dict) else {}

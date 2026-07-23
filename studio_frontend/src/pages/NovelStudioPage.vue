@@ -45,6 +45,7 @@ export default {
       saveChapter: "",
       brief: false,
       chapter: false,
+      planReview: false,
     });
     const blueprintForm = reactive({
       title: "",
@@ -80,6 +81,7 @@ export default {
     const blueprintPromise = ref("");
     const chapterPlanDraft = ref("");
     const chapterPlanDraftNumber = ref(0);
+    const chapterPlanReview = ref(null);
     const editingChapterKey = ref("");
     const editingChapterDraft = ref("");
     const savedChapterAiKey = localStorage.getItem("novelChapterAiKey") || "";
@@ -268,6 +270,30 @@ export default {
       return String(plan?.title || plan?.chapter_title || plan?.name || plan?.chapter_goal || plan?.goal || "").trim();
     }
 
+    function cleanChapterEventText(raw) {
+      return String(raw || "")
+        .replace(/^[-*\s]*(?:事件|情节|节点)\s*\d+\s*[：:、.]?\s*/i, "")
+        .replace(/（\s*推进主线[：:].*?）/g, "")
+        .replace(/\(\s*推进主线[:：].*?\)/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function deriveChapterTitleFromEvents(events, fallback = "") {
+      const text = events.map((item) => item.event || item).join("，");
+      if (/怀孕|待产|剖腹|月子|孩子/.test(text) && /第一单|外卖|简历/.test(text)) return "待产承诺后的第一单";
+      if (/外卖|快递|跑单/.test(text) && /异常|报警|敲门|地下车库/.test(text)) return "第一单撞见异常";
+      if (/父亲|母亲|家人/.test(text) && /失联|医院|病房/.test(text)) return "病房里的选择";
+      if (/香火|供桌|槐井|修行|仙/.test(text) && /救|命|异常/.test(text)) return "槐井边的新债";
+      const first = cleanChapterEventText(events[0]?.event || events[0] || fallback);
+      const compact = first
+        .replace(/^(她|他|主角|梁静|云栖|林小满)[，,]?\s*/, "")
+        .replace(/因为|所以|并且|同时|必须/g, "")
+        .replace(/[。；;，,].*$/, "")
+        .trim();
+      return compact.slice(0, 14) || fallback || `第${nextChapterNumber.value}章`;
+    }
+
     function chapterPlanList() {
       const bookPlans = Array.isArray(selectedBook.value?.plot_outline) ? selectedBook.value.plot_outline : [];
       const archivePlans = Array.isArray(storyArchive.value?.plot?.chapterPlans) ? storyArchive.value.plot.chapterPlans : [];
@@ -353,6 +379,7 @@ export default {
         }, 15000);
         chapterBrief.value = brief;
         rejectedChapter.value = null;
+        chapterPlanReview.value = null;
         chapterPlanDraft.value = formatChapterPlanDraft(brief);
         chapterPlanDraftNumber.value = Number(brief.chapter_number || nextChapterNumber.value || 1);
         if (!silent) {
@@ -368,16 +395,19 @@ export default {
     }
 
     function parseChapterPlanDraft() {
-      return String(chapterPlanDraft.value || "")
+      const rawLines = String(chapterPlanDraft.value || "")
         .split(/\n+/)
         .map((line) => line.trim())
-        .filter(Boolean)
-        .filter((line) => /^事件\s*\d+\s*[：:]/.test(line))
+        .filter(Boolean);
+      const eventLines = rawLines.filter((line) => /^(?:事件|情节|节点)\s*\d+\s*[：:、.]/.test(line));
+      const sourceLines = eventLines.length ? eventLines : rawLines
+        .flatMap((line) => line.split(/(?<=[。！？；;])\s*/))
+        .map((line) => line.trim())
+        .filter((line) => line.length >= 8)
+        .slice(0, 5);
+      return sourceLines
         .map((line, index) => {
-          const event = line
-            .replace(/^事件\s*\d+\s*[：:]\s*/, "")
-            .replace(/（推进主线[：:].*$/, "")
-            .trim();
+          const event = cleanChapterEventText(line);
           const advances = /推进主线[：:]\s*是/.test(line) ? "是" : (/推进主线[：:]\s*否/.test(line) ? "否" : (index === 1 ? "否" : "是"));
           const conflict = /制造冲突[：:]\s*是/.test(line) ? "是" : (/制造冲突[：:]\s*否/.test(line) ? "否" : (index >= 1 ? "是" : "否"));
           const info = /新信息[：:]\s*否/.test(line) ? "否" : "是";
@@ -392,8 +422,8 @@ export default {
     }
 
     function buildLocalChapterBrief(plan = planForNextChapter()) {
-      const title = chapterPlanTitle(plan) || `第${nextChapterNumber.value}章`;
       const eventPlan = parseChapterPlanDraft();
+      const title = (eventPlan.length ? deriveChapterTitleFromEvents(eventPlan, chapterPlanTitle(plan)) : chapterPlanTitle(plan)) || `第${nextChapterNumber.value}章`;
       const fallbackEvents = eventPlan.length ? eventPlan : [
         { event: concreteChapterPlanEvent(0, title, selectedBook.value?.title), tags: ["推进主线"], advances_mainline: "是", creates_conflict: "否", new_information: "是" },
         { event: concreteChapterPlanEvent(1, title, selectedBook.value?.title), tags: ["冲突"], advances_mainline: "是", creates_conflict: "是", new_information: "是" },
@@ -418,6 +448,12 @@ export default {
         ],
         chapterPlan: {
           ...(plan || {}),
+          title,
+          chapter_title: title,
+          goal: fallbackEvents[0]?.event || title,
+          conflict: fallbackEvents.find((item) => item.creates_conflict === "是")?.event || fallbackEvents[1]?.event || "",
+          suspense: fallbackEvents[fallbackEvents.length - 1]?.event || "",
+          hook: fallbackEvents[fallbackEvents.length - 1]?.event || "",
           event_plan: fallbackEvents,
           scene_beats: fallbackEvents.map((item) => item.event),
         },
@@ -431,12 +467,20 @@ export default {
       if (!chapterBrief.value) {
         chapterBrief.value = buildLocalChapterBrief();
       }
+      const title = deriveChapterTitleFromEvents(eventPlan, chapterBrief.value.title_hint || chapterPlanTitle(chapterBrief.value.chapterPlan));
       chapterBrief.value = {
         ...chapterBrief.value,
+        title_hint: title,
         must_do: chapterBrief.value.must_do?.length ? chapterBrief.value.must_do : buildLocalChapterBrief().must_do,
         do_not_do: chapterBrief.value.do_not_do?.length ? chapterBrief.value.do_not_do : buildLocalChapterBrief().do_not_do,
         chapterPlan: {
           ...(chapterBrief.value.chapterPlan || {}),
+          title,
+          chapter_title: title,
+          goal: eventPlan[0]?.event || title,
+          conflict: eventPlan.find((item) => item.creates_conflict === "是")?.event || eventPlan[1]?.event || "",
+          suspense: eventPlan[eventPlan.length - 1]?.event || "",
+          hook: eventPlan[eventPlan.length - 1]?.event || "",
           event_plan: eventPlan,
           scene_beats: eventPlan.map((item) => item.event),
         },
@@ -811,6 +855,7 @@ export default {
       diagnosis.value = null;
       chapterBrief.value = null;
       rejectedChapter.value = null;
+      chapterPlanReview.value = null;
       chapterPlanDraft.value = "";
       chapterPlanDraftNumber.value = 0;
       storyArchive.value = null;
@@ -1031,6 +1076,70 @@ export default {
       await loadNextChapterBrief();
     }
 
+    async function reviewChapterPlanBeforeGeneration({ silent = false } = {}) {
+      if (!currentBookId.value) {
+        ctx.setError("请先选择或创建一本小说。");
+        return null;
+      }
+      syncEditedChapterPlan();
+      const planText = chapterPlanDraft.value.trim();
+      if (!planText) {
+        ctx.setError("请先填写这一章的具体想法或剧情计划。");
+        return null;
+      }
+      loading.planReview = true;
+      chapterPlanReview.value = null;
+      try {
+        localStorage.setItem("novelChapterAiKey", selectedChapterAi.value.key);
+        const review = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapter-plan-review`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            plan_text: planText,
+            chapter_number: nextChapterNumber.value,
+            brief: chapterBrief.value || buildLocalChapterBrief(),
+            ai_provider: selectedChapterAi.value.provider,
+            ai_model: selectedChapterAi.value.model,
+            ai_thinking: Boolean(selectedChapterAi.value.thinking),
+            ai_reasoning_effort: selectedChapterAi.value.reasoningEffort || "",
+          }),
+        }, 90000);
+        chapterPlanReview.value = review;
+        if (review?.revised_plan) {
+          chapterPlanDraft.value = review.revised_plan;
+          chapterPlanDraftNumber.value = Number(review.chapter_number || nextChapterNumber.value || 1);
+        }
+        syncEditedChapterPlan();
+        if (review?.title_hint && chapterBrief.value) {
+          chapterBrief.value = {
+            ...chapterBrief.value,
+            title_hint: review.title_hint,
+            chapterPlan: {
+              ...(chapterBrief.value.chapterPlan || {}),
+              title: review.title_hint,
+              chapter_title: review.title_hint,
+            },
+          };
+        }
+        const issues = Array.isArray(review?.issues) ? review.issues.filter(Boolean) : [];
+        if (review?.pass === false) {
+          const message = issues.length ? issues.join("；") : "剧情计划有逻辑问题，请先修改。";
+          ctx.setError(`剧情计划审核未通过：${message}`);
+          return null;
+        }
+        if (!silent) {
+          ctx.setNotice(`${review?.fallback ? "本地" : "在线AI"}审核通过：已按当前想法整理剧情计划。`);
+        }
+        return review;
+      } catch (err) {
+        const message = `剧情计划审核失败：${err.message}`;
+        if (!silent) ctx.setError(message);
+        return null;
+      } finally {
+        loading.planReview = false;
+      }
+    }
+
     async function generateChapterFromBrief() {
       if (!currentBookId.value) {
         ctx.setError("请先选择或创建一本小说。");
@@ -1043,6 +1152,8 @@ export default {
       chapterGenerationIssues.value = [];
       try {
         localStorage.setItem("novelChapterAiKey", selectedChapterAi.value.key);
+        const planReview = await reviewChapterPlanBeforeGeneration({ silent: true });
+        if (!planReview) return;
         syncEditedChapterPlan();
         const chapterInstruction = chapterPlanDraft.value.trim();
         if (!chapterBrief.value) {
@@ -1275,6 +1386,7 @@ export default {
       chapterBrief,
       activeChapterBrief,
       rejectedChapter,
+      chapterPlanReview,
       chapterGenerationStatus,
       chapterGenerationError,
       chapterGenerationIssues,
@@ -1335,6 +1447,7 @@ export default {
       createBlueprint,
       diagnoseStory,
       createChapterBrief,
+      reviewChapterPlanBeforeGeneration,
       generateChapterFromBrief,
       syncEditedChapterPlan,
       regenerateBookChapter,
@@ -1462,7 +1575,10 @@ export default {
           placeholder="选中小说后，这里会回显下一章想法与剧情计划；不符合预期可以直接修改，生成正文会使用这里的内容。"
         ></textarea>
         <div class="novel-daily-echo-actions">
-          <span>{{ dailyChapterEcho.hasPlan ? "已载入下一章想法与计划，可手动调整。" : "当前小说还没有可用章节规划，请先生成或刷新 Brief。" }}</span>
+          <span>{{ chapterPlanReview?.pass ? "当前计划已审核通过，可生成正文。" : (dailyChapterEcho.hasPlan ? "已载入下一章想法与计划，可手动调整。" : "当前小说还没有可用章节规划，请先生成或刷新 Brief。") }}</span>
+          <button class="btn secondary small" :disabled="loading.planReview || loading.chapter || !currentBookId" @click="reviewChapterPlanBeforeGeneration">
+            {{ loading.planReview ? "审核中..." : "审核剧情计划" }}
+          </button>
           <button class="btn accent small" :disabled="loading.chapter || !selectedNovelSkillId" @click="generateChapterFromBrief">
             {{ loading.chapter ? "生成中..." : "按此计划生成正文" }}
           </button>
@@ -2196,6 +2312,11 @@ export default {
           </div>
         </div>
       </div>
+      <div v-if="chapterPlanReview" :class="['chapter-generation-status', chapterPlanReview.pass ? '' : 'warning']">
+        <strong>{{ chapterPlanReview.pass ? "剧情计划审核通过" : "剧情计划审核未通过" }}</strong>
+        <span>{{ chapterPlanReview.summary || (chapterPlanReview.pass ? "可以按当前计划生成正文。" : "请先修改计划后再生成正文。") }}</span>
+        <em v-if="chapterPlanReview.issues?.length">问题：{{ chapterPlanReview.issues.join("；") }}</em>
+      </div>
       <div class="novel-actions">
         <label class="chapter-ai-select">
           <span>本次生成 AI</span>
@@ -2205,6 +2326,9 @@ export default {
         </label>
         <button class="btn accent" :disabled="loading.chapter || !currentBookId || !selectedNovelSkillId" @click="generateChapterFromBrief">
           {{ loading.chapter ? "生成中..." : "生成正文" }}
+        </button>
+        <button class="btn secondary" :disabled="loading.planReview || loading.chapter || !currentBookId" @click="reviewChapterPlanBeforeGeneration">
+          {{ loading.planReview ? "审核中..." : "审核剧情计划" }}
         </button>
         <button class="btn secondary" :disabled="loading.chapter || !currentBookId" @click="createChapterBrief">重新生成</button>
         <button class="btn secondary" :disabled="!currentBookId" @click="getStoryArchive()">刷新档案</button>
