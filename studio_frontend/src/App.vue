@@ -9289,6 +9289,43 @@ body,
   font-weight: 500;
 }
 
+.studio-page .chapter-generation-status {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 12px;
+  border: 1px solid rgba(47, 150, 212, 0.28);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #eef9ff;
+  color: #18324a;
+}
+
+.studio-page .chapter-generation-status.warning {
+  border-color: rgba(242, 138, 75, 0.3);
+  background: #fff8ee;
+}
+
+.studio-page .chapter-generation-status.compact {
+  margin-top: 8px;
+}
+
+.studio-page .chapter-generation-status strong {
+  color: #102033 !important;
+}
+
+.studio-page .chapter-generation-status span,
+.studio-page .chapter-generation-status em {
+  color: #38566f !important;
+  font-size: 13px;
+  font-style: normal;
+  line-height: 1.6;
+}
+
+.studio-page .chapter-generation-status.warning span,
+.studio-page .chapter-generation-status.warning em {
+  color: #5a3d26 !important;
+}
+
 .studio-page .chapter-local-warning {
   display: grid;
   gap: 6px;

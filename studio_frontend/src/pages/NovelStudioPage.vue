@@ -21,6 +21,8 @@ export default {
     const diagnosis = ref(null);
     const chapterBrief = ref(null);
     const rejectedChapter = ref(null);
+    const chapterGenerationError = ref("");
+    const chapterGenerationIssues = ref([]);
     const storyArchive = ref(null);
     const books = ref([]);
     const currentBookId = ref("");
@@ -1034,6 +1036,9 @@ export default {
         return;
       }
       loading.chapter = true;
+      rejectedChapter.value = null;
+      chapterGenerationError.value = "";
+      chapterGenerationIssues.value = [];
       try {
         localStorage.setItem("novelChapterAiKey", selectedChapterAi.value.key);
         syncEditedChapterPlan();
@@ -1057,6 +1062,8 @@ export default {
         }, 300000);
         const chNum = result?.chapter?.chapter_number;
         rejectedChapter.value = null;
+        chapterGenerationError.value = "";
+        chapterGenerationIssues.value = [];
         const review = result?.quality;
         await getStoryArchive(currentBookId.value);
         await advanceToNextChapterPlan();
@@ -1071,13 +1078,22 @@ export default {
       } catch (err) {
         const detail = err?.payload?.detail;
         const failedChapter = detail?.chapter;
+        const issues = Array.isArray(detail?.issues)
+          ? detail.issues.filter(Boolean)
+          : [];
+        chapterGenerationIssues.value = issues;
         if (failedChapter) {
           rejectedChapter.value = failedChapter;
-          const issues = Array.isArray(detail.issues) ? detail.issues.join("；") : err.message;
-          ctx.setError(`章节已生成草稿，但未通过质量门槛，未保存：${issues}`);
+          chapterGenerationError.value = detail?.message || "章节已生成草稿，但未通过质量门槛，未保存。";
+          const issueText = issues.length ? issues.join("；") : err.message;
+          ctx.setError(`章节已生成草稿，但未通过质量门槛，未保存：${issueText}`);
         } else {
           rejectedChapter.value = null;
-          ctx.setError(`章节生成失败：${err.message}`);
+          const timeoutHint = String(err?.message || "").includes("超时")
+            ? "请求超时：当前模型响应较慢或后端正在等待在线 AI。请换 DeepSeek Chat / qwen3.7-plus，或稍后重试。"
+            : `章节生成失败：${err.message}`;
+          chapterGenerationError.value = timeoutHint;
+          ctx.setError(timeoutHint);
         }
       } finally {
         loading.chapter = false;
@@ -1224,6 +1240,8 @@ export default {
       chapterBrief,
       activeChapterBrief,
       rejectedChapter,
+      chapterGenerationError,
+      chapterGenerationIssues,
       storyArchive,
       books,
       currentBookId,
@@ -2156,9 +2174,22 @@ export default {
         <button class="btn secondary" :disabled="!currentBookId" @click="getStoryArchive()">刷新档案</button>
         <button v-if="storyArchive?.chapters?.length" class="btn secondary" @click="getStoryArchive()">查看已生成 {{ storyArchive.chapters.length }} 章</button>
       </div>
+      <div v-if="loading.chapter" class="chapter-generation-status">
+        <strong>正在在线生成正文</strong>
+        <span>{{ selectedChapterAi.label }} 正在写作并通过质量门槛，思维模式通常需要 1-3 分钟。</span>
+      </div>
+      <div v-if="chapterGenerationError && !rejectedChapter" class="chapter-generation-status warning">
+        <strong>章节生成没有完成</strong>
+        <span>{{ chapterGenerationError }}</span>
+        <em v-if="chapterGenerationIssues.length">原因：{{ chapterGenerationIssues.join("；") }}</em>
+      </div>
       <div v-if="rejectedChapter" class="brief-card chapter-output-card rejected-chapter-card">
         <strong>已生成草稿，但未通过质量门槛</strong>
         <p>这份正文没有保存到章节列表。请根据审核提示调整剧情计划后重新生成。</p>
+        <div v-if="chapterGenerationError" class="chapter-generation-status warning compact">
+          <strong>{{ chapterGenerationError }}</strong>
+          <em v-if="chapterGenerationIssues.length">{{ chapterGenerationIssues.join("；") }}</em>
+        </div>
         <div v-if="rejectedChapter.editorial_review?.issues?.length" class="chapter-review-issues">
           <strong>审核提示</strong>
           <span v-for="issue in rejectedChapter.editorial_review.issues" :key="issue">{{ issue }}</span>

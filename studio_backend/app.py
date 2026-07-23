@@ -439,7 +439,7 @@ def _generate_online_chapter_with_review(
     model: str = "",
     thinking: bool = False,
     reasoning_effort: str = "",
-    max_attempts: int = 3,
+    max_attempts: int = 2,
 ) -> tuple[dict[str, Any], bool, list[str]]:
     from .novel_engine import generate_chapter_from_plan
 
