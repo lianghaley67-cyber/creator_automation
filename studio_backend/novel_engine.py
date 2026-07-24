@@ -2193,13 +2193,15 @@ def _clean_chapter_text(text: str) -> str:
     text = re.sub(r"从([^，。！？\n]{1,16})离职的全职太太", r"从\1离职后暂时回归家庭的女人", text)
     text = re.sub(r"软件公司离职的全职太太", "从软件公司离职后暂时回归家庭的女人", text)
     text = re.sub(r"被裁的全职太太", "被裁后暂时在家照顾孩子的女人", text)
-    banned_prefixes = ["总结", "本章", "这一章", "下面", "以下", "作为", "我们可以看到", "写作", "结构", "为了增强", "故事刚开始"]
+    banned_prefixes = ["总结：", "本章", "这一章", "下面", "以下", "作为", "我们可以看到", "写作", "结构", "为了增强", "故事刚开始"]
     lines = []
-    meta_fragments = [
-        "章末留下", "具体问题", "更高层威胁", "目标推进", "本章目标", "本章冲突", "章节规划",
-        "小说世界模拟器", "不合规范", "按小说", "规则重写", "开局危机", "人物困境", "世界规则", "主角",
-        "世界观", "关键同盟", "感情线", "阶段目标", "卷主题", "人物成长", "章节标题", "系统默认",
-        "读者", "第一个选择", "如何面对", "必须完成", "具体做法", "推进主线", "角色围绕", "主动采取行动",
+    meta_patterns = [
+        r"章末留下", r"目标推进", r"本章目标", r"本章冲突", r"章节规划", r"小说世界模拟器",
+        r"不合规范", r"按小说.*规则重写", r"开局危机", r"人物困境", r"世界规则",
+        r"阶段目标", r"卷主题", r"人物成长", r"章节标题", r"系统默认",
+        r"推进主线", r"角色围绕", r"主动采取行动",
+        r"^(?:主角|读者|世界观|关键同盟|感情线)[：:：]",
+        r"^(?:本章|这一章|下面|以下|写作|结构|为了增强|故事刚开始)",
     ]
     for raw in (text or "").splitlines():
         line = raw.strip()
@@ -2209,7 +2211,7 @@ def _clean_chapter_text(text: str) -> str:
             continue
         if any(line.startswith(prefix) for prefix in banned_prefixes):
             continue
-        if any(fragment in line for fragment in meta_fragments):
+        if any(re.search(pattern, line) for pattern in meta_patterns):
             continue
         if "公众号" in line or "提示词" in line or "JSON" in line:
             continue
@@ -2524,15 +2526,33 @@ def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str,
     return _replace_role_tokens(_clean_chapter_text("\n\n".join(paragraphs)), protagonist)
 
 
+def _has_meta_or_platform_expression(content: str) -> bool:
+    text = str(content or "")
+    line_patterns = [
+        r"^\s*(?:总结|本章讲述|本文|以下是|下面是|写作思路|结构提示|审核提示|自检提示|章节规划)[：:\s]",
+        r"^\s*(?:本章目标|本章冲突|推进主线|制造冲突|埋伏笔|章末留下|更高层威胁)[：:\s]",
+        r"^\s*(?:主角|读者|世界观|关键同盟|感情线|人物成长)[：:：]",
+        r"^\s*(?:事件|节点)\s*\d+\s*[：:].*(?:推进主线|制造冲突|新信息)",
+    ]
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if any(re.search(pattern, stripped) for pattern in line_patterns):
+            return True
+    inline_patterns = [
+        r"本章的作用是", r"本章将(?:会)?", r"这一章(?:主要)?(?:讲述|展示)", r"下面(?:开始|进入)",
+        r"输出格式", r"只输出", r"不要(?:解释|JSON|写作说明)", r"```", r"\{[\"']?(?:title|content|正文)[\"']?\s*:",
+        r"公众号(?:文案|草稿|平台)", r"提示词(?:如下|是)",
+    ]
+    return any(re.search(pattern, text) for pattern in inline_patterns)
+
+
 def _editor_step(content: str) -> dict[str, Any]:
     issues: list[str] = []
     if len(content) < 2000:
         issues.append("正文长度低于2000字，连载沉浸感不足。")
-    if any(word in content for word in [
-        "总结", "本章讲述", "本文", "公众号", "提示词", "JSON", "章末留下", "具体问题",
-        "更高层威胁", "主角", "世界观", "关键同盟", "感情线", "章节规划", "系统默认",
-        "故事刚开始", "读者", "第一个选择", "如何面对",
-    ]):
+    if _has_meta_or_platform_expression(content):
         issues.append("存在说明/总结/平台化表达。")
     issues.extend(_chapter_prose_quality_issues(content))
     if content.count("？") + content.count("?") < 2:
