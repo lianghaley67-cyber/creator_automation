@@ -7932,6 +7932,54 @@ textarea {
   background: rgba(236, 252, 255, 0.72);
 }
 
+.volume-plan-import {
+  display: grid;
+  gap: 10px;
+  margin: 12px 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(56, 189, 248, 0.24);
+  border-radius: 8px;
+  background: rgba(236, 252, 255, 0.72);
+}
+
+.volume-plan-import-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.volume-plan-import-head strong {
+  color: #0f2137;
+  font-weight: 900;
+}
+
+.volume-plan-import-head span {
+  color: #58708c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.volume-plan-import textarea {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  border: 1px solid rgba(142, 171, 205, 0.28);
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #102033;
+  font-family: inherit;
+  font-weight: 700;
+  line-height: 1.65;
+}
+
+.volume-plan-import-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .volume-plan-card,
 .story-unit-card {
   display: grid;

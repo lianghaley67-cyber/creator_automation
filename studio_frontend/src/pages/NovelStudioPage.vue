@@ -82,6 +82,7 @@ export default {
     const chapterPlanDraft = ref("");
     const chapterPlanDraftNumber = ref(0);
     const chapterPlanReview = ref(null);
+    const volumePlanPaste = ref("");
     const editingChapterKey = ref("");
     const editingChapterDraft = ref("");
     const savedChapterAiKey = localStorage.getItem("novelChapterAiKey") || "";
@@ -652,6 +653,100 @@ export default {
           plan.chapter_range = chapterRangeForPhase(blueprintForm.chapter_count, count, index);
         }
       });
+    }
+
+    function volumePlanAiFormat() {
+      const count = normalizeVolumeCount(blueprintForm.phase_count);
+      const lines = [
+        "请按下面格式输出分卷规划，只输出可复制粘贴的内容，不要解释。",
+        "每一卷必须包含具体故事情节，不要写空泛写作手法。",
+        "",
+      ];
+      for (let index = 0; index < count; index += 1) {
+        lines.push(
+          `===第${index + 1}卷===`,
+          `卷名：第${index + 1}卷`,
+          `章节范围：${chapterRangeForPhase(blueprintForm.chapter_count, count, index)}`,
+          "卷主题：",
+          "阶段目标：",
+          "核心冲突：",
+          "人物成长：",
+          "卷末结果：",
+          "卷末钩子：",
+          "",
+        );
+      }
+      return lines.join("\n").trim();
+    }
+
+    async function copyVolumePlanAiFormat() {
+      const text = volumePlanAiFormat();
+      try {
+        await navigator.clipboard.writeText(text);
+        ctx.setNotice("分卷规划格式已复制。可以发给 AI 讨论，完成后把结果粘贴到下方输入框。");
+      } catch (err) {
+        volumePlanPaste.value = text;
+        ctx.setNotice("浏览器不允许自动复制，已把格式放入粘贴框。");
+      }
+    }
+
+    function parseVolumePlanPaste(raw) {
+      const text = String(raw || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+      if (!text) return [];
+      const sections = [];
+      const parts = text.split(/(?=^={2,}\s*第\s*\d+\s*卷\s*={2,}|^第\s*\d+\s*卷[：:\s])/m)
+        .map((part) => part.trim())
+        .filter(Boolean);
+      const source = parts.length > 1 ? parts : [text];
+      source.forEach((part, partIndex) => {
+        const plan = makeEmptyVolumePlan(partIndex);
+        let imported = false;
+        const lines = part.split("\n").map((line) => line.trim()).filter(Boolean);
+        const bodyLines = [];
+        lines.forEach((line) => {
+          const normalized = line.replace(/^[-*\s]+/, "");
+          const match = normalized.match(/^(卷名|章节范围|范围|卷主题|主题|阶段目标|核心冲突|人物成长|卷末结果|卷末钩子)\s*[：:]\s*(.*)$/);
+          if (match) {
+            const key = match[1];
+            const value = match[2].trim();
+            imported = true;
+            if (key === "卷名") plan.volume_name = value || plan.volume_name;
+            else if (key === "章节范围" || key === "范围") plan.chapter_range = value || plan.chapter_range;
+            else if (key === "卷主题" || key === "主题") plan.theme = value;
+            else if (key === "阶段目标") plan.stage_goal = value;
+            else if (key === "核心冲突") plan.core_conflict = value;
+            else if (key === "人物成长") plan.protagonist_growth = value;
+            else if (key === "卷末结果") plan.ending_result = value;
+            else if (key === "卷末钩子") plan.ending_hook = value;
+          } else if (!/^={2,}/.test(normalized) && !/^请按下面格式/.test(normalized) && !/^每一卷必须/.test(normalized)) {
+            bodyLines.push(normalized);
+            imported = true;
+          }
+        });
+        if (!plan.theme && bodyLines[0]) plan.theme = bodyLines[0];
+        if (!plan.stage_goal && bodyLines[1]) plan.stage_goal = bodyLines[1];
+        if (!plan.core_conflict && bodyLines[2]) plan.core_conflict = bodyLines[2];
+        if (imported) sections.push(plan);
+      });
+      return sections.filter((plan) => (
+        plan.theme || plan.stage_goal || plan.core_conflict || plan.protagonist_growth || plan.ending_result || plan.ending_hook
+      ));
+    }
+
+    function importVolumePlanPaste() {
+      const plans = parseVolumePlanPaste(volumePlanPaste.value);
+      if (!plans.length) {
+        ctx.setError("没有识别到可导入的分卷规划。请按格式粘贴：卷名、章节范围、卷主题、阶段目标、核心冲突、人物成长、卷末结果、卷末钩子。");
+        return;
+      }
+      blueprintForm.phase_count = normalizeVolumeCount(plans.length);
+      blueprintForm.volume_plans = plans.map((plan, index) => ({
+        ...makeEmptyVolumePlan(index),
+        ...plan,
+        volume_name: plan.volume_name || `第${index + 1}卷`,
+        chapter_range: plan.chapter_range || chapterRangeForPhase(blueprintForm.chapter_count, plans.length, index),
+      }));
+      ctx.setNotice(`已导入 ${plans.length} 卷规划。你可以继续手动微调每一卷。`);
     }
 
     function ensureLongPlanDefaults() {
@@ -1407,6 +1502,7 @@ export default {
       blueprint,
       blueprintPromise,
       chapterPlanDraft,
+      volumePlanPaste,
       editingChapterKey,
       editingChapterDraft,
       selectedChapterAiKey,
@@ -1436,6 +1532,8 @@ export default {
       createBookBlueprint,
       getStoryArchive,
       updateStoryArchive,
+      copyVolumePlanAiFormat,
+      importVolumePlanPaste,
       continueBook,
       editBook,
       deleteBook,
@@ -1902,6 +2000,22 @@ export default {
               <strong>阶段/卷规划</strong>
               <span>系统会根据“分为多少卷”生成对应卷数，并按总章节数自动分配章节范围。</span>
             </summary>
+            <div class="volume-plan-import">
+              <div class="volume-plan-import-head">
+                <strong>从 AI 讨论结果批量填写</strong>
+                <span>先复制格式给 AI，讨论完后把 AI 输出原样粘贴进来，一次性导入全部分卷。</span>
+              </div>
+              <textarea
+                v-model="volumePlanPaste"
+                rows="7"
+                placeholder="===第1卷===&#10;卷名：&#10;章节范围：1-20&#10;卷主题：&#10;阶段目标：&#10;核心冲突：&#10;人物成长：&#10;卷末结果：&#10;卷末钩子："
+              ></textarea>
+              <div class="volume-plan-import-actions">
+                <button class="btn secondary small" type="button" @click="copyVolumePlanAiFormat">复制给 AI 的格式</button>
+                <button class="btn accent small" type="button" :disabled="!volumePlanPaste.trim()" @click="importVolumePlanPaste">导入到分卷规划</button>
+                <button class="btn secondary small" type="button" :disabled="!volumePlanPaste.trim()" @click="volumePlanPaste = ''">清空</button>
+              </div>
+            </div>
             <div class="volume-plan-list">
               <article v-for="(volume, index) in blueprintForm.volume_plans" :key="`volume-${index}`" class="volume-plan-card">
                 <div class="volume-plan-title">
