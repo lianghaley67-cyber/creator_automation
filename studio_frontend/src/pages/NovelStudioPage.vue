@@ -698,9 +698,24 @@ export default {
         .map((part) => part.trim())
         .filter(Boolean);
       const source = parts.length > 1 ? parts : [text];
+      const assignVolumePlanField = (plan, key, value) => {
+        const clean = String(value || "").trim();
+        if (!clean) return false;
+        if (key === "卷名") plan.volume_name = clean;
+        else if (key === "章节范围" || key === "范围") plan.chapter_range = clean;
+        else if (key === "卷主题" || key === "主题") plan.theme = clean;
+        else if (key === "阶段目标") plan.stage_goal = clean;
+        else if (key === "核心冲突") plan.core_conflict = clean;
+        else if (key === "人物成长") plan.protagonist_growth = clean;
+        else if (key === "卷末结果") plan.ending_result = clean;
+        else if (key === "卷末钩子") plan.ending_hook = clean;
+        else return false;
+        return true;
+      };
       source.forEach((part, partIndex) => {
         const plan = makeEmptyVolumePlan(partIndex);
         let imported = false;
+        let pendingKey = "";
         const lines = part.split("\n").map((line) => line.trim()).filter(Boolean);
         const bodyLines = [];
         lines.forEach((line) => {
@@ -710,16 +725,18 @@ export default {
             const key = match[1];
             const value = match[2].trim();
             imported = true;
-            if (key === "卷名") plan.volume_name = value || plan.volume_name;
-            else if (key === "章节范围" || key === "范围") plan.chapter_range = value || plan.chapter_range;
-            else if (key === "卷主题" || key === "主题") plan.theme = value;
-            else if (key === "阶段目标") plan.stage_goal = value;
-            else if (key === "核心冲突") plan.core_conflict = value;
-            else if (key === "人物成长") plan.protagonist_growth = value;
-            else if (key === "卷末结果") plan.ending_result = value;
-            else if (key === "卷末钩子") plan.ending_hook = value;
+            if (value) {
+              assignVolumePlanField(plan, key, value);
+              pendingKey = "";
+            } else {
+              pendingKey = key;
+            }
           } else if (!/^={2,}/.test(normalized) && !/^请按下面格式/.test(normalized) && !/^每一卷必须/.test(normalized)) {
-            bodyLines.push(normalized);
+            if (pendingKey && assignVolumePlanField(plan, pendingKey, normalized)) {
+              pendingKey = "";
+            } else {
+              bodyLines.push(normalized);
+            }
             imported = true;
           }
         });
