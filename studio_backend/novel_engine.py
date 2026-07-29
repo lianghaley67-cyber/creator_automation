@@ -64,11 +64,11 @@ NOVEL_WORLD_SIMULATOR_CONTRACT = {
 
 
 REALISTIC_URBAN_COMMONSENSE_RULES = [
-    "现代都市平台行为必须符合现实：美团/饿了么/外卖订单默认线上支付，骑手不应收取现金、找零或把现金作为交付关键证据。",
-    "外卖、快递、跑腿人员不能因屋内无声或一句“放外面”就擅自进屋；合理动作是电话联系、平台留言、拍照留证、联系物业/保安或报警。",
-    "门锁、门禁、电梯、监控、物业、派出所、医院、学校、公司 HR 等现实机构必须按基本流程行动，不能为了推进剧情让普通人越权。",
-    "现实悬疑可以有异常，但异常必须建立在真实流程之后：先符合常识地尝试联系和求证，再出现无法解释的偏差。",
-    "人物做选择前要有现实动机和风险判断，不能从“觉得不对”直接跳到破门、闯入、私自搜查、非法获取信息。",
+    "现实题材中的职业、医疗、婚姻、生育、财产、劳动、社区和司法行为必须符合当时当地的基本生活流程与权责边界。",
+    "人物采取非常规行动前，必须有可理解的现实动机、已尝试的常规办法、风险判断；行动后必须承担真实代价和社会后果。",
+    "罕见事件可以发生，做法也可以夸张，但必须建立在可验证的现实条件、完整因果链和人物能力范围内，不能靠巧合或集体降智成立。",
+    "机构与专业人员必须按基本程序行动；若有人违规，正文必须交代其利益动机、违规手段、被发现的风险及可能后果。",
+    "不得为了制造冲突，主动引入当前卷规划、人物档案和前文都没有出现的职业、平台订单、案件或社会热点。",
 ]
 
 
@@ -137,11 +137,17 @@ def _title_content_alignment_issues(content: str, plan: dict[str, Any]) -> list[
             plan.get("suspense"),
         ]
     )
-    plan_markers = [
-        marker for marker in re.findall(r"[\u4e00-\u9fff]{2,6}", plan_text)
-        if marker not in {"推进", "本章", "事件", "冲突", "主角", "一个", "必须", "出现", "选择"}
-    ][:8]
-    if plan_markers and not any(marker in opening for marker in plan_markers):
+    def chinese_bigrams(value: str) -> set[str]:
+        compact = "".join(re.findall(r"[\u4e00-\u9fff]", value))
+        return {compact[index:index + 2] for index in range(max(0, len(compact) - 1))}
+
+    generic_bigrams = {
+        "本章", "事件", "冲突", "主角", "女主", "男主", "一个", "必须", "出现", "选择",
+        "推进", "新信", "信息", "决定", "发现", "开始", "然后", "为了", "自己", "他们",
+    }
+    plan_markers = chinese_bigrams(plan_text) - generic_bigrams
+    opening_markers = chinese_bigrams(opening)
+    if len(plan_markers) >= 6 and len(plan_markers & opening_markers) < 2:
         issues.append("正文开头没有承接当前章节计划，标题、计划和正文落点不一致。")
     return issues
 
@@ -1108,8 +1114,8 @@ def build_chapter_brief_from_book(
             "不要解释已发生的事，不要展开“他想起之前……”式回忆。",
             "不要写平台外引流、联系方式、外部链接、账号口令。",
             "不要为了冲突降低人物智商。",
-            "不要写外卖员收现金、找零、擅自进屋、私自搜查住户房间等违反现实平台规则和职业边界的桥段。",
-            "不要让角色跳过报警、物业、平台客服、监控核验等基本现实流程。",
+            "不要凭空引入当前卷规划和前文没有出现的新职业、新平台、新案件来制造冲突。",
+            "不要让角色跳过与当前事件相关的基本生活流程、职业边界、求证步骤或必要的机构程序。",
             "不要偏离当前 bookId 的 Story Archive。",
             *genre_do_not_do,
         ],

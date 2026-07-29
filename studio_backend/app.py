@@ -365,13 +365,15 @@ def _call_online_chapter_generation(
     }
     system_prompt = (
         "你是高水平中文网络小说作者。必须直接输出小说正文，不要解释、不要提纲、不要JSON、不要写作说明。"
-        "正文必须超过2200个中文字符，段落之间用空行分隔。"
+        "正文控制在2600-3500个中文字符，段落之间用空行分隔；必须在字数预算内完成本章事件并写出完整结尾，不能中途截断。"
         "严格承接上一章，禁止复述上一章，禁止水文，禁止出现“本章目标/推进主线/制造冲突/埋伏笔”等元话语。"
         "每3段必须出现新动作、新冲突或新信息。结尾必须留下新的危机、线索或反转。"
         "严禁展开回忆，正文中“想起、记起、回忆、当年、上一章”等词合计最多出现1次。"
         "如果需要交代旧事，只能通过当场对话或物证一句带过，马上回到当前行动。"
         "章节标题、章节计划和正文必须一致：正文前3段必须兑现标题里的核心词和Brief里的核心事件，不能用无关场景开篇。"
         "人物必须使用人物档案中的具体姓名，严禁用“男主、女主、主角、主人公”等占位称呼代替姓名。"
+        "当前卷规划、最近章节和人物档案是唯一事实来源；不得凭空引入其中没有出现的职业、平台订单、案件或社会热点。"
+        "允许罕见事件和夸张做法，但必须符合现实制度、生活事实与人物能力，并写清动机、常规尝试、风险判断、实施条件、代价和后果。"
         "不要自行输出章节标题，系统会统一添加标题。"
         "现代都市、现实新闻改编、职场、家庭、社区类剧情必须符合现实流程和职业边界："
         + "；".join(REALISTIC_URBAN_COMMONSENSE_RULES)
@@ -2571,6 +2573,16 @@ async def api_create_book_chapter_brief(book_id: str, request: Request) -> dict[
         (item for item in volume_plans if isinstance(item, dict) and range_contains_chapter(item)),
         {},
     )
+    volume_range_numbers = [
+        int(item) for item in re.findall(
+            r"\d+",
+            str(current_volume.get("chapter_range") if isinstance(current_volume, dict) else ""),
+        )
+    ]
+    volume_start = volume_range_numbers[0] if volume_range_numbers else chapter_number
+    volume_end = volume_range_numbers[1] if len(volume_range_numbers) > 1 else chapter_number
+    volume_position = chapter_number - volume_start + 1
+    volume_length = max(1, volume_end - volume_start + 1)
     recent_chapters = sorted(
         _as_list(archive.get("chapters")),
         key=lambda item: int(item.get("chapter_number") or 0),
@@ -2582,10 +2594,16 @@ async def api_create_book_chapter_brief(book_id: str, request: Request) -> dict[
         "标题和事件中严禁使用“男主、女主、主角、主人公、他/她”等代称指代核心人物，必须使用人物档案中的具体姓名。\n"
         "标题控制在6-16个汉字，优先提炼本章最强冲突、反差、意外、秘密或迫近危机；"
         "要具体、有点击动力且与正文兑现一致，禁止“新的开始、危机来临、命运转折”等空泛标题。\n"
+        "事件1必须承接上一章最后一个动作、决定或后果，禁止用“昨夜救人后的代价”“麻烦落地”等泛化句替代承接。\n"
+        "一章只处理一个核心问题及其递进后果；不能把整卷人物成长、卷末结果或多年人生变化塞进单章。\n"
+        "不得引入当前卷规划、人物档案和最近章节未出现的职业、平台订单、案件或社会热点。\n"
+        "现实事件必须说明谁因为什么采取行动、先尝试了什么常规办法、受到什么制度或资源限制、异常做法如何实施并承担什么代价。\n"
+        "罕见事件和夸张行为可以出现，但发生概率低不等于没有因果；严禁巧合救场、角色集体降智和机构无程序配合。\n"
         "当前章只推进当前卷的一小步，不得提前完成整卷；生成3-5个有因果递进的具体事件。\n"
         "JSON字段：title(string), goal(string), conflict(string), suspense(string), "
         "event_plan(array，元素字段为event, advances_mainline, creates_conflict, new_information)。\n\n"
         f"小说：{book.get('title')}；类型：{book.get('genre')}；当前章节：第{chapter_number}章。\n"
+        f"本章位于当前卷第{volume_position}/{volume_length}章；只有位置等于{volume_length}时才能兑现卷末结果。\n"
         f"人物档案：{json.dumps(_as_list(book.get('characters'))[:8], ensure_ascii=False)}\n"
         f"全书简介：{book.get('hook') or ''}\n"
         f"当前卷规划：{json.dumps(current_volume, ensure_ascii=False)}\n"
@@ -2740,7 +2758,8 @@ async def api_review_book_chapter_plan(book_id: str, request: Request) -> dict[s
         "任务：1) 判断是否存在逻辑硬伤、标题不匹配、计划不具体、现实常识错误；"
         "2) 若可修正，整理成3-5个具体事件；3) 根据事件生成不固定、不重复、贴合内容的章节标题。\n"
         "硬性要求：事件必须是故事情节，不要写“推进主线/制造冲突/埋伏笔”这类写作手法本身；"
-        "都市现实类必须符合平台和职业常识，外卖/快递不能收现金找零，不能无人回应就擅自进屋。\n"
+        "现实题材必须符合生活事实、职业边界和机构程序；罕见或夸张事件必须有完整因果、实施条件、现实代价与后果；"
+        "不得引入当前卷规划、人物档案和前文没有出现的新职业、新平台或新案件。\n"
         "JSON字段：pass(boolean), title_hint(string), summary(string), issues(string[]), revised_plan(string)。\n\n"
         f"小说：{book.get('title')}；类型：{book.get('genre')}；当前要生成第{chapter_number}章。\n"
         f"上一章摘要/正文片段：\n{latest_chapter or '无，当前是第一章。'}\n\n"

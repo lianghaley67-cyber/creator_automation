@@ -499,13 +499,13 @@ export default {
           "按上方剧情计划写具体故事情节，不输出写作说明。",
           "开头直接进入当前场景，用动作、对话和可观察细节推进。",
           "每3段必须出现新动作、新冲突或新线索，禁止复述旧章节。",
-          "都市现实类必须符合平台和职业常识：外卖/快递先线上记录、电话、拍照、平台留言、物业或报警，不能收现金或擅自进屋。",
+          "现实题材必须符合生活事实、职业边界和机构程序；罕见或夸张事件必须写清实施条件、现实代价与后果。",
         ],
         do_not_do: [
           "不要写本章目标、推进主线、制造冲突、埋伏笔等元话语。",
           "不要生成空正文、摘要、JSON或结构说明。",
           "不要重复上一章完整场景或旧对白。",
-          "不要让外卖员收现金、找零、无人回应却进屋，或让角色跳过平台/物业/报警等现实流程。",
+          "不要凭空引入当前卷规划、人物档案和前文没有出现的新职业、新平台、新案件。",
         ],
         chapterPlan: {
           ...(plan || {}),
@@ -1417,8 +1417,11 @@ export default {
           if (volumeAutomation.stopRequested) break;
           volumeAutomation.currentChapter = chapterNumber;
           volumeAutomation.status = `正在生成第 ${chapterNumber} 章（${volumeAutomation.completed + 1}/${volumeAutomation.total}）`;
-          if (Number(nextChapterNumber.value || 0) !== chapterNumber || !chapterBrief.value) {
-            await loadNextChapterBrief({ silent: true });
+          const freshBrief = await loadNextChapterBrief({ silent: true });
+          if (!freshBrief) {
+            volumeAutomation.status = `第 ${chapterNumber} 章剧情计划生成失败，整卷任务已暂停。`;
+            ctx.setError(volumeAutomation.status);
+            return;
           }
           const succeeded = await generateChapterFromBrief({ silent: true });
           if (!succeeded) {
