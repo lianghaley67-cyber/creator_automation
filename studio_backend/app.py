@@ -2898,6 +2898,7 @@ def _generate_and_save_book_chapter(book_id: str, body: dict[str, Any]) -> dict[
     model = str(body.get("ai_model") or "").strip()
     thinking = bool(body.get("ai_thinking"))
     reasoning_effort = str(body.get("ai_reasoning_effort") or "").strip()
+    max_review_attempts = min(max(int(body.get("max_review_attempts") or 4), 1), 4)
     chapter, passed, issues = _generate_online_chapter_with_review(
         provider,
         book,
@@ -2906,6 +2907,7 @@ def _generate_and_save_book_chapter(book_id: str, body: dict[str, Any]) -> dict[
         model=model,
         thinking=thinking,
         reasoning_effort=reasoning_effort,
+        max_attempts=max_review_attempts,
     )
     if not passed:
         raise HTTPException(status_code=422, detail={"message": "章节生成未通过规范，已阻止保存。", "issues": issues, "chapter": chapter})

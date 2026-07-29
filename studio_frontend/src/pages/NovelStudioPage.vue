@@ -1329,6 +1329,7 @@ export default {
           ai_model: selectedChapterAi.value.model,
           ai_thinking: Boolean(selectedChapterAi.value.thinking),
           ai_reasoning_effort: selectedChapterAi.value.reasoningEffort || "",
+          max_review_attempts: 4,
           allow_local_fallback: false,
           wechat_skill_id: selectedNovelSkillId.value || "wechat_ai_writing_workshop_v1",
         };
@@ -2513,16 +2514,16 @@ export default {
         <button v-if="storyArchive?.chapters?.length" class="btn secondary" @click="getStoryArchive()">查看已生成 {{ storyArchive.chapters.length }} 章</button>
       </div>
       <div v-if="loading.chapter" class="chapter-generation-status">
-        <strong>正在在线生成正文</strong>
-        <span>{{ chapterGenerationStatus || `${selectedChapterAi.label} 正在写作并通过质量门槛，思维模式通常需要 1-3 分钟。` }}</span>
+        <strong>正在自动生成、审核与修复正文</strong>
+        <span>{{ chapterGenerationStatus || `${selectedChapterAi.label} 最多自动重写 4 轮；只有通过质量门槛后才会保存，通常需要 3-10 分钟。` }}</span>
       </div>
       <div v-if="chapterGenerationError && !rejectedChapter" class="chapter-generation-status warning">
         <strong>章节生成没有完成</strong>
         <span>{{ chapterGenerationError }}</span>
         <em v-if="chapterGenerationIssues.length">原因：{{ chapterGenerationIssues.join("；") }}</em>
       </div>
-      <div v-if="rejectedChapter" class="brief-card chapter-output-card rejected-chapter-card">
-        <strong>已生成草稿，但未通过质量门槛</strong>
+      <details v-if="rejectedChapter" class="brief-card chapter-output-card rejected-chapter-card">
+        <summary><strong>未通过质量门槛的草稿（点击查看）</strong></summary>
         <p>这份正文没有保存到章节列表。请根据审核提示调整剧情计划后重新生成。</p>
         <div v-if="chapterGenerationError" class="chapter-generation-status warning compact">
           <strong>{{ chapterGenerationError }}</strong>
@@ -2546,7 +2547,7 @@ export default {
           <span>{{ rejectedChapter.online_ai?.provider || "online" }} · {{ rejectedChapter.online_ai?.model || "model" }}</span>
         </div>
         <pre>{{ chapterDisplayContent(rejectedChapter) }}</pre>
-      </div>
+      </details>
       <div v-if="sortedBookChapters.length" class="brief-card chapter-output-card">
         <strong>已生成章节</strong>
         <p>默认合并收起，点击任意章节展开查看完整正文。</p>
