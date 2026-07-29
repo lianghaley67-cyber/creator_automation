@@ -720,10 +720,13 @@ export default {
         const bodyLines = [];
         lines.forEach((line) => {
           const normalized = line.replace(/^[-*\s]+/, "");
-          const match = normalized.match(/^(卷名|章节范围|范围|卷主题|主题|阶段目标|核心冲突|人物成长|卷末结果|卷末钩子)\s*[：:]\s*(.*)$/);
+          // AI 经常把标签输出为 **人物成长：**、__卷末结果:__，或者省略冒号后换行。
+          // 先移除 Markdown 强调符，再同时兼容“标签：值”和“标签\n值”两种格式。
+          const fieldLine = normalized.replace(/\*\*|__/g, "").trim();
+          const match = fieldLine.match(/^(卷名|章节范围|范围|卷主题|主题|阶段目标|核心冲突|人物成长|卷末结果|卷末钩子)\s*(?:[：:]\s*(.*))?$/);
           if (match) {
             const key = match[1];
-            const value = match[2].trim();
+            const value = String(match[2] || "").trim();
             imported = true;
             if (value) {
               assignVolumePlanField(plan, key, value);
