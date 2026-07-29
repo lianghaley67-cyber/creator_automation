@@ -47,6 +47,14 @@ export default {
       chapter: false,
       planReview: false,
     });
+    const volumeAutomation = reactive({
+      active: false,
+      stopRequested: false,
+      completed: 0,
+      total: 0,
+      currentChapter: 0,
+      status: "",
+    });
     const blueprintForm = reactive({
       title: "",
       genre: "romance_fantasy",
@@ -183,6 +191,10 @@ export default {
       return chapterVolumeTree.value.find((volume) => chapterNumber >= volume.start && chapterNumber <= volume.end)
         || chapterVolumeTree.value[chapterVolumeTree.value.length - 1]
         || null;
+    });
+    const currentVolumeRemainingChapters = computed(() => {
+      if (!currentVolumeStatus.value) return 0;
+      return Math.max(0, Number(currentVolumeStatus.value.end || 0) - Number(nextChapterNumber.value || 1) + 1);
     });
     const nextChapterNumber = computed(() => (sortedBookChapters.value.at(-1)?.chapter_number || 0) + 1);
     const currentBookFanqieTargetKey = computed(() => currentBookId.value ? `book:${currentBookId.value}` : "");
@@ -1303,10 +1315,11 @@ export default {
       }
     }
 
-    async function generateChapterFromBrief() {
+    async function generateChapterFromBrief(options = {}) {
+      const silent = Boolean(options?.silent);
       if (!currentBookId.value) {
         ctx.setError("请先选择或创建一本小说。");
-        return;
+        return false;
       }
       loading.chapter = true;
       rejectedChapter.value = null;
@@ -1316,7 +1329,7 @@ export default {
       try {
         localStorage.setItem("novelChapterAiKey", selectedChapterAi.value.key);
         const planReview = await reviewChapterPlanBeforeGeneration({ silent: true });
-        if (!planReview) return;
+        if (!planReview) return false;
         syncEditedChapterPlan();
         const chapterInstruction = chapterPlanDraft.value.trim();
         if (!chapterBrief.value) {
@@ -1349,13 +1362,14 @@ export default {
         await getStoryArchive(currentBookId.value);
         await advanceToNextChapterPlan();
         await loadNextChapterBrief({ silent: true });
-        if (chNum && review && Number(review.score || 0) < 60) {
+        if (!silent && chNum && review && Number(review.score || 0) < 60) {
           ctx.setError(`第 ${chNum} 章已保存，但商业智能评分偏低；已切换到第 ${nextChapterNumber.value} 章剧情计划。`);
-        } else if (chNum) {
+        } else if (!silent && chNum) {
           ctx.setNotice(`第 ${chNum} 章已生成并保存，已切换到第 ${nextChapterNumber.value} 章剧情计划。`);
-        } else {
+        } else if (!silent) {
           ctx.setNotice(`章节已生成，已切换到第 ${nextChapterNumber.value} 章剧情计划。`);
         }
+        return true;
       } catch (err) {
         const detail = err?.payload?.detail;
         const failedChapter = detail?.chapter;
@@ -1376,10 +1390,61 @@ export default {
           chapterGenerationError.value = timeoutHint;
           ctx.setError(timeoutHint);
         }
+        return false;
       } finally {
         chapterGenerationStatus.value = "";
         loading.chapter = false;
       }
+    }
+
+    async function generateCurrentVolume() {
+      if (volumeAutomation.active || !currentBookId.value || !currentVolumeStatus.value) return;
+      const volume = currentVolumeStatus.value;
+      const startChapter = Number(nextChapterNumber.value || 1);
+      const endChapter = Number(volume.end || startChapter);
+      if (startChapter > endChapter) {
+        ctx.setNotice(`${volume.name}已经全部生成完成。`);
+        return;
+      }
+      volumeAutomation.active = true;
+      volumeAutomation.stopRequested = false;
+      volumeAutomation.completed = 0;
+      volumeAutomation.total = endChapter - startChapter + 1;
+      volumeAutomation.currentChapter = startChapter;
+      volumeAutomation.status = `开始自动生成${volume.name}，共剩余 ${volumeAutomation.total} 章。`;
+      try {
+        for (let chapterNumber = startChapter; chapterNumber <= endChapter; chapterNumber += 1) {
+          if (volumeAutomation.stopRequested) break;
+          volumeAutomation.currentChapter = chapterNumber;
+          volumeAutomation.status = `正在生成第 ${chapterNumber} 章（${volumeAutomation.completed + 1}/${volumeAutomation.total}）`;
+          if (Number(nextChapterNumber.value || 0) !== chapterNumber || !chapterBrief.value) {
+            await loadNextChapterBrief({ silent: true });
+          }
+          const succeeded = await generateChapterFromBrief({ silent: true });
+          if (!succeeded) {
+            volumeAutomation.status = `第 ${chapterNumber} 章未通过质量门槛，整卷任务已暂停。`;
+            ctx.setError(volumeAutomation.status);
+            return;
+          }
+          volumeAutomation.completed += 1;
+        }
+        if (volumeAutomation.stopRequested) {
+          volumeAutomation.status = `已按要求停止，本次完成 ${volumeAutomation.completed} 章。`;
+          ctx.setNotice(volumeAutomation.status);
+        } else {
+          volumeAutomation.status = `${volume.name}已自动生成完成，共完成 ${volumeAutomation.completed} 章。`;
+          ctx.setNotice(volumeAutomation.status);
+        }
+      } finally {
+        volumeAutomation.active = false;
+        volumeAutomation.stopRequested = false;
+      }
+    }
+
+    function stopVolumeAutomation() {
+      if (!volumeAutomation.active) return;
+      volumeAutomation.stopRequested = true;
+      volumeAutomation.status = `将在第 ${volumeAutomation.currentChapter} 章处理完成后停止。`;
     }
 
     async function waitForChapterGenerationJob(jobId) {
@@ -1564,11 +1629,13 @@ export default {
       sortedBookChapters,
       chapterVolumeTree,
       currentVolumeStatus,
+      currentVolumeRemainingChapters,
       selectedFanqieTargetId,
       editingBookId,
       plannerPanel,
       plannerExpanded,
       loading,
+      volumeAutomation,
       blueprintForm,
       blueprint,
       blueprintPromise,
@@ -1618,6 +1685,8 @@ export default {
       createChapterBrief,
       reviewChapterPlanBeforeGeneration,
       generateChapterFromBrief,
+      generateCurrentVolume,
+      stopVolumeAutomation,
       syncEditedChapterPlan,
       regenerateBookChapter,
       deleteBookChapter,
@@ -2501,17 +2570,32 @@ export default {
             <option v-for="item in chapterAiOptions" :key="item.key" :value="item.key">{{ item.label }}</option>
           </select>
         </label>
-        <button class="btn accent" :disabled="loading.chapter || !currentBookId || !selectedNovelSkillId" @click="generateChapterFromBrief">
+        <button class="btn accent" :disabled="loading.chapter || volumeAutomation.active || !currentBookId || !selectedNovelSkillId" @click="generateChapterFromBrief">
           {{ loading.chapter ? "正在生成本章正文..." : "生成本章正文" }}
         </button>
-        <button class="btn secondary" :disabled="loading.planReview || loading.chapter || !currentBookId" @click="reviewChapterPlanBeforeGeneration">
+        <button
+          v-if="!volumeAutomation.active"
+          class="btn primary"
+          :disabled="loading.chapter || !currentBookId || !selectedNovelSkillId || currentVolumeRemainingChapters < 1"
+          @click="generateCurrentVolume"
+        >
+          自动生成当前卷（剩余 {{ currentVolumeRemainingChapters }} 章）
+        </button>
+        <button v-else class="btn secondary danger" @click="stopVolumeAutomation">
+          {{ volumeAutomation.stopRequested ? "将在本章结束后停止" : "完成当前章后停止" }}
+        </button>
+        <button class="btn secondary" :disabled="loading.planReview || loading.chapter || volumeAutomation.active || !currentBookId" @click="reviewChapterPlanBeforeGeneration">
           {{ loading.planReview ? "审核中..." : "审核剧情计划" }}
         </button>
-        <button class="btn secondary" :disabled="loading.brief || loading.chapter || !currentBookId" @click="createChapterBrief">
+        <button class="btn secondary" :disabled="loading.brief || loading.chapter || volumeAutomation.active || !currentBookId" @click="createChapterBrief">
           {{ loading.brief ? "正在重新生成剧情计划..." : "重新生成剧情计划" }}
         </button>
         <button class="btn secondary" :disabled="!currentBookId" @click="getStoryArchive()">刷新档案</button>
         <button v-if="storyArchive?.chapters?.length" class="btn secondary" @click="getStoryArchive()">查看已生成 {{ storyArchive.chapters.length }} 章</button>
+      </div>
+      <div v-if="volumeAutomation.active || volumeAutomation.status" class="chapter-generation-status volume-automation-status">
+        <strong>{{ volumeAutomation.active ? `当前卷自动生产中 · ${volumeAutomation.completed}/${volumeAutomation.total}` : "当前卷自动生产状态" }}</strong>
+        <span>{{ volumeAutomation.status }}</span>
       </div>
       <div v-if="loading.chapter" class="chapter-generation-status">
         <strong>正在自动生成、审核与修复正文</strong>
