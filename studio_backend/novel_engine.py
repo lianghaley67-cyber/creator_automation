@@ -464,16 +464,20 @@ def _chapter_title_candidates(chapter_number: int, plan: dict[str, Any], *, book
     conflict = _text(plan.get("conflict") or plan.get("plot_conflict"))
     suspense = _text(plan.get("suspense") or plan.get("hook"))
     source = " ".join([_text(book_title), _text(genre), goal, conflict, suspense])
-    candidates = _title_candidates_by_keywords(source)
-    if chapter_number == 1:
-        candidates = _book_title_title_candidates(book_title, genre) + candidates
-
+    candidates: list[str] = []
     explicit = _clean_title_fragment(
         plan.get("title") or plan.get("chapter_title") or plan.get("name"),
-        limit=12,
+        limit=16,
     )
-    if explicit:
+    generic_title_tokens = {
+        "男主", "女主", "主角", "主人公", "新的开始", "新的麻烦", "危机来临", "命运转折",
+        "加班回家", "下班回家", "早上起床", "开始上班", "普通的一天",
+    }
+    if explicit and not any(token in explicit for token in generic_title_tokens):
         candidates.append(explicit)
+    candidates.extend(_title_candidates_by_keywords(source))
+    if chapter_number == 1:
+        candidates = _book_title_title_candidates(book_title, genre) + candidates
 
     bracket = _clean_title_fragment(goal, limit=10)
     if bracket:
@@ -2228,10 +2232,34 @@ def _next_episode_preview(book: dict[str, Any], hook: str, protagonist: str) -> 
     return f"下期看点：{safe_hook}"
 
 
-def _replace_role_tokens(text: str, protagonist: str) -> str:
+def _replace_role_tokens(text: str, protagonist: str, male_lead: str = "") -> str:
     if not protagonist or protagonist == "主角":
         return text
-    return (text or "").replace("主角", protagonist).replace("主人公", protagonist)
+    male_name = male_lead or protagonist
+    return (
+        (text or "")
+        .replace("女主角", protagonist)
+        .replace("男主角", male_name)
+        .replace("女主人公", protagonist)
+        .replace("男主人公", male_name)
+        .replace("女主", protagonist)
+        .replace("男主", male_name)
+        .replace("主人公", protagonist)
+        .replace("主角", protagonist)
+    )
+
+
+def _male_lead_name(book: dict[str, Any]) -> str:
+    characters = _list(book.get("characters"))
+    for item in characters:
+        if not isinstance(item, dict):
+            continue
+        role = _text(item.get("role") or item.get("identity") or item.get("position"))
+        gender = _text(item.get("gender") or item.get("sex"))
+        name = _text(item.get("name"))
+        if name and not _is_generic_role_name(name) and ("男主" in role or gender in {"男", "男性", "male"}):
+            return name
+    return _supporting_name(book, _character_name(book))
 
 
 def _writer_step(book: dict[str, Any], archive: dict[str, Any], brief: dict[str, Any], director: dict[str, Any], plot: dict[str, Any], character: dict[str, Any]) -> str:
@@ -2826,6 +2854,24 @@ def generate_chapter_from_plan(
 ) -> dict[str, Any]:
     plan = _dict(brief.get("chapterPlan"))
     chapter_number = int(brief.get("chapter_number") or plan.get("chapter") or 1)
+    protagonist_name = _character_name(book)
+    male_lead_name = _male_lead_name(book)
+    plan = {
+        **plan,
+        **{
+            key: _replace_role_tokens(_text(plan.get(key)), protagonist_name, male_lead_name)
+            for key in ("title", "chapter_title", "name", "goal", "conflict", "suspense", "hook")
+            if plan.get(key) is not None
+        },
+    }
+    if isinstance(plan.get("event_plan"), list):
+        plan["event_plan"] = [
+            {
+                **item,
+                "event": _replace_role_tokens(_text(item.get("event")), protagonist_name, male_lead_name),
+            } if isinstance(item, dict) else _replace_role_tokens(_text(item), protagonist_name, male_lead_name)
+            for item in plan["event_plan"]
+        ]
     used_title_phrases = _used_chapter_title_phrases(_list(archive.get("chapters")), exclude_chapter=chapter_number)
     title = _format_chapter_title(
         chapter_number,
@@ -2850,6 +2896,7 @@ def generate_chapter_from_plan(
         plot = _plot_designer_step(attempt_brief)
         character = _character_manager_step(book, archive)
         body = _clean_chapter_text(str(online_body or ""))
+        body = _replace_role_tokens(body, protagonist_name, male_lead_name)
         body = _strip_leading_chapter_title_line(body, chapter_number)
         content = f"{title}\n\n{body}".strip()
         content = _remove_repeated_previous_lines(content, archive, chapter_number)
