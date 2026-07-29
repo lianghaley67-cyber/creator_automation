@@ -2553,8 +2553,106 @@ async def api_create_book_chapter_brief(book_id: str, request: Request) -> dict[
     if not book:
         raise HTTPException(status_code=404, detail="小说不存在")
     body = await request.json()
+    body = body if isinstance(body, dict) else {}
     archive = api_get_story_archive(book_id)
-    return build_chapter_brief_from_book(book, archive, user_note=str((body if isinstance(body, dict) else {}).get("user_note") or ""))
+    brief = build_chapter_brief_from_book(book, archive, user_note=str(body.get("user_note") or ""))
+    chapter_number = int(brief.get("chapter_number") or 1)
+    volume_plans = _as_list(book.get("volume_plans")) or _as_list(_as_dict(book.get("long_form_plan")).get("volume_plans"))
+
+    def range_contains_chapter(volume: dict[str, Any]) -> bool:
+        raw = str(volume.get("chapter_range") or "").replace("－", "-").replace("—", "-")
+        numbers = [int(item) for item in re.findall(r"\d+", raw)]
+        if len(numbers) >= 2:
+            return numbers[0] <= chapter_number <= numbers[1]
+        return bool(numbers and numbers[0] == chapter_number)
+
+    current_volume = next(
+        (item for item in volume_plans if isinstance(item, dict) and range_contains_chapter(item)),
+        {},
+    )
+    recent_chapters = sorted(
+        _as_list(archive.get("chapters")),
+        key=lambda item: int(item.get("chapter_number") or 0),
+    )[-3:]
+    prompt = (
+        "你是连载小说剧情设计师。请根据“当前卷规划”生成当前章独有的章节想法，只输出JSON对象。\n"
+        "不要套用统一模板，不要出现“第一件麻烦事”“先帮眼前的人解决急事”等通用占位情节；"
+        "每个事件必须使用本书当前卷中的人物、矛盾、目标、结果或钩子，并承接已写章节。\n"
+        "当前章只推进当前卷的一小步，不得提前完成整卷；生成3-5个有因果递进的具体事件。\n"
+        "JSON字段：title(string), goal(string), conflict(string), suspense(string), "
+        "event_plan(array，元素字段为event, advances_mainline, creates_conflict, new_information)。\n\n"
+        f"小说：{book.get('title')}；类型：{book.get('genre')}；当前章节：第{chapter_number}章。\n"
+        f"全书简介：{book.get('hook') or ''}\n"
+        f"当前卷规划：{json.dumps(current_volume, ensure_ascii=False)}\n"
+        f"最近章节：{json.dumps(recent_chapters, ensure_ascii=False)[:5000]}\n"
+        f"作者补充想法：{str(body.get('user_note') or '').strip()[:1500] or '无'}"
+    )
+    ai_result = _call_chat_completion(
+        str(body.get("ai_provider") or _default_chat_provider()),
+        [{"role": "user", "content": prompt}],
+        context=f"《{book.get('title')}》第{chapter_number}章所属卷规划：{json.dumps(current_volume, ensure_ascii=False)}",
+        model=str(body.get("ai_model") or ""),
+        thinking=bool(body.get("ai_thinking")),
+        reasoning_effort=str(body.get("ai_reasoning_effort") or ""),
+    )
+    ai_plan = {} if ai_result.get("fallback") else _extract_json_object(str(ai_result.get("response") or ""))
+    raw_events = _as_list(ai_plan.get("event_plan"))
+    event_plan = []
+    for index, item in enumerate(raw_events[:5]):
+        event = str(item.get("event") if isinstance(item, dict) else item).strip()
+        if not event:
+            continue
+        event_plan.append({
+            "event": event,
+            "advances_mainline": str((item.get("advances_mainline") if isinstance(item, dict) else "是") or "是").strip(),
+            "creates_conflict": str((item.get("creates_conflict") if isinstance(item, dict) else ("是" if index else "否")) or "否").strip(),
+            "new_information": str((item.get("new_information") if isinstance(item, dict) else "是") or "是").strip(),
+        })
+    if event_plan:
+        base_plan = _as_dict(brief.get("chapterPlan"))
+        title = str(ai_plan.get("title") or base_plan.get("title") or f"第{chapter_number}章").strip()
+        brief["chapterPlan"] = {
+            **base_plan,
+            "chapter": chapter_number,
+            "title": title,
+            "chapter_title": title,
+            "goal": str(ai_plan.get("goal") or event_plan[0]["event"]).strip(),
+            "conflict": str(ai_plan.get("conflict") or next((item["event"] for item in event_plan if item["creates_conflict"] == "是"), "")).strip(),
+            "suspense": str(ai_plan.get("suspense") or event_plan[-1]["event"]).strip(),
+            "hook": str(ai_plan.get("suspense") or event_plan[-1]["event"]).strip(),
+            "event_plan": event_plan,
+            "scene_beats": [item["event"] for item in event_plan],
+            "source_volume_plan": current_volume,
+        }
+        brief["title_hint"] = title
+        brief["chapter_mission"] = {
+            **_as_dict(brief.get("chapter_mission")),
+            "goal": brief["chapterPlan"]["goal"],
+            "conflict": brief["chapterPlan"]["conflict"],
+            "hook": brief["chapterPlan"]["suspense"],
+            "event_plan": event_plan,
+            "scene_beats": brief["chapterPlan"]["scene_beats"],
+        }
+        stale_plan_prefixes = (
+            "本章核心事件：", "本章剧情计划：", "五幕推进：",
+            "本章目标：", "本章冲突：", "章末悬念：",
+        )
+        brief["must_do"] = [
+            item for item in _as_list(brief.get("must_do"))
+            if not str(item).startswith(stale_plan_prefixes)
+        ] + [
+            f"本章剧情计划（以此AI结果为准）：{' / '.join(item['event'] for item in event_plan)}",
+            f"本章目标：{brief['chapterPlan']['goal']}",
+            f"本章冲突：{brief['chapterPlan']['conflict']}",
+            f"章末悬念：{brief['chapterPlan']['suspense']}",
+        ]
+    brief["chapter_idea_source"] = {
+        "type": "ai_volume_plan" if event_plan else "existing_plan_fallback",
+        "volume_name": current_volume.get("volume_name") if isinstance(current_volume, dict) else "",
+        "provider": ai_result.get("provider"),
+        "model": ai_result.get("model"),
+    }
+    return brief
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:

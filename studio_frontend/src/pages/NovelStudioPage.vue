@@ -376,8 +376,14 @@ export default {
         const brief = await ctx.requestApi(`/books/${encodeURIComponent(currentBookId.value)}/chapter-brief`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_note: chapterPlanDraft.value }),
-        }, 15000);
+          body: JSON.stringify({
+            user_note: chapterPlanDraft.value,
+            ai_provider: selectedChapterAi.value.provider,
+            ai_model: selectedChapterAi.value.model,
+            ai_thinking: Boolean(selectedChapterAi.value.thinking),
+            ai_reasoning_effort: selectedChapterAi.value.reasoningEffort || "",
+          }),
+        }, 70000);
         chapterBrief.value = brief;
         rejectedChapter.value = null;
         chapterPlanReview.value = null;
