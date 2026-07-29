@@ -178,6 +178,12 @@ export default {
       });
       return volumes;
     });
+    const currentVolumeStatus = computed(() => {
+      const chapterNumber = Number(nextChapterNumber.value || 1);
+      return chapterVolumeTree.value.find((volume) => chapterNumber >= volume.start && chapterNumber <= volume.end)
+        || chapterVolumeTree.value[chapterVolumeTree.value.length - 1]
+        || null;
+    });
     const nextChapterNumber = computed(() => (sortedBookChapters.value.at(-1)?.chapter_number || 0) + 1);
     const currentBookFanqieTargetKey = computed(() => currentBookId.value ? `book:${currentBookId.value}` : "");
     const selectedFanqieTargetId = computed({
@@ -1556,6 +1562,7 @@ export default {
       latestBookChapter,
       sortedBookChapters,
       chapterVolumeTree,
+      currentVolumeStatus,
       selectedFanqieTargetId,
       editingBookId,
       plannerPanel,
@@ -2390,68 +2397,6 @@ export default {
       </div>
     </section>
 
-    <section class="panel novel-story-panel">
-      <div class="panel-header">
-        <div>
-          <h2>2. 故事档案与诊断</h2>
-          <div class="meta">这里看“这本书能不能继续写”，不是单纯看文笔。</div>
-        </div>
-        <button class="btn secondary" :disabled="!currentBookId" @click="getStoryArchive">刷新档案</button>
-      </div>
-
-      <div class="story-selector-block novel-selector">
-        <div class="story-selector-row">
-          <select class="story-select" v-model="currentBookId" @change="selectedBook && continueBook(selectedBook)">
-            <option value="">选择小说项目</option>
-            <option v-for="book in books" :key="book.id" :value="book.id">
-              {{ book.title }} · 规划 {{ book.plot_outline?.length || 0 }} 章
-            </option>
-          </select>
-          <button class="btn secondary small" :disabled="!currentBookId" @click="getStoryArchive">读取档案</button>
-          <button class="btn primary small" :disabled="!currentBookId || loading.brief" @click="createChapterBrief">
-            {{ loading.brief ? "生成中..." : "按100章规划生成Brief" }}
-          </button>
-        </div>
-        <div v-if="storyArchive" class="diagnosis-card">
-          <div class="diagnosis-score">
-            <strong>{{ storyArchive.chapters?.length || 0 }}/{{ selectedBook?.plot_outline?.length || 100 }}</strong>
-            <span>bookId：{{ currentBookId }}</span>
-            <em>{{ storyArchive.title }} · {{ storyArchive.plot?.chapterPlans?.length || 0 }} 条章节规划</em>
-          </div>
-          <div class="next-actions">
-            <b>当前档案只读取这本书的数据</b>
-            <span>世界观：{{ storyArchive.world?.time_background || "待生成" }}</span>
-            <span>人物数：{{ storyArchive.characters?.length || 0 }}</span>
-            <span>时间线事件：{{ storyArchive.timeline?.length || 0 }}</span>
-            <span>已生成章节：{{ storyArchive.chapters?.length || 0 }}</span>
-          </div>
-        </div>
-      </div>
-
-      <div v-if="userMode === 'professional' && diagnosis" class="diagnosis-card">
-        <div class="diagnosis-score">
-          <strong>{{ diagnosis.score }}/100</strong>
-          <span>{{ diagnosis.level }}</span>
-          <em>{{ diagnosis.chapter_count }} 章 · {{ diagnosis.open_thread_count }} 条未解悬念</em>
-        </div>
-        <div v-if="diagnosis.hard_issues?.length" class="diagnosis-issues">
-          <b>最影响审核/推荐的问题</b>
-          <span v-for="issue in diagnosis.hard_issues" :key="issue">{{ issue }}</span>
-        </div>
-        <div class="metric-grid">
-          <div v-for="metric in diagnosis.metrics" :key="metric.key" class="metric-card" :class="storyMetricClass(metric)">
-            <strong>{{ metric.label }}</strong>
-            <span>{{ metric.count }} 章命中</span>
-            <p>{{ metric.suggestion }}</p>
-          </div>
-        </div>
-        <div class="next-actions">
-          <b>下一步按这个做</b>
-          <span v-for="action in diagnosis.next_actions" :key="action">{{ action }}</span>
-        </div>
-      </div>
-    </section>
-
     <section class="panel novel-chapter-panel">
       <div class="panel-header">
         <div>
@@ -2462,6 +2407,57 @@ export default {
           {{ loading.brief ? "生成中..." : "生成章节计划 Brief" }}
         </button>
       </div>
+      <div v-if="currentBookId" class="chapter-archive-summary">
+        <div>
+          <span>章节进度</span>
+          <strong>{{ storyArchive?.chapters?.length || 0 }}/{{ selectedBook?.chapter_count || selectedBook?.plot_outline?.length || 100 }}</strong>
+        </div>
+        <div>
+          <span>当前卷</span>
+          <strong>{{ currentVolumeStatus?.name || "待规划" }}</strong>
+          <em>{{ currentVolumeStatus?.chapterRange || "" }}</em>
+        </div>
+        <div>
+          <span>人物状态</span>
+          <strong>{{ storyArchive?.characters?.length || selectedBook?.characters?.length || 0 }} 人</strong>
+        </div>
+        <div>
+          <span>时间线</span>
+          <strong>{{ storyArchive?.timeline?.length || 0 }} 个事件</strong>
+        </div>
+        <div :class="{ warning: diagnosis?.hard_issues?.length }">
+          <span>连续性风险</span>
+          <strong>{{ diagnosis?.hard_issues?.length || 0 }} 项</strong>
+        </div>
+      </div>
+      <details class="chapter-advanced-diagnosis">
+        <summary>高级诊断（需要时展开）</summary>
+        <div class="chapter-diagnosis-actions">
+          <button class="btn secondary small" :disabled="!currentBookId" @click="getStoryArchive">刷新后台档案</button>
+          <button class="btn secondary small" :disabled="!currentBookId || loading.diagnosis" @click="diagnoseStory">
+            {{ loading.diagnosis ? "诊断中..." : "运行连续性诊断" }}
+          </button>
+        </div>
+        <div v-if="diagnosis" class="diagnosis-card compact">
+          <div class="diagnosis-score">
+            <strong>{{ diagnosis.score }}/100</strong>
+            <span>{{ diagnosis.level }}</span>
+            <em>{{ diagnosis.open_thread_count }} 条未解悬念</em>
+          </div>
+          <div v-if="diagnosis.hard_issues?.length" class="diagnosis-issues">
+            <b>需要优先处理</b>
+            <span v-for="issue in diagnosis.hard_issues" :key="issue">{{ issue }}</span>
+          </div>
+          <div class="metric-grid">
+            <div v-for="metric in diagnosis.metrics" :key="metric.key" class="metric-card" :class="storyMetricClass(metric)">
+              <strong>{{ metric.label }}</strong>
+              <span>{{ metric.count }} 章命中</span>
+              <p>{{ metric.suggestion }}</p>
+            </div>
+          </div>
+        </div>
+        <p v-else class="chapter-diagnosis-empty">后台档案会自动参与章节生成；只有需要排查连续性问题时才运行详细诊断。</p>
+      </details>
       <div class="novel-current-skill">
         当前写作 Skill：
         <strong>{{ selectedNovelSkill?.name || "未选择" }}</strong>

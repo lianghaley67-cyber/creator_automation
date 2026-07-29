@@ -1249,11 +1249,80 @@ a {
 }
 
 .chapter-brief-details > summary,
+.chapter-advanced-diagnosis > summary,
 .chapter-tree-book > summary,
 .chapter-tree-volume > summary,
 .chapter-tree-chapter > summary {
   cursor: pointer;
   user-select: none;
+}
+
+.chapter-archive-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.chapter-archive-summary > div {
+  display: grid;
+  gap: 3px;
+  min-height: 68px;
+  padding: 10px 12px;
+  border: 1px solid rgba(124, 151, 178, 0.22);
+  border-radius: 10px;
+  background: #f8fbfe;
+}
+
+.chapter-archive-summary span {
+  color: #6d8296;
+  font-size: 12px;
+}
+
+.chapter-archive-summary strong {
+  color: #15283b;
+  font-size: 16px;
+}
+
+.chapter-archive-summary em {
+  color: #8192a2;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.chapter-archive-summary > div.warning {
+  border-color: rgba(226, 142, 58, 0.45);
+  background: #fff8ef;
+}
+
+.chapter-advanced-diagnosis {
+  margin-bottom: 12px;
+  border: 1px solid rgba(124, 151, 178, 0.22);
+  border-radius: 10px;
+  background: #fbfdff;
+}
+
+.chapter-advanced-diagnosis > summary {
+  padding: 10px 12px;
+  color: #38536d;
+  font-weight: 700;
+}
+
+.chapter-diagnosis-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 10px;
+}
+
+.chapter-advanced-diagnosis .diagnosis-card {
+  margin: 0 12px 12px;
+}
+
+.chapter-diagnosis-empty {
+  margin: 0;
+  padding: 0 12px 12px;
+  color: #71869a;
+  font-size: 13px;
 }
 
 .chapter-brief-details > summary {
@@ -1327,6 +1396,10 @@ a {
 }
 
 @media (max-width: 720px) {
+  .chapter-archive-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .chapter-tree-chapters {
     padding-left: 20px;
   }
