@@ -142,6 +142,42 @@ export default {
       const chapters = Array.isArray(storyArchive.value?.chapters) ? storyArchive.value.chapters : [];
       return [...chapters].sort((a, b) => Number(a.chapter_number || 0) - Number(b.chapter_number || 0));
     });
+    const chapterVolumeTree = computed(() => {
+      const plans = Array.isArray(selectedBook.value?.volume_plans) && selectedBook.value.volume_plans.length
+        ? selectedBook.value.volume_plans
+        : (Array.isArray(selectedBook.value?.long_form_plan?.volume_plans) ? selectedBook.value.long_form_plan.volume_plans : []);
+      const parseRange = (raw) => {
+        const numbers = String(raw || "").replace(/[－—]/g, "-").match(/\d+/g)?.map(Number) || [];
+        return numbers.length >= 2 ? [numbers[0], numbers[1]] : [numbers[0] || 1, numbers[0] || Number.MAX_SAFE_INTEGER];
+      };
+      const volumes = plans.map((plan, index) => {
+        const [start, end] = parseRange(plan.chapter_range);
+        return {
+          key: `${index}-${plan.volume_name || ""}`,
+          name: plan.volume_name || `第${index + 1}卷`,
+          chapterRange: plan.chapter_range || `${start}-${end}`,
+          start,
+          end,
+          chapters: [],
+        };
+      });
+      if (!volumes.length) {
+        volumes.push({
+          key: "default-volume",
+          name: "第一卷",
+          chapterRange: sortedBookChapters.value.length ? `1-${Math.max(...sortedBookChapters.value.map((item) => Number(item.chapter_number || 1)))}` : "1-待生成",
+          start: 1,
+          end: Number.MAX_SAFE_INTEGER,
+          chapters: [],
+        });
+      }
+      sortedBookChapters.value.forEach((chapter) => {
+        const number = Number(chapter.chapter_number || 0);
+        const volume = volumes.find((item) => number >= item.start && number <= item.end) || volumes[volumes.length - 1];
+        volume.chapters.push(chapter);
+      });
+      return volumes;
+    });
     const nextChapterNumber = computed(() => (sortedBookChapters.value.at(-1)?.chapter_number || 0) + 1);
     const currentBookFanqieTargetKey = computed(() => currentBookId.value ? `book:${currentBookId.value}` : "");
     const selectedFanqieTargetId = computed({
@@ -1519,6 +1555,7 @@ export default {
       plannerBookId,
       latestBookChapter,
       sortedBookChapters,
+      chapterVolumeTree,
       selectedFanqieTargetId,
       editingBookId,
       plannerPanel,
@@ -2438,8 +2475,11 @@ export default {
           placeholder="可以直接写这一章的具体想法，也可以写成事件列表：&#10;事件1：本章第一个具体事件（推进主线：是；制造冲突：否；新信息：是）&#10;事件2：冲突升级或新线索（推进主线：是；制造冲突：是；新信息：是）"
         ></textarea>
       </label>
-      <div v-if="activeChapterBrief" class="brief-card">
-        <strong>{{ activeChapterBrief.story_name }} · 第 {{ activeChapterBrief.chapter_number }} 章</strong>
+      <details v-if="activeChapterBrief" class="brief-card chapter-brief-details">
+        <summary>
+          <strong>章节说明（点击展开）</strong>
+          <span>{{ activeChapterBrief.story_name }} · 第 {{ activeChapterBrief.chapter_number }} 章</span>
+        </summary>
         <p>{{ activeChapterBrief.title_hint }}</p>
         <div class="brief-columns">
           <div>
@@ -2451,7 +2491,7 @@ export default {
             <span v-for="item in activeChapterBrief.do_not_do" :key="item">{{ item }}</span>
           </div>
         </div>
-      </div>
+      </details>
       <div v-if="chapterPlanReview" :class="['chapter-generation-status', chapterPlanReview.pass ? '' : 'warning']">
         <strong>{{ chapterPlanReview.pass ? "剧情计划审核通过" : "剧情计划审核未通过" }}</strong>
         <span>{{ chapterPlanReview.summary || (chapterPlanReview.pass ? "可以按当前计划生成正文。" : "请先修改计划后再生成正文。") }}</span>
@@ -2465,12 +2505,14 @@ export default {
           </select>
         </label>
         <button class="btn accent" :disabled="loading.chapter || !currentBookId || !selectedNovelSkillId" @click="generateChapterFromBrief">
-          {{ loading.chapter ? "生成中..." : "生成正文" }}
+          {{ loading.chapter ? "正在生成本章正文..." : "生成本章正文" }}
         </button>
         <button class="btn secondary" :disabled="loading.planReview || loading.chapter || !currentBookId" @click="reviewChapterPlanBeforeGeneration">
           {{ loading.planReview ? "审核中..." : "审核剧情计划" }}
         </button>
-        <button class="btn secondary" :disabled="loading.chapter || !currentBookId" @click="createChapterBrief">重新生成</button>
+        <button class="btn secondary" :disabled="loading.brief || loading.chapter || !currentBookId" @click="createChapterBrief">
+          {{ loading.brief ? "正在重新生成剧情计划..." : "重新生成剧情计划" }}
+        </button>
         <button class="btn secondary" :disabled="!currentBookId" @click="getStoryArchive()">刷新档案</button>
         <button v-if="storyArchive?.chapters?.length" class="btn secondary" @click="getStoryArchive()">查看已生成 {{ storyArchive.chapters.length }} 章</button>
       </div>
@@ -2525,7 +2567,23 @@ export default {
           <span v-if="!fanqie.works.length" class="chapter-push-hint">先在下方录入番茄 Book ID 和书名。</span>
           <span v-else class="chapter-push-hint">选一次后，本小说所有章节默认使用这个推送目标。</span>
         </div>
-        <details v-for="chapter in sortedBookChapters" :key="chapter.id || chapter.chapter_number" class="chapter-collapse-item">
+        <div class="novel-chapter-tree">
+          <details class="chapter-tree-book" open>
+            <summary>
+              <span class="chapter-tree-icon">📘</span>
+              <strong>{{ selectedBook?.title || storyArchive?.title || "当前小说" }}</strong>
+              <em>{{ sortedBookChapters.length }} 章</em>
+            </summary>
+            <div class="chapter-tree-children">
+              <details v-for="volume in chapterVolumeTree" :key="volume.key" class="chapter-tree-volume">
+                <summary>
+                  <span class="chapter-tree-icon">📁</span>
+                  <strong>{{ volume.name }}</strong>
+                  <em>{{ volume.chapterRange }} · 已生成 {{ volume.chapters.length }} 章</em>
+                </summary>
+                <div v-if="!volume.chapters.length" class="chapter-tree-empty">本卷尚未生成章节</div>
+                <div v-else class="chapter-tree-chapters">
+        <details v-for="chapter in volume.chapters" :key="chapter.id || chapter.chapter_number" class="chapter-collapse-item chapter-tree-chapter">
           <summary>
             <span>{{ chapter.title || `第 ${chapter.chapter_number} 章` }}</span>
             <em>
@@ -2570,7 +2628,7 @@ export default {
               :disabled="loading.regenerateChapter === String(chapter.chapter_number) || loading.deleteChapter === String(chapter.chapter_number)"
               @click="regenerateBookChapter(chapter)"
             >
-              {{ loading.regenerateChapter === String(chapter.chapter_number) ? "重生成中..." : "重新生成" }}
+              {{ loading.regenerateChapter === String(chapter.chapter_number) ? "正在重新生成正文..." : "重新生成本章正文" }}
             </button>
             <button
               class="btn secondary small danger"
@@ -2619,6 +2677,11 @@ export default {
           ></textarea>
           <pre v-else>{{ chapterDisplayContent(chapter) }}</pre>
         </details>
+                </div>
+              </details>
+            </div>
+          </details>
+        </div>
       </div>
     </section>
 

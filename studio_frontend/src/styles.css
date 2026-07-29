@@ -1247,3 +1247,91 @@ a {
     bottom: 52px;
   }
 }
+
+.chapter-brief-details > summary,
+.chapter-tree-book > summary,
+.chapter-tree-volume > summary,
+.chapter-tree-chapter > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.chapter-brief-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chapter-brief-details > summary span {
+  color: #688097;
+  font-size: 13px;
+}
+
+.novel-chapter-tree {
+  margin-top: 14px;
+  border: 1px solid rgba(124, 151, 178, 0.25);
+  border-radius: 12px;
+  background: #fbfdff;
+  overflow: hidden;
+}
+
+.chapter-tree-book > summary,
+.chapter-tree-volume > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  list-style-position: inside;
+}
+
+.chapter-tree-book > summary {
+  background: #f1f7fc;
+}
+
+.chapter-tree-volume {
+  border-top: 1px solid rgba(124, 151, 178, 0.18);
+}
+
+.chapter-tree-volume > summary {
+  padding-left: 30px;
+}
+
+.chapter-tree-book summary em,
+.chapter-tree-volume summary em {
+  margin-left: auto;
+  color: #71869a;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.chapter-tree-chapters {
+  padding: 0 12px 12px 48px;
+}
+
+.chapter-tree-chapter {
+  margin-top: 6px;
+  border-left: 2px solid rgba(47, 150, 212, 0.22);
+}
+
+.chapter-tree-empty {
+  padding: 4px 16px 12px 52px;
+  color: #8a9bab;
+  font-size: 12px;
+}
+
+.chapter-tree-icon {
+  width: 20px;
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .chapter-tree-chapters {
+    padding-left: 20px;
+  }
+
+  .chapter-tree-volume > summary {
+    padding-left: 16px;
+  }
+}
