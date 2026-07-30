@@ -2841,13 +2841,21 @@ async def api_import_book_volume_chapters(book_id: str, request: Request) -> dic
         if not isinstance(item, dict):
             raise HTTPException(status_code=400, detail="章节数据格式错误")
         chapter_number = int(item.get("chapter_number") or 0)
-        title = str(item.get("title") or "").strip()
+        raw_title = str(item.get("title") or "").strip()
         content = str(item.get("content") or "").strip()
-        if chapter_number < 1 or not title or not content:
+        if chapter_number < 1 or not raw_title or not content:
             raise HTTPException(status_code=400, detail=f"第 {chapter_number or '?'} 章缺少标题或正文")
         if chapter_number in seen_numbers:
             raise HTTPException(status_code=400, detail=f"第 {chapter_number} 章重复")
         seen_numbers.add(chapter_number)
+        title_text = re.sub(
+            r"^第\s*[零一二三四五六七八九十百\d]+\s*章\s*[：:、｜|\-]?\s*",
+            "",
+            raw_title,
+        ).strip()
+        if not title_text:
+            raise HTTPException(status_code=400, detail=f"第 {chapter_number} 章缺少标题名称")
+        title = f"第{chapter_number}章：{title_text}"
         normalized.append({"chapter_number": chapter_number, "title": title, "content": content})
 
     def updater(state: dict[str, Any]) -> dict[str, Any]:

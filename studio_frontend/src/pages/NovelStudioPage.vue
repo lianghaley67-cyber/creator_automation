@@ -235,11 +235,24 @@ export default {
       return String(value);
     }
 
+    function formatChapterTitle(chapter) {
+      const chapterNumber = Number(chapter?.chapter_number || 0);
+      const rawTitle = String(chapter?.title || "").trim();
+      if (!chapterNumber) return rawTitle;
+      const titleText = rawTitle
+        .replace(/^第\s*[零一二三四五六七八九十百\d]+\s*章\s*[：:、｜|\-]?\s*/, "")
+        .trim();
+      return `第${chapterNumber}章${titleText ? `：${titleText}` : ""}`;
+    }
+
     function chapterDisplayContent(chapter) {
-      const title = String(chapter?.title || `第${chapter?.chapter_number || ""}章`).trim();
+      const title = formatChapterTitle(chapter);
       const content = String(chapter?.content || chapter?.content_markdown || "").trim();
       if (!title) return content;
-      return content.startsWith(title) ? content : `${title}\n\n${content}`.trim();
+      const firstLine = content.split(/\r?\n/, 1)[0]?.trim() || "";
+      return /^第\s*[零一二三四五六七八九十百\d]+\s*章/.test(firstLine)
+        ? content
+        : `${title}\n\n${content}`.trim();
     }
 
     function chineseChapterNumber(rawNumber) {
@@ -1823,6 +1836,7 @@ export default {
       projectCards,
       formatBookDetail,
       chapterDisplayContent,
+      formatChapterTitle,
       downloadVolumeText,
       uploadVolumeText,
       bookDetailSections,
@@ -2852,7 +2866,7 @@ export default {
                 <div v-else class="chapter-tree-chapters">
         <details v-for="chapter in volume.chapters" :key="chapter.id || chapter.chapter_number" class="chapter-collapse-item chapter-tree-chapter">
           <summary>
-            <span>{{ chapter.title || `第 ${chapter.chapter_number} 章` }}</span>
+            <span>{{ formatChapterTitle(chapter) }}</span>
             <em>
               质量 {{ chapter.quality?.score || "--" }} ·
               沉浸感 {{ chapter.quality?.editor_immersion_score || "--" }} ·
