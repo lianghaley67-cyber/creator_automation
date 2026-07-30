@@ -1395,6 +1395,11 @@ a {
   text-align: center;
 }
 
+.volume-download-button {
+  flex: 0 0 auto;
+  margin-left: 4px;
+}
+
 @media (max-width: 720px) {
   .chapter-archive-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1406,5 +1411,11 @@ a {
 
   .chapter-tree-volume > summary {
     padding-left: 16px;
+    flex-wrap: wrap;
+  }
+
+  .volume-download-button {
+    width: 100%;
+    margin-left: 28px;
   }
 }

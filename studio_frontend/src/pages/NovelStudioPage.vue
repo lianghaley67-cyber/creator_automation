@@ -241,6 +241,66 @@ export default {
       return content.startsWith(title) ? content : `${title}\n\n${content}`.trim();
     }
 
+    function chineseChapterNumber(rawNumber) {
+      const number = Math.max(0, Number(rawNumber) || 0);
+      const digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+      if (number < 10) return digits[number];
+      if (number < 20) return `十${number % 10 ? digits[number % 10] : ""}`;
+      if (number < 100) return `${digits[Math.floor(number / 10)]}十${number % 10 ? digits[number % 10] : ""}`;
+      if (number < 1000) {
+        const hundreds = Math.floor(number / 100);
+        const remainder = number % 100;
+        if (!remainder) return `${digits[hundreds]}百`;
+        if (remainder < 10) return `${digits[hundreds]}百零${digits[remainder]}`;
+        if (remainder < 20) return `${digits[hundreds]}百一十${remainder % 10 ? digits[remainder % 10] : ""}`;
+        return `${digits[hundreds]}百${chineseChapterNumber(remainder)}`;
+      }
+      return String(number);
+    }
+
+    function downloadVolumeText(volume) {
+      const chapters = Array.isArray(volume?.chapters)
+        ? [...volume.chapters].sort((a, b) => Number(a.chapter_number || 0) - Number(b.chapter_number || 0))
+        : [];
+      if (!chapters.length) {
+        ctx.setError(`${volume?.name || "本卷"}尚未生成章节，无法下载。`);
+        return;
+      }
+      const sections = chapters.map((chapter) => {
+        const chapterNumber = Number(chapter.chapter_number || 0);
+        const rawTitle = String(chapter.title || "").trim();
+        const title = rawTitle
+          .replace(new RegExp(`^第\\s*${chapterNumber}\\s*章\\s*[：:、\\-]?\\s*`), "")
+          .trim() || `第${chapterNumber}章`;
+        const contentLines = chapterDisplayContent(chapter)
+          .replace(/\r\n/g, "\n")
+          .replace(/\r/g, "\n")
+          .split("\n");
+        const firstContentIndex = contentLines.findIndex((line) => line.trim());
+        if (
+          firstContentIndex >= 0
+          && new RegExp(`^第\\s*${chapterNumber}\\s*章(?:\\s*[：:、\\-].*)?$`).test(contentLines[firstContentIndex].trim())
+        ) {
+          contentLines.splice(firstContentIndex, 1);
+        }
+        return `第${chineseChapterNumber(chapterNumber)}章｜${title}\n\n${contentLines.join("\n").trim()}`;
+      });
+      const bookTitle = String(selectedBook.value?.title || storyArchive.value?.title || "小说").trim();
+      const volumeName = String(volume?.name || "分卷").trim();
+      const text = `《${bookTitle}》\n${volumeName}\n章节范围：${volume?.chapterRange || ""}\n\n${sections.join("\n\n\n")}\n`;
+      const blob = new Blob(["\uFEFF", text], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const safeName = `${bookTitle}-${volumeName}`.replace(/[\\/:*?"<>|]/g, "_");
+      link.href = url;
+      link.download = `${safeName}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      ctx.setNotice(`${volumeName}已下载，共 ${chapters.length} 章。`);
+    }
+
     function chapterEditKey(chapter) {
       return String(chapter?.id || chapter?.chapter_number || "");
     }
@@ -1664,6 +1724,7 @@ export default {
       projectCards,
       formatBookDetail,
       chapterDisplayContent,
+      downloadVolumeText,
       bookDetailSections,
       storyProductionStatus,
       uploadNovelSkill,
@@ -2664,6 +2725,14 @@ export default {
                   <span class="chapter-tree-icon">📁</span>
                   <strong>{{ volume.name }}</strong>
                   <em>{{ volume.chapterRange }} · 已生成 {{ volume.chapters.length }} 章</em>
+                  <button
+                    type="button"
+                    class="btn secondary small volume-download-button"
+                    :disabled="!volume.chapters.length"
+                    @click.prevent.stop="downloadVolumeText(volume)"
+                  >
+                    下载本卷 TXT
+                  </button>
                 </summary>
                 <div v-if="!volume.chapters.length" class="chapter-tree-empty">本卷尚未生成章节</div>
                 <div v-else class="chapter-tree-chapters">
