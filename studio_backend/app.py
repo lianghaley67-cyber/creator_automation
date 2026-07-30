@@ -2826,6 +2826,72 @@ def _split_manual_chapter_content(chapter_number: int, raw_content: str, fallbac
     return fallback_title, raw_content.strip()
 
 
+@app.put("/books/{book_id}/chapters/import-volume")
+@app.put("/api/books/{book_id}/chapters/import-volume")
+async def api_import_book_volume_chapters(book_id: str, request: Request) -> dict[str, Any]:
+    if not store.find_record("books", book_id):
+        raise HTTPException(status_code=404, detail="小说不存在")
+    body = await request.json()
+    imported = body.get("chapters") if isinstance(body, dict) else None
+    if not isinstance(imported, list) or not imported:
+        raise HTTPException(status_code=400, detail="请提供要更新的章节列表")
+    normalized: list[dict[str, Any]] = []
+    seen_numbers: set[int] = set()
+    for item in imported:
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=400, detail="章节数据格式错误")
+        chapter_number = int(item.get("chapter_number") or 0)
+        title = str(item.get("title") or "").strip()
+        content = str(item.get("content") or "").strip()
+        if chapter_number < 1 or not title or not content:
+            raise HTTPException(status_code=400, detail=f"第 {chapter_number or '?'} 章缺少标题或正文")
+        if chapter_number in seen_numbers:
+            raise HTTPException(status_code=400, detail=f"第 {chapter_number} 章重复")
+        seen_numbers.add(chapter_number)
+        normalized.append({"chapter_number": chapter_number, "title": title, "content": content})
+
+    def updater(state: dict[str, Any]) -> dict[str, Any]:
+        chapters = state.setdefault("book_chapters", [])
+        chapter_map = {
+            int(item.get("chapter_number") or 0): item
+            for item in chapters
+            if str(item.get("book_id")) == book_id
+        }
+        missing = [item["chapter_number"] for item in normalized if item["chapter_number"] not in chapter_map]
+        if missing:
+            return {"ok": False, "missing": missing}
+        updated_items = []
+        timestamp = now_iso()
+        for item in normalized:
+            chapter = chapter_map[item["chapter_number"]]
+            chapter.update({
+                "title": item["title"],
+                "content": item["content"],
+                "content_markdown": item["content"],
+                "manual_edited": True,
+                "manual_edited_at": timestamp,
+                "updated_at": timestamp,
+            })
+            if isinstance(chapter.get("quality"), dict):
+                chapter["quality"] = {**chapter["quality"], "manual_edited": True}
+            updated_items.append(chapter)
+        archives = state.setdefault("story_archives", [])
+        archive = next((item for item in archives if str(item.get("book_id")) == book_id), None)
+        if archive is not None:
+            archive["chapters"] = _sorted(
+                [item for item in chapters if str(item.get("book_id")) == book_id],
+                key="chapter_number",
+            )
+            archive["updated_at"] = timestamp
+        return {"ok": True, "updated": len(updated_items), "chapters": updated_items}
+
+    result = store.mutate(updater)
+    if not result.get("ok"):
+        missing_text = "、".join(str(item) for item in result.get("missing", []))
+        raise HTTPException(status_code=400, detail=f"数据库中不存在这些章节：{missing_text}")
+    return result
+
+
 @app.put("/books/{book_id}/chapters/{chapter_number}")
 @app.put("/api/books/{book_id}/chapters/{chapter_number}")
 async def api_update_book_chapter(book_id: str, chapter_number: int, request: Request) -> dict[str, Any]:

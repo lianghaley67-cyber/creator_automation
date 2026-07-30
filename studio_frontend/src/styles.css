@@ -1400,6 +1400,20 @@ a {
   margin-left: 4px;
 }
 
+.volume-upload-button {
+  cursor: pointer;
+}
+
+.volume-upload-button input {
+  display: none;
+}
+
+.volume-upload-button.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 @media (max-width: 720px) {
   .chapter-archive-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));

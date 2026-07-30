@@ -46,6 +46,7 @@ export default {
       brief: false,
       chapter: false,
       planReview: false,
+      volumeUpload: "",
     });
     const volumeAutomation = reactive({
       active: false,
@@ -299,6 +300,104 @@ export default {
       link.remove();
       URL.revokeObjectURL(url);
       ctx.setNotice(`${volumeName}已下载，共 ${chapters.length} 章。`);
+    }
+
+    function parseChineseChapterNumber(rawValue) {
+      const raw = String(rawValue || "").trim();
+      if (/^\d+$/.test(raw)) return Number(raw);
+      const digitMap = { 零: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+      if (!/[十百]/.test(raw)) {
+        return [...raw].reduce((value, char) => value * 10 + (digitMap[char] ?? 0), 0);
+      }
+      let total = 0;
+      let current = 0;
+      for (const char of raw) {
+        if (char in digitMap) {
+          current = digitMap[char];
+        } else if (char === "十") {
+          total += (current || 1) * 10;
+          current = 0;
+        } else if (char === "百") {
+          total += (current || 1) * 100;
+          current = 0;
+        }
+      }
+      return total + current;
+    }
+
+    function parseUploadedVolumeText(rawText) {
+      const lines = String(rawText || "").replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+      const chapters = [];
+      let current = null;
+      const headingPattern = /^第([零一二三四五六七八九十百\d]+)章\s*[｜|：:、\-]\s*(.+)$/;
+      lines.forEach((line) => {
+        const match = line.trim().match(headingPattern);
+        if (match) {
+          if (current) chapters.push({ ...current, content: current.content.join("\n").trim() });
+          current = {
+            chapter_number: parseChineseChapterNumber(match[1]),
+            title: match[2].trim(),
+            content: [],
+          };
+        } else if (current) {
+          current.content.push(line);
+        }
+      });
+      if (current) chapters.push({ ...current, content: current.content.join("\n").trim() });
+      return chapters;
+    }
+
+    async function uploadVolumeText(event, volume) {
+      const input = event?.target;
+      const file = input?.files?.[0];
+      if (!file || !currentBookId.value) return;
+      const uploadKey = String(volume?.key || volume?.name || "volume");
+      try {
+        const chapters = parseUploadedVolumeText(await file.text());
+        if (!chapters.length) {
+          ctx.setError("没有识别到章节。标题必须使用“第一章｜标题名称”或“第1章｜标题名称”格式。");
+          return;
+        }
+        const existingNumbers = new Set((volume?.chapters || []).map((chapter) => Number(chapter.chapter_number || 0)));
+        const invalid = chapters.filter((chapter) => (
+          !chapter.chapter_number
+          || !chapter.title
+          || !chapter.content
+          || chapter.chapter_number < Number(volume?.start || 1)
+          || chapter.chapter_number > Number(volume?.end || Number.MAX_SAFE_INTEGER)
+          || !existingNumbers.has(chapter.chapter_number)
+        ));
+        const duplicateNumbers = chapters
+          .map((chapter) => chapter.chapter_number)
+          .filter((number, index, items) => items.indexOf(number) !== index);
+        if (invalid.length || duplicateNumbers.length) {
+          const invalidNumbers = invalid.map((chapter) => chapter.chapter_number || "?").join("、");
+          const duplicateText = [...new Set(duplicateNumbers)].join("、");
+          ctx.setError(
+            `上传文件校验失败。${invalidNumbers ? `无效或不存在的章节：${invalidNumbers}。` : ""}`
+            + `${duplicateText ? `重复章节：${duplicateText}。` : ""}`,
+          );
+          return;
+        }
+        if (!confirm(`确认用“${file.name}”更新${volume.name}的 ${chapters.length} 个章节吗？标题和正文将写入数据库。`)) return;
+        loading.volumeUpload = uploadKey;
+        await ctx.requestApi(
+          `/books/${encodeURIComponent(currentBookId.value)}/chapters/import-volume`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ volume_name: volume.name, chapters }),
+          },
+          60000,
+        );
+        await getStoryArchive(currentBookId.value);
+        ctx.setNotice(`${volume.name}已更新，共写入 ${chapters.length} 章。`);
+      } catch (err) {
+        ctx.setError(`上传更新失败：${err.message}`);
+      } finally {
+        loading.volumeUpload = "";
+        if (input) input.value = "";
+      }
     }
 
     function chapterEditKey(chapter) {
@@ -1725,6 +1824,7 @@ export default {
       formatBookDetail,
       chapterDisplayContent,
       downloadVolumeText,
+      uploadVolumeText,
       bookDetailSections,
       storyProductionStatus,
       uploadNovelSkill,
@@ -2733,6 +2833,20 @@ export default {
                   >
                     下载本卷 TXT
                   </button>
+                  <label
+                    class="btn secondary small volume-download-button volume-upload-button"
+                    :class="{ disabled: !volume.chapters.length || loading.volumeUpload === String(volume.key) }"
+                    @click.stop
+                  >
+                    {{ loading.volumeUpload === String(volume.key) ? "更新中..." : "上传更新 TXT" }}
+                    <input
+                      type="file"
+                      accept=".txt,text/plain"
+                      :disabled="!volume.chapters.length || Boolean(loading.volumeUpload)"
+                      @click.stop
+                      @change="uploadVolumeText($event, volume)"
+                    />
+                  </label>
                 </summary>
                 <div v-if="!volume.chapters.length" class="chapter-tree-empty">本卷尚未生成章节</div>
                 <div v-else class="chapter-tree-chapters">
